@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A five-day basement-gym workout planner with exercise replacement and JSON backup."
+    />
+    <title>Basement 45 — Workout Planner</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to workout</a>
+
+    <header class="app-header">
+      <div class="brand" aria-label="Basement 45 home">
+        <span class="brand-mark" aria-hidden="true">B45</span>
+        <span>
+          <strong>Basement 45</strong>
+          <small>Five days. Three circuits. Done.</small>
+        </span>
+      </div>
+
+      <div class="header-actions" aria-label="Workout file actions">
+        <button class="button button-quiet" id="load-button" type="button">
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14" />
+          </svg>
+          Load JSON
+        </button>
+        <input id="load-input" type="file" accept="application/json,.json" hidden />
+        <button class="button button-quiet" id="save-button" type="button">
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M6 3h10l3 3v15H5V3h1Zm2 0v6h8V3M8 21v-7h8v7" />
+          </svg>
+          Save JSON
+        </button>
+        <button class="button button-primary" id="new-week-button" type="button">
+          New week
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="m9 18 6-6-6-6" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <div class="week-summary">
+          <span class="eyebrow">Current plan</span>
+          <div class="week-number-row">
+            <strong id="week-number">Week 1</strong>
+            <span id="week-date">Starting today</span>
+          </div>
+          <div class="progress-track" aria-hidden="true">
+            <span id="week-progress-bar"></span>
+          </div>
+          <p id="week-progress-label">0 of 15 circuits complete</p>
+        </div>
+
+        <nav id="day-tabs" class="day-tabs" aria-label="Training days"></nav>
+
+        <div class="sidebar-note">
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M12 3 3.5 7v5c0 5 3.6 8 8.5 9 4.9-1 8.5-4 8.5-9V7L12 3Z" />
+            <path d="m9 12 2 2 4-4" />
+          </svg>
+          <p><strong>Train the good reps.</strong> Stop for sharp, worsening, or persistent pain.</p>
+        </div>
+      </aside>
+
+      <main id="main-content" class="main-content" tabindex="-1">
+        <section id="workout-view" aria-live="polite"></section>
+        <section id="library-view" hidden aria-live="polite"></section>
+      </main>
+    </div>
+
+    <dialog id="replace-dialog" class="replace-dialog">
+      <form method="dialog" class="dialog-shell">
+        <header class="dialog-header">
+          <div>
+            <span class="eyebrow">Exercise swap</span>
+            <h2 id="replace-title">Choose a replacement</h2>
+            <p id="replace-description"></p>
+          </div>
+          <button class="icon-button" value="cancel" aria-label="Close replacement picker">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="m6 6 12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </header>
+        <div class="dialog-search">
+          <label class="search-field">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <circle cx="11" cy="11" r="7" />
+              <path d="m16 16 5 5" />
+            </svg>
+            <span class="sr-only">Search eligible replacements</span>
+            <input id="replace-search" type="search" placeholder="Search eligible exercises" />
+          </label>
+          <span id="replace-count" class="result-count"></span>
+        </div>
+        <div class="cost-explainer">
+          <strong>Setup score</strong>
+          <span><b>0</b> no change</span>
+          <span><b>1</b> grip or position</span>
+          <span><b>2</b> one quick equipment adjustment</span>
+          <small id="replacement-scope-note">Only eligible, easy 0–2 options are shown.</small>
+          <label class="replacement-scope">
+            <input id="show-all-replacements" type="checkbox" />
+            Show all library exercises
+          </label>
+        </div>
+        <div id="replace-results" class="replace-results"></div>
+      </form>
+    </dialog>
+
+    <dialog id="exercise-dialog" class="replace-dialog exercise-dialog">
+      <form id="exercise-form" class="dialog-shell">
+        <header class="dialog-header">
+          <div>
+            <span class="eyebrow">Exercise library</span>
+            <h2>Add an exercise</h2>
+            <p>Its category and movement fields determine where it can safely appear.</p>
+          </div>
+          <button class="icon-button" type="button" data-action="close-exercise-dialog" aria-label="Close add exercise form">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></svg>
+          </button>
+        </header>
+        <div class="exercise-form-body">
+          <label class="form-field form-field-wide">
+            <span>Name</span>
+            <input name="name" required maxlength="100" placeholder="e.g. Supported cable row" />
+          </label>
+          <label class="form-field">
+            <span>Body-part category</span>
+            <select id="custom-category" name="category" required></select>
+          </label>
+          <label class="form-field">
+            <span>Equipment</span>
+            <input name="equipment" required maxlength="120" placeholder="e.g. FT2 + one handle" />
+          </label>
+          <label class="form-field">
+            <span>Movement pattern</span>
+            <select name="movementPattern">
+              <option value="push">Push</option>
+              <option value="pull">Pull</option>
+              <option value="squat">Squat</option>
+              <option value="hinge">Hinge</option>
+              <option value="isolation">Isolation</option>
+              <option value="rotation">Rotation</option>
+              <option value="carry">Carry</option>
+              <option value="isometric">Isometric</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label class="form-field">
+            <span>Training role</span>
+            <select name="movementRole">
+              <option value="compound">Compound</option>
+              <option value="total_body">Total body</option>
+              <option value="isolation">Isolation</option>
+              <option value="bridge">Between rounds</option>
+            </select>
+          </label>
+          <label class="form-field">
+            <span>Force type</span>
+            <select name="forceType">
+              <option value="push">Push</option>
+              <option value="pull">Pull</option>
+              <option value="squat">Squat</option>
+              <option value="hinge">Hinge</option>
+              <option value="carry">Carry</option>
+              <option value="rotation">Rotation</option>
+              <option value="anti_rotation">Anti-rotation</option>
+              <option value="isometric">Isometric</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label class="form-field">
+            <span>Default reps</span>
+            <input name="defaultReps" maxlength="40" value="10" placeholder="10 or 30 sec" />
+          </label>
+          <label class="form-field form-field-wide">
+            <span>Demo or instruction URL <small>optional</small></span>
+            <input name="instructionUrl" type="url" maxlength="500" placeholder="https://…" />
+          </label>
+          <div class="form-checks form-field-wide">
+            <label><input type="checkbox" name="shoulderCaution" /> Shoulder-aware</label>
+            <label><input type="checkbox" name="backCaution" /> Back-aware</label>
+          </div>
+        </div>
+        <footer class="dialog-footer">
+          <button class="button button-quiet" type="button" data-action="close-exercise-dialog">Cancel</button>
+          <button class="button button-primary" type="submit">Add to library</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <noscript>
+      <p class="noscript">This local workout planner needs JavaScript enabled.</p>
+    </noscript>
+
+    <script src="exercise-data.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
