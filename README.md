@@ -4,17 +4,19 @@ The app is ready to run as a local, server-free web page. Double-click `index.ht
 
 At the top of the app:
 
-- **Save JSON** downloads the current week, exercise loads/reps, completion state, locks, and chosen/skipped history.
-- **Load JSON** restores a file previously downloaded by the app.
-- **New week** archives the current selections, keeps locked exercises and saved loads/reps, generates a varied validated plan, and clears all round and between-rounds checkmarks.
+- **Save file** (`Ctrl+S` / `Cmd+S`) connects a JSON file using Chrome or Edge's File System Access API. After the first file choice, changes autosave directly back to that file. Browser-local autosave remains active when no file is connected.
+- **Open JSON** restores an existing workout file and connects it for subsequent autosaves. Browsers without direct-file support can still open JSON with the standard file chooser.
+- **New week** archives the current selections, keeps locked exercises and saved loads/reps, generates a varied validated plan, and clears all round and random-activator checkmarks.
 
-Each circuit scales from two to four in-round exercises: **Focused** has 2, **Standard** has 3, and **Challenge** has 4. Use the `−` and `+` controls in a circuit heading to remove or add a compatible exercise. Each circuit has separate checkboxes for rounds 1–3 and one for its between-rounds movement.
+Each circuit scales from two to four in-round exercises: **Focused** has 2, **Standard** has 3, and **Challenge** has 4. Use the `−` and `+` controls in a circuit heading to remove or add a compatible exercise. Each circuit has separate checkboxes for rounds 1–3 and one for its random activator.
 
 The replacement picker's **Setup score** estimates how much equipment or position change is needed between adjacent exercises: `0` is no setup change, `1` is a grip/body-position change, and `2` is one quick equipment adjustment. The app only offers scores from 0–2.
 
 Eligibility remains the default, but **Show all library exercises** in the replacement picker allows an explicit manual override. In that mode, any unused, visible library exercise can be selected even when it is outside the slot's target or has a higher setup score; the circuit labels that transition as manual.
 
 The Exercise Library supports user-added exercises. Built-in and user-added exercises can be hidden from recommendations or deleted; hidden exercises can be restored with **Show hidden**. Fixed shoulder/PT placeholders cannot be hidden or deleted.
+
+Every exercise can be edited, annotated with a workout note, measured in repetitions or seconds, randomly replaced with an eligible option, reordered within a circuit, or removed when the circuit has more than two movements. The Settings page controls which weekdays appear and lets you edit each day's target and description.
 
 The exercise library is generated from `basement_gym_exercise_library.xlsx`. If the workbook changes, run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\export-exercise-data.ps1` to refresh `exercise-data.js`.
 
@@ -464,17 +466,17 @@ Monday - Arms and Upper Body
 Superset 1 - Compound
 Push: Incline neutral-grip dumbbell press
 Pull: One-arm dumbbell row
-Between rounds: Dumbbell shrugs
+Random activator: Dumbbell shrugs
 
 Superset 2 - Total Body
 Push: [recommended integrated push]
 Pull: Dumbbell clean
-Between rounds: Pallof press
+Random activator: Pallof press
 
 Superset 3 - Isolation
 Push: Dumbbell skull crusher
 Pull: Incline dumbbell curl
-Between rounds: Farmer carry
+Random activator: Farmer carry
 ```
 
 ## Future User-Configurable Settings

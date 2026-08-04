@@ -27,15 +27,16 @@
           <svg aria-hidden="true" viewBox="0 0 24 24">
             <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14" />
           </svg>
-          Load JSON
+          Open JSON
         </button>
         <input id="load-input" type="file" accept="application/json,.json" hidden />
         <button class="button button-quiet" id="save-button" type="button">
           <svg aria-hidden="true" viewBox="0 0 24 24">
             <path d="M6 3h10l3 3v15H5V3h1Zm2 0v6h8V3M8 21v-7h8v7" />
           </svg>
-          Save JSON
+          Save file
         </button>
+        <span id="file-status" class="file-status" title="Browser-local autosave is active">Local autosave</span>
         <button class="button button-primary" id="new-week-button" type="button">
           New week
           <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -73,6 +74,7 @@
       <main id="main-content" class="main-content" tabindex="-1">
         <section id="workout-view" aria-live="polite"></section>
         <section id="library-view" hidden aria-live="polite"></section>
+        <section id="settings-view" hidden aria-live="polite"></section>
       </main>
     </div>
 
@@ -96,8 +98,8 @@
               <circle cx="11" cy="11" r="7" />
               <path d="m16 16 5 5" />
             </svg>
-            <span class="sr-only">Search eligible replacements</span>
-            <input id="replace-search" type="search" placeholder="Search eligible exercises" />
+            <span class="sr-only">Fuzzy search exercise replacements</span>
+            <input id="replace-search" type="search" placeholder="Search name, muscle, or equipment" autocomplete="off" />
           </label>
           <span id="replace-count" class="result-count"></span>
         </div>
@@ -121,8 +123,8 @@
         <header class="dialog-header">
           <div>
             <span class="eyebrow">Exercise library</span>
-            <h2>Add an exercise</h2>
-            <p>Its category and movement fields determine where it can safely appear.</p>
+            <h2 id="exercise-dialog-title">Add an exercise</h2>
+            <p id="exercise-dialog-description">Its category and movement fields determine where it can safely appear.</p>
           </div>
           <button class="icon-button" type="button" data-action="close-exercise-dialog" aria-label="Close add exercise form">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></svg>
@@ -161,7 +163,7 @@
               <option value="compound">Compound</option>
               <option value="total_body">Total body</option>
               <option value="isolation">Isolation</option>
-              <option value="bridge">Between rounds</option>
+              <option value="bridge">Random activator</option>
             </select>
           </label>
           <label class="form-field">
@@ -186,6 +188,10 @@
             <span>Demo or instruction URL <small>optional</small></span>
             <input name="instructionUrl" type="url" maxlength="500" placeholder="https://…" />
           </label>
+          <label class="form-field form-field-wide">
+            <span>Notes <small>optional</small></span>
+            <textarea name="notes" maxlength="1000" rows="3" placeholder="Technique cues, substitutions, or reminders"></textarea>
+          </label>
           <div class="form-checks form-field-wide">
             <label><input type="checkbox" name="shoulderCaution" /> Shoulder-aware</label>
             <label><input type="checkbox" name="backCaution" /> Back-aware</label>
@@ -193,7 +199,7 @@
         </div>
         <footer class="dialog-footer">
           <button class="button button-quiet" type="button" data-action="close-exercise-dialog">Cancel</button>
-          <button class="button button-primary" type="submit">Add to library</button>
+          <button class="button button-primary" id="exercise-form-submit" type="submit">Add to library</button>
         </footer>
       </form>
     </dialog>

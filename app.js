@@ -1,9 +1,10 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = 2;
+  const APP_VERSION = 5;
   const STORAGE_KEY = "basement45-state-v1";
   const IMPORTED_EXERCISE_COUNT = window.EXERCISE_SOURCE.length;
+  const ACTIVATOR_LABEL = "Random activator";
 
   const ICONS = {
     arrow:
@@ -62,7 +63,25 @@
       name: "Friday",
       focus: "Pull",
       guidance:
-        "Keep hinges crisp and conservative. The three PT bridge slots are fixed and carry forward into every new week.",
+        "Keep hinges crisp and conservative. The three PT random activator slots are fixed and carry forward into every new week.",
+    },
+    {
+      id: "saturday",
+      short: "SAT",
+      name: "Saturday",
+      focus: "Optional workout",
+      guidance:
+        "An optional flexible session. Choose any compatible exercises from the library and adjust the circuit difficulty to fit your week.",
+      defaultEnabled: false,
+    },
+    {
+      id: "sunday",
+      short: "SUN",
+      name: "Sunday",
+      focus: "Optional recovery",
+      guidance:
+        "An optional lighter session for mobility, core, balance, or any movements you want to practice.",
+      defaultEnabled: false,
     },
   ];
 
@@ -266,13 +285,15 @@
       default_reps: record.defaultReps || inferDefaultReps(record),
       instruction_url: record.instructionUrl || null,
       user_locked: Boolean(record.alwaysLocked),
-      notes: overhead
-        ? "Keep this movement seated because of the low ceiling."
-        : shoulderCaution
-          ? "Use a comfortable, controlled range and replace if painful."
-          : backCaution
-            ? "Use conservative loading and controlled repetitions."
-            : null,
+      notes:
+        record.notes ??
+        (overhead
+          ? "Keep this movement seated because of the low ceiling."
+          : shoulderCaution
+            ? "Use a comfortable, controlled range and replace if painful."
+            : backCaution
+              ? "Use conservative loading and controlled repetitions."
+              : null),
       source_row: record.sourceRow,
       custom: Boolean(record.custom),
       always_locked: Boolean(record.alwaysLocked),
@@ -284,7 +305,29 @@
   let exerciseById = new Map(exercises.map((exercise) => [exercise.id, exercise]));
   const idFor = (name) => slugify(name);
 
-  function rebuildExerciseCatalog(customRecords = []) {
+  function applyExerciseEdit(exercise, edit) {
+    if (!edit) return exercise;
+    const edited = enrichExercise({
+      name: edit.name || exercise.name,
+      category: edit.category || exercise.primary_body_part,
+      equipment: edit.equipment || exercise.equipment_label,
+      instructionUrl: edit.instructionUrl ?? exercise.instruction_url,
+      sourceRow: exercise.source_row,
+      custom: exercise.custom,
+      alwaysLocked: exercise.always_locked,
+      movementPattern: edit.movementPattern || exercise.movement_pattern,
+      movementRole: edit.movementRole || exercise.movement_role,
+      forceType: edit.forceType || exercise.force_type,
+      defaultReps: edit.defaultReps || exercise.default_reps,
+      shoulderCaution: edit.shoulderCaution ?? exercise.shoulder_caution,
+      backCaution: edit.backCaution ?? exercise.back_caution,
+      notes: edit.notes ?? exercise.notes,
+    });
+    edited.id = exercise.id;
+    return edited;
+  }
+
+  function rebuildExerciseCatalog(customRecords = [], edits = {}) {
     const seen = new Set(BASE_EXERCISES.map((exercise) => exercise.id));
     const userExercises = [];
     for (const record of customRecords) {
@@ -293,7 +336,9 @@
       seen.add(exercise.id);
       userExercises.push(exercise);
     }
-    exercises = [...BASE_EXERCISES, ...userExercises];
+    exercises = [...BASE_EXERCISES, ...userExercises].map((exercise) =>
+      applyExerciseEdit(exercise, edits[exercise.id]),
+    );
     exerciseById = new Map(exercises.map((exercise) => [exercise.id, exercise]));
   }
 
@@ -689,6 +734,57 @@
     ],
   };
 
+  const flexibleExerciseNames = exercises
+    .filter((exercise) => !exercise.always_locked)
+    .map((exercise) => exercise.name);
+  const namesMatching = (predicate) => exercises.filter((exercise) => !exercise.always_locked && predicate(exercise)).map((exercise) => exercise.name);
+  const pushNames = namesMatching((exercise) => exercise.force_type === "push");
+  const pullNames = namesMatching((exercise) => exercise.force_type === "pull");
+  const squatNames = namesMatching((exercise) => exercise.force_type === "squat");
+  const hingeNames = namesMatching((exercise) => exercise.force_type === "hinge");
+  const recoveryNames = namesMatching(
+    (exercise) =>
+      exercise.movement_role === "bridge" ||
+      ["Core", "Calves and Lower Legs", "Forearms, Grip and Traps", "Shoulders and Rotator Cuff"].includes(
+        exercise.primary_body_part,
+      ),
+  );
+  const weekendNamePools = Array.from({ length: 6 }, (_, pool) =>
+    flexibleExerciseNames.filter((_, index) => index % 6 === pool),
+  );
+
+  SLOTS.saturday = [
+    {
+      category: "Upper body",
+      first: { label: "Push", names: pushNames },
+      second: { label: "Pull", names: pullNames },
+      bridge: { label: "Between rounds", names: recoveryNames },
+    },
+    {
+      category: "Lower body",
+      first: { label: "Squat", names: squatNames },
+      second: { label: "Hinge", names: hingeNames },
+      bridge: { label: "Between rounds", names: recoveryNames },
+    },
+    {
+      category: "Full body",
+      first: { label: "Movement 1", names: weekendNamePools[4] },
+      second: { label: "Movement 2", names: weekendNamePools[5] },
+      bridge: { label: "Between rounds", names: recoveryNames },
+    },
+  ];
+
+  SLOTS.sunday = ["Mobility + core", "Balance + control", "Choose your focus"].map((category, index) => ({
+    category,
+    first: { label: "Movement 1", names: weekendNamePools[index * 2] },
+    second: { label: "Movement 2", names: weekendNamePools[index * 2 + 1] },
+    bridge: { label: "Between rounds", names: recoveryNames },
+  }));
+
+  for (const circuits of Object.values(SLOTS)) {
+    for (const circuit of circuits) circuit.bridge.label = ACTIVATOR_LABEL;
+  }
+
   const CIRCUIT_SCALING = {
     monday: [
       {
@@ -882,6 +978,8 @@
         ],
       },
     ],
+    saturday: [0, 1, 2].map(() => ({ defaultCount: 2, names: flexibleExerciseNames })),
+    sunday: [0, 1, 2].map(() => ({ defaultCount: 2, names: flexibleExerciseNames })),
   };
 
   for (const day of DAY_CONFIG) {
@@ -901,10 +999,21 @@
     replacement: null,
     replaceSearch: "",
     showAllReplacements: false,
+    editingExerciseId: null,
   };
 
   let state;
   let toastTimer;
+  let fileHandle = null;
+  let fileSaveTimer = null;
+
+  function defaultMeasureType(exercise) {
+    return /sec|second/i.test(exercise?.default_reps || "") ? "seconds" : "reps";
+  }
+
+  function cleanRepValue(value) {
+    return String(value || "").replace(/\s*(sec|seconds)\s*/gi, "").trim();
+  }
 
   function initialExerciseState() {
     return Object.fromEntries(
@@ -913,8 +1022,10 @@
         {
           chosenCount: 0,
           skippedCount: 0,
-          reps: exercise.default_reps,
+          reps: cleanRepValue(exercise.default_reps),
+          measureType: defaultMeasureType(exercise),
           weight: "",
+          notes: "",
         },
       ]),
     );
@@ -927,8 +1038,15 @@
       weekStartedAt: new Date().toISOString(),
       exerciseState: initialExerciseState(),
       customExercises: [],
+      exerciseEdits: {},
       hiddenExerciseIds: [],
       deletedExerciseIds: [],
+      daySettings: Object.fromEntries(
+        DAY_CONFIG.map((day) => [
+          day.id,
+          { enabled: day.defaultEnabled !== false, focus: day.focus, description: day.guidance },
+        ]),
+      ),
       history: [],
       week: null,
     };
@@ -962,8 +1080,10 @@
       state.exerciseState[exerciseId] = {
         chosenCount: 0,
         skippedCount: 0,
-        reps: exercise?.default_reps || "10",
+        reps: cleanRepValue(exercise?.default_reps || "10"),
+        measureType: defaultMeasureType(exercise),
         weight: "",
+        notes: "",
       };
     }
     return state.exerciseState[exerciseId];
@@ -1011,6 +1131,17 @@
     return Math.min(5, cost);
   }
 
+  function requiresBothSides(exercise) {
+    return Boolean(
+      exercise?.unilateral ||
+        /both sides|per side|\/ side/i.test(`${exercise?.name || ""} ${exercise?.default_reps || ""}`),
+    );
+  }
+
+  function canCombine(first, second) {
+    return !(requiresBothSides(first) && requiresBothSides(second));
+  }
+
   function recentIds() {
     return new Set(state.history.slice(-3).flatMap((week) => week.exerciseIds || []));
   }
@@ -1036,7 +1167,11 @@
   }
 
   function preservedAssignment(oldCircuit, position, slot, used, previousOverride = null) {
-    const previous = previousOverride || oldCircuit?.[position];
+    const previous =
+      previousOverride ||
+      (oldCircuit && ["first", "second"].includes(position)
+        ? mainAssignments(oldCircuit).find((assignment) => assignment.slotKey === position) || oldCircuit[position]
+        : oldCircuit?.[position]);
     if (
       previous?.locked &&
       !isDeleted(previous.exerciseId) &&
@@ -1083,7 +1218,7 @@
     for (const first of firstCandidates) {
       if (used.has(first.id)) continue;
       for (const second of secondCandidates) {
-        if (used.has(second.id) || first.id === second.id) continue;
+        if (used.has(second.id) || first.id === second.id || !canCombine(first, second)) continue;
         const cost = transitionCost(first, second);
         pairOptions.push({
           first,
@@ -1109,6 +1244,7 @@
       locked: Boolean(preserved?.locked || slot.alwaysLocked),
       fixed: Boolean(slot.alwaysLocked),
       manualOverride: Boolean(preserved?.manualOverride),
+      slotKey: preserved?.slotKey || null,
     });
 
     return {
@@ -1118,14 +1254,20 @@
     };
   }
 
-  function chooseExtra(slot, used, previousExercise, oldAssignment = null) {
+  function chooseExtra(slot, used, previousExercise, circuitExercises, oldAssignment = null) {
     const recent = recentIds();
     const preserved = preservedAssignment(null, null, slot, used, oldAssignment);
     const candidates = preserved
       ? [exerciseById.get(preserved.exerciseId)]
       : candidatesFor(slot, used);
     const valid = candidates
-      .filter((exercise) => exercise && (preserved?.manualOverride || transitionCost(previousExercise, exercise) <= 2))
+      .filter(
+        (exercise) =>
+          exercise &&
+          canCombine(previousExercise, exercise) &&
+          !(requiresBothSides(exercise) && circuitExercises.some(requiresBothSides)) &&
+          (preserved?.manualOverride || transitionCost(previousExercise, exercise) <= 2),
+      )
       .sort(
         (first, second) =>
           transitionCost(previousExercise, first) * 24 + exerciseScore(first, slot, recent) -
@@ -1140,6 +1282,7 @@
       locked: Boolean(preserved?.locked),
       fixed: false,
       manualOverride: Boolean(preserved?.manualOverride),
+      slotKey: "extra",
     };
   }
 
@@ -1159,6 +1302,7 @@
       slotLabel: slot.label,
       locked: Boolean(slot.alwaysLocked),
       fixed: Boolean(slot.alwaysLocked),
+      slotKey: "bridge",
     };
   }
 
@@ -1170,9 +1314,13 @@
       const circuits = SLOTS[day.id].map((definition, index) => {
         const oldCircuit = previousWeek?.days?.[day.id]?.circuits?.[index];
         const pair = choosePair(definition.first, definition.second, used, oldCircuit);
+        pair.first.slotKey ||= "first";
+        pair.second.slotKey ||= "second";
         used.add(pair.first.exerciseId);
         used.add(pair.second.exerciseId);
-        const oldExtras = Array.isArray(oldCircuit?.extras) ? oldCircuit.extras : [];
+        const oldExtras = oldCircuit
+          ? mainAssignments(oldCircuit).filter((assignment) => assignment.slotKey === "extra")
+          : [];
         const lockedExtraCount = oldExtras.filter((assignment) => assignment.locked).length;
         const desiredCount = Math.min(
           4,
@@ -1180,16 +1328,24 @@
         );
         const extras = [];
         let previousExercise = exerciseById.get(pair.second.exerciseId);
+        const circuitExercises = [exerciseById.get(pair.first.exerciseId), previousExercise];
         for (let extraIndex = 0; extraIndex < desiredCount - 2; extraIndex += 1) {
           let extra;
           try {
-            extra = chooseExtra(definition.extra, used, previousExercise, oldExtras[extraIndex]);
+            extra = chooseExtra(
+              definition.extra,
+              used,
+              previousExercise,
+              circuitExercises,
+              oldExtras[extraIndex],
+            );
           } catch (error) {
             throw new Error(`${day.name} circuit ${index + 1}: ${error.message}`);
           }
           extras.push(extra);
           used.add(extra.exerciseId);
           previousExercise = exerciseById.get(extra.exerciseId);
+          circuitExercises.push(previousExercise);
         }
         const bridge = chooseBridge(definition.bridge, used, oldCircuit);
         used.add(bridge.exerciseId);
@@ -1212,6 +1368,9 @@
         day: day.name,
         focus: day.focus,
         circuits,
+        preChecklist: { stretch: false, pushups: false, pullups: false },
+        coreCompleted: false,
+        cardioCompleted: false,
       };
     }
 
@@ -1222,6 +1381,90 @@
     };
 
     for (const exerciseId of used) stateFor(exerciseId).chosenCount += 1;
+  }
+
+  function createMissingWorkoutDay(day, week, excludedIds = new Set()) {
+    const used = new Set();
+    for (const dayData of Object.values(week.days || {})) {
+      for (const circuit of dayData?.circuits || []) {
+        for (const assignment of [circuit.first, circuit.second, ...(circuit.extras || []), circuit.bridge]) {
+          if (assignment?.exerciseId) used.add(assignment.exerciseId);
+        }
+      }
+    }
+
+    const candidatesForMissingSlot = (slot) =>
+      slot.names
+        .map((name) => exerciseById.get(idFor(name)))
+        .filter(
+          (exercise, index, candidates) =>
+            exercise &&
+            !used.has(exercise.id) &&
+            !excludedIds.has(exercise.id) &&
+            candidates.findIndex((candidate) => candidate?.id === exercise.id) === index,
+        );
+
+    const circuits = SLOTS[day.id].map((definition, index) => {
+      const pairs = [];
+      for (const first of candidatesForMissingSlot(definition.first)) {
+        for (const second of candidatesForMissingSlot(definition.second)) {
+          if (first.id === second.id || !canCombine(first, second)) continue;
+          pairs.push({ first, second, cost: transitionCost(first, second) });
+        }
+      }
+      pairs.sort((first, second) => first.cost - second.cost || first.first.name.localeCompare(second.first.name));
+      const pair = pairs[0];
+      if (!pair) throw new Error(`No exercise pair remains while adding ${day.name} circuit ${index + 1}.`);
+      used.add(pair.first.id);
+      used.add(pair.second.id);
+
+      const bridge = candidatesForMissingSlot(definition.bridge)[0];
+      if (!bridge) throw new Error(`No random activator remains while adding ${day.name}.`);
+      used.add(bridge.id);
+      const manualOverride = pair.cost > 2;
+
+      return {
+        number: index + 1,
+        category: definition.category,
+        first: {
+          exerciseId: pair.first.id,
+          slotLabel: definition.first.label,
+          locked: false,
+          fixed: false,
+          manualOverride,
+          slotKey: "first",
+        },
+        second: {
+          exerciseId: pair.second.id,
+          slotLabel: definition.second.label,
+          locked: false,
+          fixed: false,
+          manualOverride,
+          slotKey: "second",
+        },
+        extras: [],
+        bridge: {
+          exerciseId: bridge.id,
+          slotLabel: definition.bridge.label,
+          locked: false,
+          fixed: false,
+          slotKey: "bridge",
+        },
+        rounds: 3,
+        preferredExerciseCount: 2,
+        roundsCompleted: [false, false, false],
+        bridgeCompleted: false,
+      };
+    });
+
+    return {
+      day: day.name,
+      focus: day.focus,
+      circuits,
+      preChecklist: { stretch: false, pushups: false, pullups: false },
+      coreCompleted: false,
+      cardioCompleted: false,
+    };
   }
 
   function archiveCurrentWeek() {
@@ -1248,6 +1491,84 @@
     } catch (error) {
       console.warn("Local browser storage is unavailable.", error);
     }
+    scheduleFileAutosave();
+  }
+
+  function setFileStatus(message, connected = false) {
+    const status = document.getElementById("file-status");
+    status.textContent = message;
+    status.classList.toggle("connected", connected);
+    status.title = connected
+      ? "Changes automatically save to the connected JSON file."
+      : "Browser-local autosave is active. Choose Save file to connect a JSON file.";
+  }
+
+  function openFileHandleDatabase() {
+    if (!("indexedDB" in window)) return Promise.resolve(null);
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open("basement45-files", 1);
+      request.onupgradeneeded = () => request.result.createObjectStore("handles");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async function rememberFileHandle(handle) {
+    try {
+      const database = await openFileHandleDatabase();
+      if (!database) return;
+      const transaction = database.transaction("handles", "readwrite");
+      transaction.objectStore("handles").put(handle, "workout-json");
+    } catch (error) {
+      console.warn("The selected file handle could not be remembered.", error);
+    }
+  }
+
+  async function restoreFileHandle() {
+    try {
+      const database = await openFileHandleDatabase();
+      if (!database) return;
+      const handle = await new Promise((resolve, reject) => {
+        const request = database.transaction("handles", "readonly").objectStore("handles").get("workout-json");
+        request.onsuccess = () => resolve(request.result || null);
+        request.onerror = () => reject(request.error);
+      });
+      if (handle && (await handle.queryPermission({ mode: "readwrite" })) === "granted") {
+        fileHandle = handle;
+        setFileStatus(`Autosaving · ${handle.name}`, true);
+      }
+    } catch (error) {
+      console.warn("The previous workout file could not be restored.", error);
+    }
+  }
+
+  async function canWriteToHandle(handle, requestPermission) {
+    if (!handle) return false;
+    if ((await handle.queryPermission({ mode: "readwrite" })) === "granted") return true;
+    return requestPermission && (await handle.requestPermission({ mode: "readwrite" })) === "granted";
+  }
+
+  async function writeStateToFile(handle, announce = false, requestPermission = false) {
+    if (!(await canWriteToHandle(handle, requestPermission))) return false;
+    const writable = await handle.createWritable();
+    await writable.write(JSON.stringify(exportPayload(), null, 2));
+    await writable.close();
+    setFileStatus(`Saved · ${handle.name}`, true);
+    if (announce) showToast(`Saved directly to ${handle.name}.`);
+    return true;
+  }
+
+  function scheduleFileAutosave() {
+    clearTimeout(fileSaveTimer);
+    if (!fileHandle) return;
+    fileSaveTimer = setTimeout(async () => {
+      try {
+        await writeStateToFile(fileHandle, false, false);
+      } catch (error) {
+        setFileStatus("File autosave paused", false);
+        console.warn("File autosave failed.", error);
+      }
+    }, 700);
   }
 
   function loadLocalState() {
@@ -1255,8 +1576,8 @@
       const stored = localStorage.getItem(STORAGE_KEY);
       if (!stored) return null;
       const parsed = JSON.parse(stored);
-      if (![1, APP_VERSION].includes(parsed.version) || !parsed.week?.days) return null;
-      rebuildExerciseCatalog(parsed.customExercises || []);
+      if (![1, 2, 3, 4, APP_VERSION].includes(parsed.version) || !parsed.week?.days) return null;
+      rebuildExerciseCatalog(parsed.customExercises || [], parsed.exerciseEdits || {});
       return normalizeState(parsed);
     } catch (error) {
       console.warn("The saved browser state could not be read.", error);
@@ -1265,11 +1586,27 @@
   }
 
   function normalizeState(candidate) {
-    rebuildExerciseCatalog(candidate.customExercises || []);
+    rebuildExerciseCatalog(candidate.customExercises || [], candidate.exerciseEdits || {});
     const normalized = createState();
     normalized.weekNumber = Number(candidate.weekNumber) || Number(candidate.week?.number) || 1;
     normalized.weekStartedAt = candidate.weekStartedAt || candidate.week?.startedAt || new Date().toISOString();
     normalized.customExercises = Array.isArray(candidate.customExercises) ? candidate.customExercises : [];
+    normalized.exerciseEdits = candidate.exerciseEdits && typeof candidate.exerciseEdits === "object"
+      ? candidate.exerciseEdits
+      : {};
+    normalized.daySettings = Object.fromEntries(
+      DAY_CONFIG.map((day) => {
+        const loaded = candidate.daySettings?.[day.id] || {};
+        return [
+          day.id,
+          {
+            enabled: typeof loaded.enabled === "boolean" ? loaded.enabled : day.defaultEnabled !== false,
+            focus: String(loaded.focus || day.focus).slice(0, 100),
+            description: String(loaded.description || day.guidance).slice(0, 600),
+          },
+        ];
+      }),
+    );
     normalized.hiddenExerciseIds = Array.isArray(candidate.hiddenExerciseIds)
       ? candidate.hiddenExerciseIds.filter((id) => exerciseById.has(id) && !exerciseById.get(id).always_locked)
       : [];
@@ -1285,16 +1622,41 @@
         normalized.exerciseState[exercise.id] = {
           chosenCount: Math.max(0, Number(loaded.chosenCount) || 0),
           skippedCount: Math.max(0, Number(loaded.skippedCount) || 0),
-          reps: String(loaded.reps ?? exercise.default_reps).slice(0, 40),
+          reps: cleanRepValue(loaded.reps ?? exercise.default_reps).slice(0, 40),
+          measureType: ["reps", "seconds"].includes(loaded.measureType)
+            ? loaded.measureType
+            : defaultMeasureType(exercise),
           weight: String(loaded.weight ?? "").slice(0, 40),
+          notes: String(loaded.notes ?? "").slice(0, 1000),
         };
       }
     }
 
     normalized.week = JSON.parse(JSON.stringify(candidate.week));
+    const excludedIds = new Set([...normalized.hiddenExerciseIds, ...normalized.deletedExerciseIds]);
     for (const day of DAY_CONFIG) {
-      for (const circuit of normalized.week.days[day.id].circuits) {
+      if (!normalized.week.days[day.id]) {
+        normalized.week.days[day.id] = createMissingWorkoutDay(day, normalized.week, excludedIds);
+      }
+    }
+    for (const day of DAY_CONFIG) {
+      const dayData = normalized.week.days[day.id];
+      dayData.preChecklist = {
+        stretch: Boolean(dayData.preChecklist?.stretch),
+        pushups: Boolean(dayData.preChecklist?.pushups),
+        pullups: Boolean(dayData.preChecklist?.pullups),
+      };
+      dayData.coreCompleted = Boolean(dayData.coreCompleted);
+      dayData.cardioCompleted = Boolean(dayData.cardioCompleted);
+      for (const circuit of dayData.circuits) {
         circuit.extras = Array.isArray(circuit.extras) ? circuit.extras.slice(0, 2) : [];
+        circuit.first.slotKey ||= "first";
+        circuit.second.slotKey ||= "second";
+        circuit.extras.forEach((assignment) => {
+          assignment.slotKey ||= "extra";
+        });
+        circuit.bridge.slotKey ||= "bridge";
+        circuit.bridge.slotLabel = ACTIVATOR_LABEL;
         circuit.preferredExerciseCount = Math.min(
           4,
           Math.max(2, Number(circuit.preferredExerciseCount) || 2 + circuit.extras.length),
@@ -1374,7 +1736,7 @@
           issues.push(`${day.name} circuit ${circuit.number} must track three rounds.`);
         }
         if (typeof circuit.bridgeCompleted !== "boolean") {
-          issues.push(`${day.name} circuit ${circuit.number} must track its between-rounds movement.`);
+          issues.push(`${day.name} circuit ${circuit.number} must track its random activator.`);
         }
         ids.push(...assignments.map((assignment) => assignment.exerciseId), circuit.bridge.exerciseId);
         const mainExercises = assignments.map((assignment) => exerciseById.get(assignment.exerciseId));
@@ -1382,7 +1744,13 @@
         if (mainExercises.some((exercise) => !exercise) || !bridge) {
           issues.push(`${day.name} references an unknown exercise.`);
         }
+        if (mainExercises.filter(requiresBothSides).length > 1) {
+          issues.push(`${day.name} circuit ${circuit.number} combines multiple both-sides exercises.`);
+        }
         for (let index = 1; index < mainExercises.length; index += 1) {
+          if (mainExercises[index - 1] && mainExercises[index] && !canCombine(mainExercises[index - 1], mainExercises[index])) {
+            issues.push(`${day.name} circuit ${circuit.number} combines two both-sides exercises.`);
+          }
           if (
             mainExercises[index - 1] &&
             mainExercises[index] &&
@@ -1407,10 +1775,10 @@
     if (ids.length !== new Set(ids).size) issues.push("An exercise is repeated within the weekly plan.");
 
     const monday = week.days.monday?.circuits || [];
-    if (monday.filter((circuit) => circuit.first.slotLabel === "Push").length !== 3) {
+    if (monday.filter((circuit) => mainAssignments(circuit).some((assignment) => assignment.slotLabel === "Push")).length !== 3) {
       issues.push("Monday must contain three push movements.");
     }
-    if (monday.filter((circuit) => circuit.second.slotLabel === "Pull").length !== 3) {
+    if (monday.filter((circuit) => mainAssignments(circuit).some((assignment) => assignment.slotLabel === "Pull")).length !== 3) {
       issues.push("Monday must contain three pull movements.");
     }
 
@@ -1467,13 +1835,27 @@
 
   function completedCircuits() {
     return DAY_CONFIG.reduce(
-      (total, day) => total + state.week.days[day.id].circuits.filter(isCircuitComplete).length,
+      (total, day) =>
+        total +
+        (state.daySettings[day.id].enabled
+          ? state.week.days[day.id].circuits.filter(isCircuitComplete).length
+          : 0),
       0,
     );
   }
 
+  function displayDay(day) {
+    const settings = state.daySettings[day.id];
+    return { ...day, focus: settings.focus, guidance: settings.description };
+  }
+
+  function enabledDays() {
+    return DAY_CONFIG.filter((day) => state.daySettings[day.id].enabled);
+  }
+
   function renderTabs() {
-    const tabs = DAY_CONFIG.map((day) => {
+    const tabs = enabledDays().map((baseDay) => {
+      const day = displayDay(baseDay);
       const completeCount = state.week.days[day.id].circuits.filter(isCircuitComplete).length;
       const active = ui.currentView === day.id;
       return `
@@ -1489,6 +1871,11 @@
       <button class="day-tab library-tab ${libraryActive ? "active" : ""}" type="button" data-view="library" aria-current="${libraryActive ? "page" : "false"}">
         <span class="day-short">${ICONS.book}</span>
         <span><strong>Exercise library</strong><small>${IMPORTED_EXERCISE_COUNT} spreadsheet exercises</small></span>
+        <span class="tab-status">${ICONS.arrow}</span>
+      </button>
+      <button class="day-tab library-tab ${ui.currentView === "settings" ? "active" : ""}" type="button" data-view="settings" aria-current="${ui.currentView === "settings" ? "page" : "false"}">
+        <span class="day-short">&#9881;</span>
+        <span><strong>Settings</strong><small>Days, targets, and descriptions</small></span>
         <span class="tab-status">${ICONS.arrow}</span>
       </button>`;
   }
@@ -1506,18 +1893,25 @@
     const fixed = assignment.fixed || exercise.always_locked;
     const caution = cautionText(exercise);
     const itemClass = context.position === "bridge" ? "exercise-item bridge-item" : "exercise-item";
+    const slotLabel = context.position === "bridge" ? ACTIVATOR_LABEL : assignment.slotLabel;
 
     return `
       <div class="${itemClass}">
         <div class="exercise-topline">
-          <span class="slot-label">${escapeHtml(assignment.slotLabel)}</span>
+          <span class="slot-label">${escapeHtml(slotLabel)}</span>
           <span class="exercise-tools">
             ${
               context.position === "bridge"
-                ? `<label class="bridge-check" title="Mark the between-rounds movement complete">
+                ? `<label class="bridge-check" title="Mark the random activator complete">
                     <input type="checkbox" data-action="complete-bridge" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" ${context.bridgeCompleted ? "checked" : ""} />
                     <span>Done</span>
                   </label>`
+                : ""
+            }
+            ${
+              context.position !== "bridge"
+                ? `<button class="mini-button" type="button" data-action="move-exercise" data-direction="-1" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" data-position="${context.position}" title="Move exercise up" aria-label="Move ${escapeHtml(exercise.name)} up" ${context.orderIndex === 0 ? "disabled" : ""}>↑</button>
+                   <button class="mini-button" type="button" data-action="move-exercise" data-direction="1" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" data-position="${context.position}" title="Move exercise down" aria-label="Move ${escapeHtml(exercise.name)} down" ${context.orderIndex === context.exerciseCount - 1 ? "disabled" : ""}>↓</button>`
                 : ""
             }
             <button
@@ -1534,14 +1928,30 @@
             <button
               class="mini-button"
               type="button"
+              data-action="random-replace"
+              data-day="${context.dayId}"
+              data-circuit="${context.circuitIndex}"
+              data-position="${context.position}"
+              title="Choose a random eligible replacement"
+              aria-label="Randomly replace ${escapeHtml(exercise.name)}"
+              ${assignment.locked ? "disabled" : ""}
+            >${ICONS.refresh}</button>
+            <button
+              class="mini-button"
+              type="button"
               data-action="replace"
               data-day="${context.dayId}"
               data-circuit="${context.circuitIndex}"
               data-position="${context.position}"
-              title="Replace exercise"
-              aria-label="Replace ${escapeHtml(exercise.name)}"
+              title="Choose a replacement from the library"
+              aria-label="Choose a replacement for ${escapeHtml(exercise.name)}"
               ${assignment.locked ? "disabled" : ""}
-            >${ICONS.refresh}</button>
+            >${ICONS.book}</button>
+            ${
+              context.position !== "bridge"
+                ? `<button class="mini-button danger" type="button" data-action="delete-circuit-exercise" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" data-position="${context.position}" title="Remove exercise from this circuit" aria-label="Remove ${escapeHtml(exercise.name)} from this circuit" ${context.exerciseCount <= 2 || assignment.locked ? "disabled" : ""}>×</button>`
+                : ""
+            }
           </span>
         </div>
         <h3 class="exercise-name">${escapeHtml(exercise.name)}</h3>
@@ -1554,8 +1964,11 @@
           ${caution ? `<span title="${escapeHtml(exercise.notes)}">• ${escapeHtml(caution)}</span>` : ""}
         </div>
         <div class="exercise-fields">
-          <label class="compact-field">
-            <span>Reps</span>
+          <label class="compact-field measure-field">
+            <select data-setting="measureType" data-exercise-id="${exercise.id}" aria-label="Measure repetitions or seconds for ${escapeHtml(exercise.name)}">
+              <option value="reps" ${settings.measureType === "reps" ? "selected" : ""}>Reps</option>
+              <option value="seconds" ${settings.measureType === "seconds" ? "selected" : ""}>Seconds</option>
+            </select>
             <input data-setting="reps" data-exercise-id="${exercise.id}" value="${escapeHtml(settings.reps)}" aria-label="Repetitions for ${escapeHtml(exercise.name)}" />
           </label>
           <label class="compact-field">
@@ -1564,6 +1977,7 @@
             <small>lb</small>
           </label>
         </div>
+        <label class="exercise-note"><span>Notes</span><input data-setting="notes" data-exercise-id="${exercise.id}" value="${escapeHtml(settings.notes)}" maxlength="1000" placeholder="Add a cue or note" aria-label="Notes for ${escapeHtml(exercise.name)}" /></label>
       </div>`;
   }
 
@@ -1572,7 +1986,13 @@
     const exerciseItems = assignments
       .map((assignment, index) => {
         const position = index === 0 ? "first" : index === 1 ? "second" : `extra-${index - 2}`;
-        const item = renderExerciseItem(assignment, { dayId, circuitIndex, position });
+        const item = renderExerciseItem(assignment, {
+          dayId,
+          circuitIndex,
+          position,
+          orderIndex: index,
+          exerciseCount: assignments.length,
+        });
         if (index === assignments.length - 1) return item;
         const current = exerciseById.get(assignment.exerciseId);
         const nextAssignment = assignments[index + 1];
@@ -1626,9 +2046,11 @@
   }
 
   function renderWorkout(dayId) {
-    const config = DAY_CONFIG.find((day) => day.id === dayId);
+    const config = displayDay(DAY_CONFIG.find((day) => day.id === dayId));
     const day = state.week.days[dayId];
     const completed = day.circuits.filter(isCircuitComplete).length;
+    const beforeCircuitsComplete = Object.values(day.preChecklist).every(Boolean);
+    const finisherComplete = day.coreCompleted && day.cardioCompleted;
 
     document.getElementById("workout-view").innerHTML = `
       <div class="content-frame">
@@ -1636,13 +2058,24 @@
           <div>
             <span class="eyebrow">${completed} of 3 circuits complete</span>
             <h1>${config.name} <span>— ${escapeHtml(config.focus)}</span></h1>
-            <p class="view-subtitle">Complete each circuit for three rounds. Focused, standard, and challenge circuits contain two to four exercises; the separate bridge movement fills part of the rest period.</p>
+            <p class="view-subtitle">Complete each circuit for three rounds. Focused, standard, and challenge circuits contain two to four exercises; the random activator adds a little movement during the rest period.</p>
           </div>
           <div class="session-chip">${ICONS.clock}<span><span>Target time</span><strong>About 45 minutes</strong></span></div>
         </header>
         <div class="day-guidance">${ICONS.info}<span>${escapeHtml(config.guidance)}</span></div>
+        <div class="routine-row pre-routine ${beforeCircuitsComplete ? "is-complete" : ""}" aria-label="Before-circuit checklist">
+          <strong>Before circuits</strong>
+          <label><input type="checkbox" data-action="daily-check" data-day="${dayId}" data-item="stretch" ${day.preChecklist.stretch ? "checked" : ""} /> Stretch</label>
+          <label><input type="checkbox" data-action="daily-check" data-day="${dayId}" data-item="pushups" ${day.preChecklist.pushups ? "checked" : ""} /> 20 push-ups</label>
+          <label><input type="checkbox" data-action="daily-check" data-day="${dayId}" data-item="pullups" ${day.preChecklist.pullups ? "checked" : ""} /> 5 pull-ups</label>
+        </div>
         <div class="circuit-grid">
           ${day.circuits.map((circuit, index) => renderCircuit(dayId, circuit, index)).join("")}
+        </div>
+        <div class="routine-row core-routine ${finisherComplete ? "is-complete" : ""}">
+          <strong>Finisher</strong>
+          <label><input type="checkbox" data-action="core-check" data-day="${dayId}" ${day.coreCompleted ? "checked" : ""} /> Core complete</label>
+          <label><input type="checkbox" data-action="cardio-check" data-day="${dayId}" ${day.cardioCompleted ? "checked" : ""} /> 20 minutes cardio</label>
         </div>
       </div>`;
   }
@@ -1701,6 +2134,7 @@
           <span><strong>${stats.skippedCount}</strong>skipped</span>
         </div>
         <div class="library-fields">
+          <select data-setting="measureType" data-exercise-id="${exercise.id}" aria-label="Measure type for ${escapeHtml(exercise.name)}"><option value="reps" ${stats.measureType === "reps" ? "selected" : ""}>Reps</option><option value="seconds" ${stats.measureType === "seconds" ? "selected" : ""}>Seconds</option></select>
           <input data-setting="reps" data-exercise-id="${exercise.id}" value="${escapeHtml(stats.reps)}" aria-label="Default repetitions for ${escapeHtml(exercise.name)}" title="Repetitions" />
           <input data-setting="weight" data-exercise-id="${exercise.id}" value="${escapeHtml(stats.weight)}" placeholder="Load lb" inputmode="decimal" aria-label="Default load for ${escapeHtml(exercise.name)}" title="Load in pounds" />
           ${
@@ -1708,6 +2142,7 @@
               ? `<a class="demo-button" href="${escapeHtml(exercise.instruction_url)}" target="_blank" rel="noreferrer" aria-label="View a demonstration of ${escapeHtml(exercise.name)}" title="View demo">${ICONS.external}</a>`
               : `<span></span>`
           }
+          <button class="library-action" type="button" data-action="edit-library" data-exercise-id="${exercise.id}">Edit</button>
           <button class="library-action" type="button" data-action="toggle-hide-library" data-exercise-id="${exercise.id}" ${fixed ? "disabled" : ""}>${hidden ? "Restore" : "Hide"}</button>
           <button class="library-action delete" type="button" data-action="delete-library" data-exercise-id="${exercise.id}" ${fixed ? "disabled" : ""}>Delete</button>
         </div>
@@ -1756,20 +2191,51 @@
       </div>`;
   }
 
+  function renderSettings() {
+    document.getElementById("settings-view").innerHTML = `
+      <div class="content-frame">
+        <header class="view-header">
+          <div>
+            <span class="eyebrow">Personalize the split</span>
+            <h1>Workout <span>settings</span></h1>
+            <p class="view-subtitle">Choose the days shown in your plan and edit each day's target and coaching description. Exercise eligibility continues to use that day's underlying safety rules.</p>
+          </div>
+        </header>
+        <div class="settings-grid">
+          ${DAY_CONFIG.map((day) => {
+            const settings = state.daySettings[day.id];
+            return `<article class="settings-card ${settings.enabled ? "" : "is-disabled"}">
+              <header>
+                <div><span class="day-short">${day.short}</span><strong>${day.name}</strong></div>
+                <label class="day-enabled"><input type="checkbox" data-day-enabled="${day.id}" ${settings.enabled ? "checked" : ""} /> Include this day</label>
+              </header>
+              <label class="form-field"><span>Training target</span><input data-day-setting="focus" data-day="${day.id}" maxlength="100" value="${escapeHtml(settings.focus)}" /></label>
+              <label class="form-field"><span>Description</span><textarea data-day-setting="description" data-day="${day.id}" maxlength="600" rows="4">${escapeHtml(settings.description)}</textarea></label>
+            </article>`;
+          }).join("")}
+        </div>
+      </div>`;
+  }
+
   function render() {
     const complete = completedCircuits();
+    const circuitTotal = enabledDays().length * 3;
     document.getElementById("week-number").textContent = `Week ${state.weekNumber}`;
     document.getElementById("week-date").textContent = formatDate(state.weekStartedAt);
-    document.getElementById("week-progress-label").textContent = `${complete} of 15 circuits complete`;
-    document.getElementById("week-progress-bar").style.width = `${(complete / 15) * 100}%`;
+    document.getElementById("week-progress-label").textContent = `${complete} of ${circuitTotal} circuits complete`;
+    document.getElementById("week-progress-bar").style.width = `${circuitTotal ? (complete / circuitTotal) * 100 : 0}%`;
     renderTabs();
 
     const workoutView = document.getElementById("workout-view");
     const libraryView = document.getElementById("library-view");
+    const settingsView = document.getElementById("settings-view");
     const showingLibrary = ui.currentView === "library";
-    workoutView.hidden = showingLibrary;
+    const showingSettings = ui.currentView === "settings";
+    workoutView.hidden = showingLibrary || showingSettings;
     libraryView.hidden = !showingLibrary;
+    settingsView.hidden = !showingSettings;
     if (showingLibrary) renderLibrary();
+    else if (showingSettings) renderSettings();
     else renderWorkout(ui.currentView);
   }
 
@@ -1785,8 +2251,9 @@
 
   function slotFor(context) {
     const definition = SLOTS[context.dayId][context.circuitIndex];
-    if (context.position?.startsWith("extra")) return definition.extra;
-    return definition[context.position];
+    if (context.position === "extra-new") return definition.extra;
+    const assignment = assignmentFor(context);
+    return definition[assignment?.slotKey || (context.position?.startsWith("extra") ? "extra" : context.position)];
   }
 
   function assignmentFor(context) {
@@ -1814,9 +2281,170 @@
       .filter(Boolean);
   }
 
+  function otherCircuitExercises(context) {
+    if (context.position === "bridge") return [];
+    const circuit = state.week.days[context.dayId].circuits[context.circuitIndex];
+    const current = assignmentFor(context);
+    return mainAssignments(circuit)
+      .filter((assignment) => !current || assignment !== current)
+      .map((assignment) => exerciseById.get(assignment.exerciseId))
+      .filter(Boolean);
+  }
+
   function setupScoreForOption(exercise, context) {
     const adjacent = adjacentExercises(context);
     return adjacent.length ? Math.max(...adjacent.map((partner) => transitionCost(exercise, partner))) : 0;
+  }
+
+  function positionIndex(position) {
+    if (position === "first") return 0;
+    if (position === "second") return 1;
+    if (position?.startsWith("extra-")) return Number(position.split("-")[1]) + 2;
+    return -1;
+  }
+
+  function writeMainAssignments(circuit, assignments) {
+    circuit.first = assignments[0];
+    circuit.second = assignments[1];
+    circuit.extras = assignments.slice(2);
+    circuit.preferredExerciseCount = assignments.length;
+  }
+
+  function markManualSetupTransitions(assignments) {
+    for (let index = 1; index < assignments.length; index += 1) {
+      const previous = exerciseById.get(assignments[index - 1].exerciseId);
+      const current = exerciseById.get(assignments[index].exerciseId);
+      if (transitionCost(previous, current) > 2) assignments[index].manualOverride = true;
+    }
+  }
+
+  function reorderCircuitExercise(context, direction) {
+    const circuit = state.week.days[context.dayId].circuits[context.circuitIndex];
+    const assignments = mainAssignments(circuit);
+    const index = positionIndex(context.position);
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || nextIndex >= assignments.length) return;
+    [assignments[index], assignments[nextIndex]] = [assignments[nextIndex], assignments[index]];
+    const reorderedExercises = assignments.map((assignment) => exerciseById.get(assignment.exerciseId));
+    if (reorderedExercises.some((exercise, itemIndex) => itemIndex > 0 && !canCombine(reorderedExercises[itemIndex - 1], exercise))) {
+      showToast("Two exercises that require both sides cannot be placed together.", "error");
+      return;
+    }
+    markManualSetupTransitions(assignments);
+    writeMainAssignments(circuit, assignments);
+    resetCircuitCompletion(circuit);
+    persist();
+    render();
+  }
+
+  function deleteCircuitExercise(context) {
+    const circuit = state.week.days[context.dayId].circuits[context.circuitIndex];
+    const assignments = mainAssignments(circuit);
+    const index = positionIndex(context.position);
+    if (assignments.length <= 2 || index < 0 || assignments[index].locked) return;
+    const [removed] = assignments.splice(index, 1);
+    if (["first", "second"].includes(removed.slotKey)) {
+      const promoted = assignments.find((assignment) => assignment.slotKey === "extra");
+      if (promoted) {
+        promoted.slotKey = removed.slotKey;
+        promoted.slotLabel = removed.slotLabel;
+        promoted.manualOverride = true;
+      }
+    }
+    const remainingExercises = assignments.map((assignment) => exerciseById.get(assignment.exerciseId));
+    if (remainingExercises.some((exercise, itemIndex) => itemIndex > 0 && !canCombine(remainingExercises[itemIndex - 1], exercise))) {
+      showToast("Removing that exercise would combine two both-sides movements.", "error");
+      return;
+    }
+    markManualSetupTransitions(assignments);
+    writeMainAssignments(circuit, assignments);
+    stateFor(removed.exerciseId).skippedCount += 1;
+    resetCircuitCompletion(circuit);
+    persist();
+    render();
+    showToast(`${exerciseById.get(removed.exerciseId).name} removed from this circuit.`);
+  }
+
+  function normalizeSearchText(value) {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  }
+
+  function editDistance(first, second) {
+    const previous = Array.from({ length: second.length + 1 }, (_, index) => index);
+    const current = new Array(second.length + 1);
+
+    for (let firstIndex = 1; firstIndex <= first.length; firstIndex += 1) {
+      current[0] = firstIndex;
+      for (let secondIndex = 1; secondIndex <= second.length; secondIndex += 1) {
+        current[secondIndex] = Math.min(
+          current[secondIndex - 1] + 1,
+          previous[secondIndex] + 1,
+          previous[secondIndex - 1] + (first[firstIndex - 1] === second[secondIndex - 1] ? 0 : 1),
+        );
+      }
+      for (let index = 0; index < current.length; index += 1) previous[index] = current[index];
+    }
+
+    return previous[second.length];
+  }
+
+  function fuzzyTokenScore(queryToken, candidateToken) {
+    if (queryToken === candidateToken) return 0;
+    if (candidateToken.startsWith(queryToken)) return 0.08 + (candidateToken.length - queryToken.length) * 0.002;
+    if (candidateToken.includes(queryToken)) return 0.18 + candidateToken.indexOf(queryToken) * 0.01;
+    if (queryToken.length < 3) return null;
+
+    const allowedDistance = queryToken.length <= 4 ? 1 : Math.max(1, Math.floor(queryToken.length * 0.3));
+    const distance = editDistance(queryToken, candidateToken);
+    if (distance <= allowedDistance) return 0.32 + distance / Math.max(queryToken.length, candidateToken.length);
+
+    let queryIndex = 0;
+    for (const character of candidateToken) {
+      if (character === queryToken[queryIndex]) queryIndex += 1;
+      if (queryIndex === queryToken.length) {
+        const gapRatio = (candidateToken.length - queryToken.length) / candidateToken.length;
+        return gapRatio <= 0.55 ? 0.7 + gapRatio : null;
+      }
+    }
+    return null;
+  }
+
+  function fuzzyExerciseScore(exercise, rawQuery) {
+    const query = normalizeSearchText(rawQuery);
+    if (!query) return 0;
+
+    const queryTokens = query.split(" ");
+    const fields = [
+      [exercise.name, 0],
+      [exercise.primary_body_part, 0.18],
+      [exercise.category, 0.24],
+      [exercise.movement_pattern, 0.28],
+      [exercise.equipment_label, 0.32],
+    ];
+    const candidates = fields.flatMap(([value, fieldPenalty]) =>
+      normalizeSearchText(value)
+        .split(" ")
+        .filter(Boolean)
+        .map((token) => ({ token, fieldPenalty })),
+    );
+    let score = normalizeSearchText(exercise.name).includes(query) ? -0.25 : 0;
+
+    for (const queryToken of queryTokens) {
+      let best = Number.POSITIVE_INFINITY;
+      for (const candidate of candidates) {
+        const tokenScore = fuzzyTokenScore(queryToken, candidate.token);
+        if (tokenScore !== null) best = Math.min(best, tokenScore + candidate.fieldPenalty);
+      }
+      if (!Number.isFinite(best)) return null;
+      score += best;
+    }
+
+    return score;
   }
 
   function replacementOptions() {
@@ -1825,10 +2453,11 @@
     const assignment = assignmentFor(ui.replacement);
     const used = new Set(allAssignments().map((item) => item.exerciseId));
     if (assignment) used.delete(assignment.exerciseId);
-    const search = ui.replaceSearch.trim().toLowerCase();
+    const search = ui.replaceSearch.trim();
 
     return exercises
-      .filter((exercise) => {
+      .map((exercise) => ({ exercise, searchScore: fuzzyExerciseScore(exercise, search) }))
+      .filter(({ exercise, searchScore }) => {
         if (
           used.has(exercise.id) ||
           isHidden(exercise.id) ||
@@ -1838,15 +2467,22 @@
         ) {
           return false;
         }
-        if (search && !`${exercise.name} ${exercise.equipment_label}`.toLowerCase().includes(search)) return false;
+        if (searchScore === null) return false;
+        if (!adjacentExercises(ui.replacement).every((partner) => canCombine(exercise, partner))) return false;
+        if (requiresBothSides(exercise) && otherCircuitExercises(ui.replacement).some(requiresBothSides)) return false;
         return ui.showAllReplacements || setupScoreForOption(exercise, ui.replacement) <= 2;
       })
       .sort((first, second) => {
-        const firstCost = setupScoreForOption(first, ui.replacement);
-        const secondCost = setupScoreForOption(second, ui.replacement);
-        return firstCost - secondCost || stateFor(second.id).chosenCount - stateFor(first.id).chosenCount || first.name.localeCompare(second.name);
+        const firstCost = setupScoreForOption(first.exercise, ui.replacement);
+        const secondCost = setupScoreForOption(second.exercise, ui.replacement);
+        return (
+          first.searchScore - second.searchScore ||
+          firstCost - secondCost ||
+          stateFor(second.exercise.id).chosenCount - stateFor(first.exercise.id).chosenCount ||
+          first.exercise.name.localeCompare(second.exercise.name)
+        );
       })
-      .map((exercise) => ({
+      .map(({ exercise }) => ({
         exercise,
         cost: setupScoreForOption(exercise, ui.replacement),
         eligible: matchesSlot(exercise, slot),
@@ -1877,7 +2513,8 @@
     ui.replaceSearch = "";
     ui.showAllReplacements = false;
     document.getElementById("replace-title").textContent = `Replace ${exercise.name}`;
-    document.getElementById("replace-description").textContent = `Only exercises that fit this ${assignment.slotLabel.toLowerCase()} slot and the day's target are shown.`;
+    const slotLabel = context.position === "bridge" ? ACTIVATOR_LABEL : assignment.slotLabel;
+    document.getElementById("replace-description").textContent = `Only exercises that fit this ${slotLabel.toLowerCase()} slot and the day's target are shown.`;
     document.getElementById("replace-search").value = "";
     document.getElementById("show-all-replacements").checked = false;
     document.getElementById("replacement-scope-note").textContent = "Only eligible, easy 0–2 options are shown.";
@@ -1901,6 +2538,22 @@
     renderReplacementResults();
     document.getElementById("replace-dialog").showModal();
     setTimeout(() => document.getElementById("replace-search").focus(), 0);
+  }
+
+  function randomReplace(context) {
+    const assignment = assignmentFor(context);
+    if (!assignment || assignment.locked) return;
+    ui.replacement = { ...context, mode: "replace" };
+    ui.replaceSearch = "";
+    ui.showAllReplacements = false;
+    const options = replacementOptions();
+    if (!options.length) {
+      ui.replacement = null;
+      showToast("No unused eligible replacement is available for this slot.", "error");
+      return;
+    }
+    const selected = options[Math.floor(Math.random() * options.length)].exercise;
+    replaceExercise(selected.id);
   }
 
   function resetCircuitCompletion(circuit) {
@@ -1929,7 +2582,7 @@
       stateFor(next.id).chosenCount += 1;
       resetCircuitCompletion(circuit);
       persist();
-      document.getElementById("replace-dialog").close();
+      if (document.getElementById("replace-dialog").open) document.getElementById("replace-dialog").close();
       ui.replacement = null;
       render();
       showToast(`${next.name} added to the round.`);
@@ -1944,7 +2597,7 @@
     assignment.manualOverride = manualOverride;
     resetCircuitCompletion(circuit);
     persist();
-    document.getElementById("replace-dialog").close();
+    if (document.getElementById("replace-dialog").open) document.getElementById("replace-dialog").close();
     ui.replacement = null;
     render();
     showToast(`${next.name} added. ${previous.name} counted as skipped.`);
@@ -1954,14 +2607,11 @@
     const circuit = state.week.days[dayId].circuits[circuitIndex];
     const assignment = circuit.extras[circuit.extras.length - 1];
     if (!assignment || assignment.locked) return;
-    const exercise = exerciseById.get(assignment.exerciseId);
-    circuit.extras.pop();
-    circuit.preferredExerciseCount = mainAssignments(circuit).length;
-    stateFor(assignment.exerciseId).skippedCount += 1;
-    resetCircuitCompletion(circuit);
-    persist();
-    render();
-    showToast(`${exercise.name} removed from this round.`);
+    deleteCircuitExercise({
+      dayId,
+      circuitIndex,
+      position: `extra-${circuit.extras.length - 1}`,
+    });
   }
 
   function startNewWeek() {
@@ -1979,7 +2629,7 @@
       generateWeek(previousWeek);
       const issues = validateWeek(state.week);
       if (issues.length) throw new Error(issues[0]);
-      ui.currentView = "monday";
+      ui.currentView = enabledDays()[0]?.id || "settings";
       persist();
       render();
       showToast(`Week ${state.weekNumber} is ready with blank round checkmarks.`);
@@ -2001,7 +2651,9 @@
         chosen_count: stateFor(exercise.id).chosenCount,
         skipped_count: stateFor(exercise.id).skippedCount,
         current_reps: stateFor(exercise.id).reps,
+        current_measure: stateFor(exercise.id).measureType,
         current_weight: stateFor(exercise.id).weight,
+        current_notes: stateFor(exercise.id).notes,
         user_locked: exercise.always_locked || lockedIds.has(exercise.id),
         hidden: isHidden(exercise.id),
         deleted: isDeleted(exercise.id),
@@ -2009,57 +2661,120 @@
     };
   }
 
-  function saveJson() {
-    const blob = new Blob([JSON.stringify(exportPayload(), null, 2)], { type: "application/json" });
-    const link = document.createElement("a");
-    const date = new Date().toISOString().slice(0, 10);
-    link.href = URL.createObjectURL(blob);
-    link.download = `basement-45-week-${state.weekNumber}-${date}.json`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(link.href), 0);
-    showToast("Workout data saved as JSON.");
+  async function saveJson() {
+    try {
+      if (!fileHandle) {
+        if (!("showSaveFilePicker" in window)) {
+          showToast(
+            "Direct file saving requires a current Chrome or Edge browser. Browser-local autosave is still active.",
+            "error",
+          );
+          return;
+        }
+        fileHandle = await window.showSaveFilePicker({
+          suggestedName: `basement-45-workouts.json`,
+          types: [{ description: "Workout JSON", accept: { "application/json": [".json"] } }],
+        });
+        await rememberFileHandle(fileHandle);
+      }
+      const saved = await writeStateToFile(fileHandle, true, true);
+      if (!saved) showToast("Permission to write the workout file was not granted.", "error");
+    } catch (error) {
+      if (error.name !== "AbortError") showToast(`The workout file could not be saved: ${error.message}`, "error");
+    }
   }
 
-  async function loadJson(file) {
+  async function loadJson(file, handle = null) {
     if (!file) return;
     const previousCustomExercises = state.customExercises.slice();
+    const previousExerciseEdits = { ...state.exerciseEdits };
     try {
       const parsed = JSON.parse(await file.text());
       if (!parsed.appState) throw new Error("This is not a Basement 45 save file.");
       state = normalizeState(parsed.appState);
-      ui.currentView = "monday";
+      ui.currentView = enabledDays()[0]?.id || "settings";
+      if (handle) {
+        fileHandle = handle;
+        await rememberFileHandle(handle);
+        setFileStatus(`Autosaving · ${handle.name}`, true);
+      }
       persist();
       render();
       showToast(`Loaded Week ${state.weekNumber} from ${file.name}.`);
     } catch (error) {
-      rebuildExerciseCatalog(previousCustomExercises);
+      rebuildExerciseCatalog(previousCustomExercises, previousExerciseEdits);
       showToast(error.message || "The JSON file could not be loaded.", "error");
     } finally {
       document.getElementById("load-input").value = "";
     }
   }
 
+  async function openJsonFile() {
+    if (!("showOpenFilePicker" in window)) {
+      document.getElementById("load-input").click();
+      return;
+    }
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        multiple: false,
+        types: [{ description: "Workout JSON", accept: { "application/json": [".json"] } }],
+      });
+      await loadJson(await handle.getFile(), handle);
+    } catch (error) {
+      if (error.name !== "AbortError") showToast(`The workout file could not be opened: ${error.message}`, "error");
+    }
+  }
+
   function openExerciseDialog() {
     const form = document.getElementById("exercise-form");
+    ui.editingExerciseId = null;
     form.reset();
-    const categories = [...new Set(window.EXERCISE_SOURCE.map((record) => record.category))].sort();
+    const categories = categoryOptions();
     document.getElementById("custom-category").innerHTML = categories
       .map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`)
       .join("");
+    document.getElementById("exercise-dialog-title").textContent = "Add an exercise";
+    document.getElementById("exercise-dialog-description").textContent =
+      "Its category and movement fields determine where it can safely appear.";
+    document.getElementById("exercise-form-submit").textContent = "Add to library";
     document.getElementById("exercise-dialog").showModal();
     setTimeout(() => form.elements.name.focus(), 0);
   }
 
-  function addCustomExercise(event) {
+  function openEditExerciseDialog(exerciseId) {
+    const exercise = exerciseById.get(exerciseId);
+    if (!exercise) return;
+    openExerciseDialog();
+    ui.editingExerciseId = exerciseId;
+    const form = document.getElementById("exercise-form");
+    const setValue = (name, value) => {
+      form.elements[name].value = value ?? "";
+    };
+    setValue("name", exercise.name);
+    setValue("category", exercise.primary_body_part);
+    setValue("equipment", exercise.equipment_label);
+    setValue("movementPattern", exercise.movement_pattern);
+    setValue("movementRole", exercise.movement_role);
+    setValue("forceType", exercise.force_type);
+    setValue("defaultReps", exercise.default_reps);
+    setValue("instructionUrl", exercise.instruction_url);
+    setValue("notes", exercise.notes);
+    form.elements.shoulderCaution.checked = exercise.shoulder_caution;
+    form.elements.backCaution.checked = exercise.back_caution;
+    document.getElementById("exercise-dialog-title").textContent = `Edit ${exercise.name}`;
+    document.getElementById("exercise-dialog-description").textContent =
+      "Changes apply throughout the library and current workout while preserving history.";
+    document.getElementById("exercise-form-submit").textContent = "Save changes";
+  }
+
+  function saveExerciseForm(event) {
     event.preventDefault();
     const form = event.currentTarget;
     if (!form.reportValidity()) return;
     const data = new FormData(form);
     const name = String(data.get("name") || "").trim();
     const exerciseId = idFor(name);
-    if (!exerciseId || exerciseById.has(exerciseId)) {
+    if (!ui.editingExerciseId && (!exerciseId || exerciseById.has(exerciseId))) {
       showToast("An exercise with that name already exists.", "error");
       return;
     }
@@ -2077,15 +2792,37 @@
       defaultReps: String(data.get("defaultReps") || "10").trim() || "10",
       shoulderCaution: data.get("shoulderCaution") === "on",
       backCaution: data.get("backCaution") === "on",
+      notes: String(data.get("notes") || "").trim() || null,
     };
 
-    state.customExercises.push(record);
-    rebuildExerciseCatalog(state.customExercises);
-    stateFor(exerciseId);
+    if (ui.editingExerciseId) {
+      const editingId = ui.editingExerciseId;
+      const previousEdit = state.exerciseEdits[editingId];
+      state.exerciseEdits[editingId] = record;
+      rebuildExerciseCatalog(state.customExercises, state.exerciseEdits);
+      for (const day of DAY_CONFIG) {
+        for (const circuit of state.week.days[day.id].circuits) {
+          markManualSetupTransitions(mainAssignments(circuit));
+        }
+      }
+      const issues = validateWeek(state.week);
+      if (issues.length) {
+        if (previousEdit) state.exerciseEdits[editingId] = previousEdit;
+        else delete state.exerciseEdits[editingId];
+        rebuildExerciseCatalog(state.customExercises, state.exerciseEdits);
+        showToast(`That edit conflicts with the current plan: ${issues[0]}`, "error");
+        return;
+      }
+    } else {
+      state.customExercises.push(record);
+      rebuildExerciseCatalog(state.customExercises, state.exerciseEdits);
+      stateFor(exerciseId);
+    }
     persist();
     document.getElementById("exercise-dialog").close();
     renderLibrary();
-    showToast(`${name} added to the exercise library.`);
+    showToast(ui.editingExerciseId ? `${name} updated.` : `${name} added to the exercise library.`);
+    ui.editingExerciseId = null;
   }
 
   function toggleHiddenExercise(exerciseId) {
@@ -2140,6 +2877,15 @@
     if (actionButton.dataset.action === "replace") {
       openReplacement(parseContext(actionButton));
     }
+    if (actionButton.dataset.action === "random-replace") {
+      randomReplace(parseContext(actionButton));
+    }
+    if (actionButton.dataset.action === "move-exercise") {
+      reorderCircuitExercise(parseContext(actionButton), Number(actionButton.dataset.direction));
+    }
+    if (actionButton.dataset.action === "delete-circuit-exercise") {
+      deleteCircuitExercise(parseContext(actionButton));
+    }
     if (actionButton.dataset.action === "add-round-exercise") {
       openAddRoundExercise(actionButton.dataset.day, Number(actionButton.dataset.circuit));
     }
@@ -2162,7 +2908,11 @@
       openExerciseDialog();
     }
     if (actionButton.dataset.action === "close-exercise-dialog") {
+      ui.editingExerciseId = null;
       document.getElementById("exercise-dialog").close();
+    }
+    if (actionButton.dataset.action === "edit-library") {
+      openEditExerciseDialog(actionButton.dataset.exerciseId);
     }
     if (actionButton.dataset.action === "toggle-hide-library") {
       toggleHiddenExercise(actionButton.dataset.exerciseId);
@@ -2173,6 +2923,11 @@
   }
 
   function handleChange(event) {
+    if (event.target.dataset?.setting === "measureType" && event.target.dataset.exerciseId) {
+      stateFor(event.target.dataset.exerciseId).measureType = event.target.value;
+      persist();
+      return;
+    }
     const round = event.target.closest('[data-action="complete-round"]');
     if (round) {
       const circuit = state.week.days[round.dataset.day].circuits[Number(round.dataset.circuit)];
@@ -2186,6 +2941,36 @@
     if (bridge) {
       const circuit = state.week.days[bridge.dataset.day].circuits[Number(bridge.dataset.circuit)];
       circuit.bridgeCompleted = bridge.checked;
+      persist();
+      render();
+      return;
+    }
+
+    const daily = event.target.closest('[data-action="daily-check"]');
+    if (daily) {
+      state.week.days[daily.dataset.day].preChecklist[daily.dataset.item] = daily.checked;
+      persist();
+      render();
+      return;
+    }
+
+    const core = event.target.closest('[data-action="core-check"]');
+    if (core) {
+      state.week.days[core.dataset.day].coreCompleted = core.checked;
+      persist();
+      return;
+    }
+
+    const cardio = event.target.closest('[data-action="cardio-check"]');
+    if (cardio) {
+      state.week.days[cardio.dataset.day].cardioCompleted = cardio.checked;
+      persist();
+      render();
+      return;
+    }
+
+    if (event.target.dataset?.dayEnabled) {
+      state.daySettings[event.target.dataset.dayEnabled].enabled = event.target.checked;
       persist();
       render();
       return;
@@ -2215,9 +3000,17 @@
   function handleInput(event) {
     const setting = event.target.dataset.setting;
     const exerciseId = event.target.dataset.exerciseId;
-    if (setting && exerciseId && ["reps", "weight"].includes(setting)) {
-      stateFor(exerciseId)[setting] = event.target.value.slice(0, 40);
+    if (setting && exerciseId && ["reps", "weight", "notes", "measureType"].includes(setting)) {
+      stateFor(exerciseId)[setting] = event.target.value.slice(0, setting === "notes" ? 1000 : 40);
       persist();
+      return;
+    }
+
+    if (event.target.dataset.daySetting) {
+      const key = event.target.dataset.daySetting;
+      state.daySettings[event.target.dataset.day][key] = event.target.value.slice(0, key === "description" ? 600 : 100);
+      persist();
+      renderTabs();
       return;
     }
 
@@ -2239,11 +3032,17 @@
     document.addEventListener("click", handleClick);
     document.addEventListener("change", handleChange);
     document.addEventListener("input", handleInput);
+    document.addEventListener("keydown", (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        saveJson();
+      }
+    });
     document.getElementById("save-button").addEventListener("click", saveJson);
-    document.getElementById("load-button").addEventListener("click", () => document.getElementById("load-input").click());
+    document.getElementById("load-button").addEventListener("click", openJsonFile);
     document.getElementById("load-input").addEventListener("change", (event) => loadJson(event.target.files[0]));
     document.getElementById("new-week-button").addEventListener("click", startNewWeek);
-    document.getElementById("exercise-form").addEventListener("submit", addCustomExercise);
+    document.getElementById("exercise-form").addEventListener("submit", saveExerciseForm);
     document.getElementById("replace-dialog").addEventListener("close", () => {
       ui.replacement = null;
       ui.replaceSearch = "";
@@ -2268,8 +3067,12 @@
 
     const issues = validateWeek(state.week);
     if (issues.length) console.warn("Workout validation warnings:", issues);
+    if (DAY_CONFIG.some((day) => day.id === ui.currentView) && !state.daySettings[ui.currentView].enabled) {
+      ui.currentView = enabledDays()[0]?.id || "settings";
+    }
     bindEvents();
     render();
+    restoreFileHandle();
 
     window.Basement45 = {
       get exercises() {
