@@ -7,6 +7,7 @@ const vm = require("node:vm");
 
 const root = path.resolve(__dirname, "..");
 const exerciseDataScript = fs.readFileSync(path.join(root, "exercise-data.js"), "utf8");
+const equipmentExerciseDataScript = fs.readFileSync(path.join(root, "equipment-exercises.js"), "utf8");
 const appScript = fs.readFileSync(path.join(root, "app.js"), "utf8");
 
 function elementStub() {
@@ -102,6 +103,7 @@ function launchApp(storedState = null) {
 
   vm.createContext(context);
   vm.runInContext(exerciseDataScript, context, { filename: "exercise-data.js" });
+  vm.runInContext(equipmentExerciseDataScript, context, { filename: "equipment-exercises.js" });
   vm.runInContext(appScript, context, { filename: "app.js" });
   return context;
 }
@@ -137,10 +139,14 @@ async function main() {
 for (let attempt = 0; attempt < 50; attempt += 1) {
   const app = launchApp();
   assert.equal(app.EXERCISE_SOURCE.length, 201, "all spreadsheet exercises should be imported");
-  assert.equal(app.Basement45.exercises.length, 205, "four fixed custom exercises should be added");
+  assert.ok(app.Basement45.exercises.length > 300, "the equipment expansion should add a comprehensive catalog");
   assert.deepEqual(Array.from(app.Basement45.validateWeek()), [], "generated week should pass every validation");
 
   const state = app.Basement45.getState();
+  const catalog = app.Basement45.exercises;
+  const catalogById = new Map(catalog.map((exercise) => [exercise.id, exercise]));
+  assert.equal(new Set(catalog.map((exercise) => exercise.id)).size, catalog.length, "catalog IDs should be unique");
+  assert.ok(catalog.every((exercise) => exercise.equipment_varieties.length > 0));
   const days = Object.values(state.week.days);
   assert.equal(days.length, 7);
   assert.ok(days.every((day) => day.circuits.length === 3));
@@ -152,6 +158,10 @@ for (let attempt = 0; attempt < 50; attempt += 1) {
   );
   assert.equal(assignments.length, 77);
   assert.equal(new Set(assignments.map((assignment) => assignment.exerciseId)).size, assignments.length);
+  assert.ok(
+    days.every((day) => day.circuits.every((circuit) => catalogById.get(circuit.bridge.exerciseId).total_body_activator)),
+    "every activator slot should contain a checked total-body activator",
+  );
   assert.deepEqual(
     [...new Set(days.flatMap((day) => day.circuits.map((circuit) => 2 + circuit.extras.length)))].sort(),
     [2, 3, 4],
@@ -178,7 +188,7 @@ const interactionApp = launchApp();
 const workoutHtml = interactionApp.__elements.get("workout-view").innerHTML;
 assert.equal((workoutHtml.match(/data-action="complete-round"/g) || []).length, 9);
 assert.equal((workoutHtml.match(/data-action="complete-bridge"/g) || []).length, 3);
-assert.equal((workoutHtml.match(/Random activator/g) || []).length, 3);
+assert.equal((workoutHtml.match(/Total Body activator/g) || []).length, 3);
 assert.ok(!workoutHtml.includes("Between rounds"));
 assert.equal((workoutHtml.match(/data-action="daily-check"/g) || []).length, 3);
 assert.equal((workoutHtml.match(/data-action="core-check"/g) || []).length, 1);
@@ -220,6 +230,8 @@ assert.equal(interactionApp.Basement45.getState().exerciseState[noteExerciseId].
 assert.equal(interactionApp.Basement45.getState().exerciseState[noteExerciseId].measureType, "seconds");
 
 const exerciseLookup = new Map(interactionApp.Basement45.exercises.map((exercise) => [exercise.id, exercise]));
+assert.ok(exerciseLookup.get("cable-y-raise").equipment_varieties.includes("D-handles"));
+assert.ok(exerciseLookup.get("kettlebell-swing").equipment_varieties.includes("Kettlebell"));
 const mondayCircuit = interactionApp.Basement45.getState().week.days.monday.circuits[0];
 const beforeOrder = [mondayCircuit.first, mondayCircuit.second, ...mondayCircuit.extras].map(
   (assignment) => assignment.exerciseId,
@@ -274,6 +286,29 @@ for (const dayId of ["monday", "tuesday", "wednesday", "thursday", "friday"]) {
   if (randomChanged) break;
 }
 assert.equal(randomChanged, true, "the random eligible replacement action should change an exercise");
+assert.deepEqual(Array.from(interactionApp.Basement45.validateWeek()), []);
+
+clickAction(interactionApp, "replace", { day: "monday", circuit: "0", position: "bridge" });
+interactionApp.document._listeners.change[0]({
+  target: {
+    id: "show-all-replacements",
+    checked: true,
+    dataset: {},
+    closest() {
+      return null;
+    },
+  },
+});
+const activatorReplacementHtml = interactionApp.__elements.get("replace-results").innerHTML;
+const activatorReplacementIds = [...activatorReplacementHtml.matchAll(/data-exercise-id="([^"]+)"/g)].map(
+  (match) => match[1],
+);
+assert.ok(activatorReplacementIds.length > 0);
+assert.ok(
+  activatorReplacementIds.every((exerciseId) => exerciseLookup.get(exerciseId).total_body_activator),
+  "even Show all must keep the activator slot limited to checked exercises",
+);
+clickAction(interactionApp, "choose-replacement", { exerciseId: activatorReplacementIds[0] });
 assert.deepEqual(Array.from(interactionApp.Basement45.validateWeek()), []);
 
 const deleteCircuitBefore = interactionApp.Basement45.getState().week.days.monday.circuits[0];
@@ -339,20 +374,31 @@ customForm._formData = new Map([
   ["name", "Test supported row"],
   ["category", "Back and Lats"],
   ["equipment", "Adjustable dumbbell + bench"],
+  ["equipmentVarieties", "Dumbbells\nBench\nD-handles"],
   ["movementPattern", "pull"],
   ["movementRole", "compound"],
   ["forceType", "pull"],
   ["defaultReps", "10"],
   ["instructionUrl", ""],
+  ["totalBodyActivator", "on"],
 ]);
 customForm._listeners.submit[0]({ preventDefault() {}, currentTarget: customForm });
 assert.equal(interactionApp.Basement45.getState().customExercises.length, 1);
+assert.deepEqual(
+  Array.from(interactionApp.Basement45.exercises.find((exercise) => exercise.id === "test-supported-row").equipment_varieties),
+  ["Bench", "D-handles", "Dumbbells"],
+);
+assert.equal(
+  interactionApp.Basement45.exercises.find((exercise) => exercise.id === "test-supported-row").total_body_activator,
+  true,
+);
 
 clickAction(interactionApp, "edit-library", { exerciseId: "flat-dumbbell-bench-press" });
 customForm._formData = new Map([
   ["name", "Flat dumbbell bench press — edited"],
   ["category", "Chest"],
   ["equipment", "Adjustable dumbbells + bench"],
+  ["equipmentVarieties", "Dumbbells\nBench\nD-handles"],
   ["movementPattern", "push"],
   ["movementRole", "compound"],
   ["forceType", "push"],
@@ -366,6 +412,11 @@ assert.equal(
   "Flat dumbbell bench press — edited",
 );
 assert.ok(interactionApp.Basement45.getState().exerciseEdits["flat-dumbbell-bench-press"]);
+assert.ok(
+  interactionApp.Basement45.exercises
+    .find((exercise) => exercise.id === "flat-dumbbell-bench-press")
+    .equipment_varieties.includes("D-handles"),
+);
 
 clickAction(interactionApp, "toggle-hide-library", { exerciseId: "test-supported-row" });
 assert.deepEqual(interactionApp.Basement45.getState().hiddenExerciseIds, ["test-supported-row"]);
@@ -374,6 +425,54 @@ assert.deepEqual(interactionApp.Basement45.getState().deletedExerciseIds, ["test
 const customReloadApp = launchApp(JSON.stringify(interactionApp.Basement45.getState()));
 assert.equal(customReloadApp.Basement45.getState().customExercises.length, 1);
 assert.deepEqual(customReloadApp.Basement45.getState().deletedExerciseIds, ["test-supported-row"]);
+assert.ok(
+  customReloadApp.Basement45.exercises
+    .find((exercise) => exercise.id === "flat-dumbbell-bench-press")
+    .equipment_varieties.includes("D-handles"),
+);
+
+interactionApp.document._listeners.click[0]({
+  target: {
+    dataset: { view: "library" },
+    closest(selector) {
+      return selector === "[data-view]" ? this : null;
+    },
+  },
+});
+interactionApp.document._listeners.change[0]({
+  target: {
+    id: "library-equipment",
+    value: "D-handles",
+    dataset: {},
+    closest() {
+      return null;
+    },
+  },
+});
+const dHandleLibraryHtml = interactionApp.__elements.get("library-view").innerHTML;
+assert.ok(dHandleLibraryHtml.includes("Cable Y raise"));
+assert.ok(!dHandleLibraryHtml.includes("Back extension machine side bend"));
+assert.ok(!dHandleLibraryHtml.includes('data-action="toggle-activator-library"'));
+const currentLibraryTotal =
+  interactionApp.Basement45.exercises.length - interactionApp.Basement45.getState().deletedExerciseIds.length;
+assert.ok(
+  interactionApp.__elements.get("day-tabs").innerHTML.includes(`${currentLibraryTotal} total exercises`),
+  "the library tab should show the current total catalog size",
+);
+assert.ok(dHandleLibraryHtml.includes(`of <strong>${currentLibraryTotal}</strong> exercises showing`));
+assert.ok(!dHandleLibraryHtml.includes("spreadsheet exercises"));
+assert.ok(!dHandleLibraryHtml.includes("equipment additions"));
+interactionApp.document._listeners.change[0]({
+  target: {
+    id: "library-sort",
+    value: "equipment",
+    dataset: {},
+    closest() {
+      return null;
+    },
+  },
+});
+assert.ok(interactionApp.__elements.get("library-view").innerHTML.includes('<option value="equipment" selected>'));
 assert.equal(
   customReloadApp.Basement45.exercises.find((exercise) => exercise.id === "flat-dumbbell-bench-press").name,
   "Flat dumbbell bench press — edited",
@@ -510,8 +609,19 @@ assert.equal(weekendMigratedApp.Basement45.getState().week.days.sunday.circuits.
 assert.equal(weekendMigratedApp.Basement45.getState().daySettings.saturday.enabled, false);
 assert.equal(weekendMigratedApp.Basement45.getState().daySettings.sunday.enabled, false);
 
+const preActivatorState = JSON.parse(JSON.stringify(roundTripState));
+preActivatorState.version = 5;
+preActivatorState.week.days.monday.circuits[0].bridge.exerciseId = "flat-dumbbell-bench-press";
+const activatorMigratedApp = launchApp(JSON.stringify(preActivatorState));
+const migratedActivatorId = activatorMigratedApp.Basement45.getState().week.days.monday.circuits[0].bridge.exerciseId;
+assert.equal(
+  activatorMigratedApp.Basement45.exercises.find((exercise) => exercise.id === migratedActivatorId).total_body_activator,
+  true,
+);
+assert.deepEqual(Array.from(activatorMigratedApp.Basement45.validateWeek()), []);
+
 console.log(
-  "Smoke test passed randomized starts, 140 generated weeks, weekend migration, completed panes and routines, direct-file save, editing, settings, and v1-v5 persistence.",
+  "Smoke test passed randomized starts, 140 generated weeks, equipment varieties, activator eligibility, migrations, direct-file save, editing, settings, and v1-v6 persistence.",
 );
 }
 

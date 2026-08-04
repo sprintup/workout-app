@@ -140,8 +140,12 @@
             <select id="custom-category" name="category" required></select>
           </label>
           <label class="form-field">
-            <span>Equipment</span>
+            <span>Primary setup</span>
             <input name="equipment" required maxlength="120" placeholder="e.g. FT2 + one handle" />
+          </label>
+          <label class="form-field form-field-wide">
+            <span>Equipment varieties <small>one per line</small></span>
+            <textarea name="equipmentVarieties" maxlength="1000" rows="4" placeholder="Functional trainer&#10;D-handles&#10;Bench"></textarea>
           </label>
           <label class="form-field">
             <span>Movement pattern</span>
@@ -163,7 +167,7 @@
               <option value="compound">Compound</option>
               <option value="total_body">Total body</option>
               <option value="isolation">Isolation</option>
-              <option value="bridge">Random activator</option>
+              <option value="bridge">Total Body activator</option>
             </select>
           </label>
           <label class="form-field">
@@ -193,6 +197,7 @@
             <textarea name="notes" maxlength="1000" rows="3" placeholder="Technique cues, substitutions, or reminders"></textarea>
           </label>
           <div class="form-checks form-field-wide">
+            <label><input type="checkbox" name="totalBodyActivator" /> Total-body activator</label>
             <label><input type="checkbox" name="shoulderCaution" /> Shoulder-aware</label>
             <label><input type="checkbox" name="backCaution" /> Back-aware</label>
           </div>
@@ -211,6 +216,7 @@
     </noscript>
 
     <script src="exercise-data.js"></script>
+    <script src="equipment-exercises.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

@@ -1031,7 +1031,7 @@ svg {
 
 .library-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 180px 210px;
+  grid-template-columns: minmax(220px, 1fr) 170px 190px 170px;
   gap: 0.65rem;
   margin: 1.3rem 0 1rem;
 }
@@ -1137,6 +1137,23 @@ svg {
   font-size: 0.68rem;
 }
 
+.equipment-varieties {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin: 0.35rem 0 0.45rem;
+}
+
+.equipment-varieties span {
+  padding: 0.2rem 0.42rem;
+  border: 1px solid #c9dcd2;
+  border-radius: 999px;
+  color: var(--forest-2);
+  background: #f3f9f6;
+  font-size: 0.58rem;
+  font-weight: 750;
+}
+
 .library-tags {
   display: flex;
   flex-wrap: wrap;
@@ -1154,6 +1171,11 @@ svg {
 .tag.caution {
   color: #8a4d27;
   background: #faeadf;
+}
+
+.tag.activator {
+  color: #fff;
+  background: var(--forest-2);
 }
 
 .library-counts {
@@ -1174,14 +1196,19 @@ svg {
 
 .library-fields {
   display: grid;
-  grid-template-columns: 76px minmax(58px, 1fr) minmax(58px, 1fr) auto auto auto auto;
-  gap: 0.35rem;
+  grid-template-columns: 70px minmax(50px, 1fr) minmax(50px, 1fr) 33px auto auto auto;
+  gap: 0.25rem;
   align-items: center;
+  min-width: 0;
+}
+
+.result-summary strong + strong {
+  margin-left: 0.1rem;
 }
 
 .library-action {
   min-height: 33px;
-  padding: 0.35rem 0.5rem;
+  padding: 0.35rem 0.42rem;
   border: 1px solid var(--line);
   border-radius: 7px;
   color: var(--ink-soft);
@@ -1406,6 +1433,7 @@ svg {
 
 .form-checks {
   display: flex;
+  flex-wrap: wrap;
   gap: 1.2rem;
   padding: 0.3rem 0;
   color: var(--ink-soft);
@@ -1718,6 +1746,15 @@ svg {
     grid-template-columns: 1fr 120px;
   }
 
+  .library-card > div:nth-child(2),
+  .library-fields {
+    grid-column: 1 / -1;
+  }
+
+  .library-fields {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
   .settings-grid {
     grid-template-columns: 1fr;
   }
@@ -1804,6 +1841,10 @@ svg {
   .library-tags,
   .library-fields {
     grid-column: auto;
+  }
+
+  .library-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .dialog-header,

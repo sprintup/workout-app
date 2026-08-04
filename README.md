@@ -6,15 +6,15 @@ At the top of the app:
 
 - **Save file** (`Ctrl+S` / `Cmd+S`) connects a JSON file using Chrome or Edge's File System Access API. After the first file choice, changes autosave directly back to that file. Browser-local autosave remains active when no file is connected.
 - **Open JSON** restores an existing workout file and connects it for subsequent autosaves. Browsers without direct-file support can still open JSON with the standard file chooser.
-- **New week** archives the current selections, keeps locked exercises and saved loads/reps, generates a varied validated plan, and clears all round and random-activator checkmarks.
+- **New week** archives the current selections, keeps locked exercises and saved loads/reps, generates a varied validated plan, and clears all round and total-body-activator checkmarks.
 
-Each circuit scales from two to four in-round exercises: **Focused** has 2, **Standard** has 3, and **Challenge** has 4. Use the `−` and `+` controls in a circuit heading to remove or add a compatible exercise. Each circuit has separate checkboxes for rounds 1–3 and one for its random activator.
+Each circuit scales from two to four in-round exercises: **Focused** has 2, **Standard** has 3, and **Challenge** has 4. Use the `−` and `+` controls in a circuit heading to remove or add a compatible exercise. Each circuit has separate checkboxes for rounds 1–3 and one for its total-body activator.
 
 The replacement picker's **Setup score** estimates how much equipment or position change is needed between adjacent exercises: `0` is no setup change, `1` is a grip/body-position change, and `2` is one quick equipment adjustment. The app only offers scores from 0–2.
 
-Eligibility remains the default, but **Show all library exercises** in the replacement picker allows an explicit manual override. In that mode, any unused, visible library exercise can be selected even when it is outside the slot's target or has a higher setup score; the circuit labels that transition as manual.
+Eligibility remains the default, but **Show all library exercises** in the replacement picker allows an explicit manual override. In that mode, any unused, visible library exercise can be selected even when it is outside the slot's target or has a higher setup score; the circuit labels that transition as manual. Total Body activator slots remain restricted to exercises with the activator checkbox enabled.
 
-The Exercise Library supports user-added exercises. Built-in and user-added exercises can be hidden from recommendations or deleted; hidden exercises can be restored with **Show hidden**. Fixed shoulder/PT placeholders cannot be hidden or deleted.
+The Exercise Library supports user-added exercises plus a built-in equipment expansion for the functional-trainer attachments, bands, kettlebell, back-extension machine, pull-up bar, and bench. Each exercise has an editable primary setup and one-per-line equipment varieties. The library can filter or sort by those varieties. Built-in and user-added exercises can be hidden from recommendations or deleted; hidden exercises can be restored with **Show hidden**. Fixed shoulder/PT placeholders cannot be hidden or deleted.
 
 Every exercise can be edited, annotated with a workout note, measured in repetitions or seconds, randomly replaced with an eligible option, reordered within a circuit, or removed when the circuit has more than two movements. The Settings page controls which weekdays appear and lets you edit each day's target and description.
 
@@ -59,9 +59,15 @@ The recommendation engine may select exercises using the following equipment:
   - Lat-pulldown attachment
   - Pull-up bar
   - Curl bar
-  - Single handles
-  - Rope and other common cable attachments, when available
+  - Straight bar
+  - Low-row handle
+  - D-handles
+  - Ankle straps
+  - Triceps pushdown rope
 - REP Pepin adjustable dumbbells, up to 125 lb each
+- Kettlebell
+- Resistance bands
+- Back-extension machine
 - Adjustable bench
 - Light squat rack
 - Barbell and weight plates
@@ -76,7 +82,7 @@ Do not recommend exercises that require the following unless the user later adds
 - Smith machine
 - Leg-extension attachment
 - Leg-curl attachment
-- Large commercial exercise machines
+- Other large commercial exercise machines
 
 ## Environment Constraints
 
@@ -116,7 +122,7 @@ Each superset contains:
 
 1. Superset Exercise 1
 2. Complement Exercise 2
-3. Bridge Exercise performed between rounds
+3. Total Body activator
 
 Repeat each group for three rounds.
 
@@ -125,24 +131,24 @@ Example:
 ```text
 Superset Exercise 1: Incline neutral-grip dumbbell press
 Complement Exercise 2: One-arm dumbbell row
-Bridge Exercise: Dumbbell shrugs
+Total Body activator: Bear crawl
 ```
 
-### Bridge Exercises
+### Total Body Activators
 
-A bridge exercise is an ancillary movement performed between rounds. It replaces part of the passive rest period without becoming the primary focus of the superset.
+A Total Body activator is an integrated movement that connects upper body, lower body, and core work. Every exercise has an editable `Total-body activator` checkbox, and only checked exercises may fill this slot.
 
-Typical bridge exercises include:
+Typical activators include:
 
-- Wall sits
-- Calf raises
-- Physical-therapy exercises
-- Shrugs
-- Forearm exercises
-- Rotator-cuff exercises
-- Core-stability exercises
+- Bear crawls
+- Mountain climbers
+- Cleans
+- Loaded carries and marches
+- Integrated cable rotations
+- Lunge, squat, or hinge combinations involving the upper body
+- The three fixed user-defined PT movements
 
-The application should still permit a brief actual rest after the bridge exercise when needed for good technique.
+The application should still permit actual rest after the activator when needed for good technique.
 
 ## Repetition and Set Defaults
 
@@ -150,7 +156,7 @@ The application should still permit a brief actual rest after the bridge exercis
 - Unilateral exercises: usually 10 repetitions per side
 - More demanding total-body exercises: usually 5 to 8 controlled repetitions per side or 6 to 8 total repetitions
 - Rotator-cuff exercises: usually 10 to 15 light, controlled repetitions
-- Isometric bridge exercises: approximately 20 to 45 seconds
+- Isometric activators: approximately 20 to 45 seconds
 - The user may override repetitions and weights at any time
 
 Avoid displaying redundant set notation. If the workout already states that a superset is repeated for three rounds, do not also label each individual exercise as `3 x 10` unless required by the interface.
@@ -240,7 +246,7 @@ Superset 2: Total-body push + total-body pull
 Superset 3: Isolated push + isolated pull
 ```
 
-Monday bridge exercises may include shrugs, anti-rotation core work, carries, or other simple ancillary movements.
+Monday activators should use exercises checked as total-body movements.
 
 Do not allow Monday to become heavily push-dominant or pull-dominant.
 
@@ -254,7 +260,7 @@ Do not allow Monday to become heavily push-dominant or pull-dominant.
 - Barbell box squats may be used when appropriate.
 - Include a balance of squat, hinge, unilateral, hip, and stability patterns.
 - Physio-ball exercises are available.
-- Wall sits are a preferred bridge exercise.
+- Use a checked total-body movement for the activator slot.
 
 Avoid relying on leg extensions or machine leg curls because those attachments are unavailable. Physio-ball or sliding hamstring curls are acceptable substitutes.
 
@@ -267,7 +273,7 @@ Avoid relying on leg extensions or machine leg curls because those attachments a
 - Overhead dumbbell presses must be seated.
 - Favor neutral grips and controlled ranges of motion.
 - Avoid excessive pressing volume because the previous dumbbell routine caused shoulder pain.
-- Forearm work may be used as a bridge exercise.
+- Shoulder-health movements remain main-round options when appropriate; the activator stays total-body.
 
 Possible shoulder-health movements include:
 
@@ -287,7 +293,7 @@ These movements are options, not medical treatment.
 - Do not recommend FT2 cable chest presses.
 - Standing cable chest fly variations are allowed and preferred cable-based chest movements.
 - Overhead triceps extensions must be seated.
-- Calf raises are a preferred bridge exercise.
+- The activator stays total-body rather than serving as an extra isolation movement.
 - Favor neutral-grip dumbbell pressing when appropriate.
 - Avoid duplicating Monday's exact pressing exercises.
 
@@ -303,7 +309,7 @@ Pull-day recommendations may use:
 - Dumbbell or cable curls
 - FT2 curl bar
 
-The following bridge exercises are fixed and must not be replaced:
+The following Total Body activators are fixed and must not be replaced:
 
 - PT Exercise 1
 - PT Exercise 2
@@ -466,17 +472,17 @@ Monday - Arms and Upper Body
 Superset 1 - Compound
 Push: Incline neutral-grip dumbbell press
 Pull: One-arm dumbbell row
-Random activator: Dumbbell shrugs
+Total Body activator: Kettlebell suitcase march
 
 Superset 2 - Total Body
 Push: [recommended integrated push]
 Pull: Dumbbell clean
-Random activator: Pallof press
+Total Body activator: Cable anti-rotation reverse lunge
 
 Superset 3 - Isolation
 Push: Dumbbell skull crusher
 Pull: Incline dumbbell curl
-Random activator: Farmer carry
+Total Body activator: Bear crawl
 ```
 
 ## Future User-Configurable Settings

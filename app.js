@@ -1,10 +1,9 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = 5;
+  const APP_VERSION = 6;
   const STORAGE_KEY = "basement45-state-v1";
-  const IMPORTED_EXERCISE_COUNT = window.EXERCISE_SOURCE.length;
-  const ACTIVATOR_LABEL = "Random activator";
+  const ACTIVATOR_LABEL = "Total Body activator";
 
   const ICONS = {
     arrow:
@@ -63,7 +62,7 @@
       name: "Friday",
       focus: "Pull",
       guidance:
-        "Keep hinges crisp and conservative. The three PT random activator slots are fixed and carry forward into every new week.",
+        "Keep hinges crisp and conservative. The three PT total-body activator slots are fixed and carry forward into every new week.",
     },
     {
       id: "saturday",
@@ -132,8 +131,53 @@
     if (value.includes("body weight")) equipment.push("body weight");
     if (value.includes("wall")) equipment.push("wall");
     if (value.includes("plate")) equipment.push("plates");
+    if (value.includes("kettlebell")) equipment.push("kettlebell");
+    if (value.includes("band")) equipment.push("bands");
+    if (value.includes("back extension")) equipment.push("back extension machine");
+    if (value.includes("pull-up bar") || value.includes("pull up bar")) equipment.push("pull-up bar");
+    if (value.includes("ankle strap")) equipment.push("ankle straps");
+    if (value.includes("curl bar")) equipment.push("curl bar");
+    if (value.includes("straight bar")) equipment.push("straight bar");
+    if (includesAny(value, ["low row", "row handle", "chinning handle"])) equipment.push("low row handle");
+    if (includesAny(value, ["d-handle", "d handle", "one handle", "two handles"])) equipment.push("D-handles");
+    if (value.includes("rope")) equipment.push("triceps rope");
 
     return equipment.length ? [...new Set(equipment)] : ["user-defined"];
+  }
+
+  function inferEquipmentVarieties(record) {
+    const explicit = Array.isArray(record.equipmentVarieties)
+      ? record.equipmentVarieties
+      : Array.isArray(record.equipment_varieties)
+        ? record.equipment_varieties
+        : [];
+    const value = String(record.equipment || "").toLowerCase();
+    const varieties = explicit.map((item) => String(item).trim()).filter(Boolean);
+    const add = (label, patterns) => {
+      if (includesAny(value, patterns)) varieties.push(label);
+    };
+
+    add("Functional trainer", ["ft2", "cable"]);
+    add("D-handles", ["d-handle", "d handle", "one handle", "two handles", "strap handle"]);
+    add("Curl bar", ["curl bar", "curl-bar"]);
+    add("Straight bar", ["straight bar"]);
+    add("Low row handle", ["low row", "row handle", "chinning handle"]);
+    add("Triceps rope", ["triceps rope", "pushdown rope", "rope"]);
+    add("Ankle straps", ["ankle strap", "ankle cuff"]);
+    add("Resistance bands", ["resistance band", "loop band", "mini band"]);
+    add("Kettlebell", ["kettlebell"]);
+    add("Back extension machine", ["back extension machine", "45-degree back extension", "45 degree back extension"]);
+    add("Pull-up bar", ["pull-up bar", "pull up bar"]);
+    add("Bench", ["bench", "box"]);
+    add("Dumbbells", ["dumbbell"]);
+    add("Barbell", ["barbell"]);
+    add("Squat rack", ["squat rack"]);
+    add("Physio ball", ["physio ball", "stability ball"]);
+    add("Weight plates", ["plate"]);
+    add("Body weight", ["body weight", "bodyweight"]);
+
+    if (!varieties.length && record.equipment) varieties.push(String(record.equipment).trim());
+    return [...new Set(varieties)].sort((first, second) => first.localeCompare(second));
   }
 
   function inferMovementPattern(record) {
@@ -151,7 +195,7 @@
 
   function inferMovementRole(record) {
     if (record.movementRole) return record.movementRole;
-    if (record.custom) return record.name.startsWith("PT Exercise") ? "bridge" : "isolation";
+    if (record.custom && !record.catalogExpansion) return record.name.startsWith("PT Exercise") ? "bridge" : "isolation";
     if (record.category === "Full Body and Golf Support") return "total_body";
     if (
       ["Forearms, Grip and Traps", "Calves and Lower Legs", "Core"].includes(record.category) ||
@@ -232,6 +276,7 @@
   function enrichExercise(record) {
     const movementPattern = record.movementPattern || inferMovementPattern(record);
     const forceType = record.forceType || inferForceType(record, movementPattern);
+    const movementRole = inferMovementRole(record);
     const value = record.name.toLowerCase();
     const overhead = includesAny(value, ["overhead", "shoulder press", "arnold press"]);
     const shoulderCaution =
@@ -262,10 +307,11 @@
       primary_body_part: record.category,
       secondary_body_parts: [],
       movement_pattern: movementPattern,
-      movement_role: inferMovementRole(record),
+      movement_role: movementRole,
       force_type: forceType,
       equipment: inferEquipment(record.equipment),
       equipment_label: record.equipment,
+      equipment_varieties: inferEquipmentVarieties(record),
       setup_location: includesAny(record.equipment, ["FT2", "cable"])
         ? "FT2"
         : includesAny(record.equipment, ["bench", "box"])
@@ -296,11 +342,30 @@
               : null),
       source_row: record.sourceRow,
       custom: Boolean(record.custom),
+      catalog_expansion: Boolean(record.catalogExpansion),
+      total_body_activator:
+        typeof record.totalBodyActivator === "boolean"
+          ? record.totalBodyActivator
+          : record.name.startsWith("PT Exercise") ||
+            movementRole === "total_body" ||
+            includesAny(value, ["carry", "turkish get-up", "bear crawl", "mountain climber"]),
       always_locked: Boolean(record.alwaysLocked),
     };
   }
 
-  const BASE_EXERCISES = [...window.EXERCISE_SOURCE, ...CUSTOM_EXERCISES].map(enrichExercise);
+  const equipmentSource = Array.isArray(window.EQUIPMENT_EXERCISE_SOURCE) ? window.EQUIPMENT_EXERCISE_SOURCE : [];
+  const equipmentSourceById = new Map(equipmentSource.map((record) => [slugify(record.name), record]));
+  const originalRecords = [...window.EXERCISE_SOURCE, ...CUSTOM_EXERCISES].map((record) => {
+    const expansion = equipmentSourceById.get(slugify(record.name));
+    if (!expansion) return record;
+    return {
+      ...record,
+      equipmentVarieties: [...inferEquipmentVarieties(record), ...inferEquipmentVarieties(expansion)],
+    };
+  });
+  const originalIds = new Set(originalRecords.map((record) => slugify(record.name)));
+  const expandedRecords = equipmentSource.filter((record) => !originalIds.has(slugify(record.name)));
+  const BASE_EXERCISES = [...originalRecords, ...expandedRecords].map(enrichExercise);
   let exercises = [...BASE_EXERCISES];
   let exerciseById = new Map(exercises.map((exercise) => [exercise.id, exercise]));
   const idFor = (name) => slugify(name);
@@ -322,6 +387,9 @@
       shoulderCaution: edit.shoulderCaution ?? exercise.shoulder_caution,
       backCaution: edit.backCaution ?? exercise.back_caution,
       notes: edit.notes ?? exercise.notes,
+      equipmentVarieties: edit.equipmentVarieties || exercise.equipment_varieties,
+      totalBodyActivator: edit.totalBodyActivator ?? exercise.total_body_activator,
+      catalogExpansion: exercise.catalog_expansion,
     });
     edited.id = exercise.id;
     return edited;
@@ -994,6 +1062,7 @@
     currentView: "monday",
     librarySearch: "",
     libraryCategory: "all",
+    libraryEquipment: "all",
     librarySort: "popular",
     showHidden: false,
     replacement: null,
@@ -1053,8 +1122,12 @@
   }
 
   function matchesSlot(exercise, slot) {
+    if (slot.label === ACTIVATOR_LABEL) {
+      if (exercise.always_locked) return slot.names.some((name) => idFor(name) === exercise.id);
+      return exercise.total_body_activator;
+    }
     if (slot.names.some((name) => idFor(name) === exercise.id)) return true;
-    if (!exercise.custom || exercise.always_locked) return false;
+    if ((!exercise.custom && !exercise.catalog_expansion) || exercise.always_locked) return false;
 
     const references = slot.names.map((name) => exerciseById.get(idFor(name))).filter(Boolean);
     return references.some(
@@ -1148,7 +1221,8 @@
 
   function exerciseScore(exercise, slot, recent) {
     const stats = stateFor(exercise.id);
-    const preferredIndex = slot.names.findIndex((name) => idFor(name) === exercise.id);
+    const listedIndex = slot.names.findIndex((name) => idFor(name) === exercise.id);
+    const preferredIndex = listedIndex >= 0 ? listedIndex : slot.names.length;
     let score = Math.random() * 16 + preferredIndex * 0.8 + stats.chosenCount * 0.35;
     if (recent.has(exercise.id)) score += 28;
     if (slot.defaultName && exercise.id === idFor(slot.defaultName)) score -= 18;
@@ -1204,12 +1278,21 @@
     const preservedSecond = preservedAssignment(oldCircuit, "second", secondSlot, used);
     if (preservedSecond) used.add(preservedSecond.exerciseId);
 
-    const firstCandidates = preservedFirst
+    let firstCandidates = preservedFirst
       ? [exerciseById.get(preservedFirst.exerciseId)]
       : candidatesFor(firstSlot, used);
-    const secondCandidates = preservedSecond
+    let secondCandidates = preservedSecond
       ? [exerciseById.get(preservedSecond.exerciseId)]
       : candidatesFor(secondSlot, used);
+
+    const firstScores = new Map(firstCandidates.map((exercise) => [exercise.id, exerciseScore(exercise, firstSlot, recent)]));
+    const secondScores = new Map(secondCandidates.map((exercise) => [exercise.id, exerciseScore(exercise, secondSlot, recent)]));
+    if (!preservedFirst) {
+      firstCandidates = firstCandidates.sort((first, second) => firstScores.get(first.id) - firstScores.get(second.id)).slice(0, 40);
+    }
+    if (!preservedSecond) {
+      secondCandidates = secondCandidates.sort((first, second) => secondScores.get(first.id) - secondScores.get(second.id)).slice(0, 40);
+    }
 
     if (preservedFirst) used.delete(preservedFirst.exerciseId);
     if (preservedSecond) used.delete(preservedSecond.exerciseId);
@@ -1224,10 +1307,7 @@
           first,
           second,
           cost,
-          score:
-            cost * 24 +
-            exerciseScore(first, firstSlot, recent) +
-            exerciseScore(second, secondSlot, recent),
+          score: cost * 24 + firstScores.get(first.id) + secondScores.get(second.id),
         });
       }
     }
@@ -1419,7 +1499,7 @@
       used.add(pair.second.id);
 
       const bridge = candidatesForMissingSlot(definition.bridge)[0];
-      if (!bridge) throw new Error(`No random activator remains while adding ${day.name}.`);
+      if (!bridge) throw new Error(`No total-body activator remains while adding ${day.name}.`);
       used.add(bridge.id);
       const manualOverride = pair.cost > 2;
 
@@ -1576,7 +1656,7 @@
       const stored = localStorage.getItem(STORAGE_KEY);
       if (!stored) return null;
       const parsed = JSON.parse(stored);
-      if (![1, 2, 3, 4, APP_VERSION].includes(parsed.version) || !parsed.week?.days) return null;
+      if (![1, 2, 3, 4, 5, APP_VERSION].includes(parsed.version) || !parsed.week?.days) return null;
       rebuildExerciseCatalog(parsed.customExercises || [], parsed.exerciseEdits || {});
       return normalizeState(parsed);
     } catch (error) {
@@ -1670,6 +1750,7 @@
         delete circuit.completed;
       }
     }
+    migrateTotalBodyActivators(normalized.week, excludedIds);
     const issues = validateWeek(normalized.week);
     if (issues.length) throw new Error(`The saved week is invalid: ${issues[0]}`);
     return normalized;
@@ -1689,6 +1770,42 @@
         { ...circuit.bridge, dayId: day.id, circuitIndex, position: "bridge" },
       ]),
     );
+  }
+
+  function migrateTotalBodyActivators(week, excludedIds = new Set()) {
+    const invalid = [];
+    const used = new Set();
+    for (const day of DAY_CONFIG) {
+      for (const circuit of week.days[day.id].circuits) {
+        for (const assignment of mainAssignments(circuit)) used.add(assignment.exerciseId);
+        const exercise = exerciseById.get(circuit.bridge.exerciseId);
+        if (exercise?.total_body_activator) used.add(circuit.bridge.exerciseId);
+        else invalid.push(circuit);
+      }
+    }
+
+    const available = exercises
+      .filter(
+        (exercise) =>
+          exercise.total_body_activator &&
+          !used.has(exercise.id) &&
+          !excludedIds.has(exercise.id),
+      )
+      .sort((first, second) => first.name.localeCompare(second.name));
+
+    for (const circuit of invalid) {
+      const replacement = available.shift();
+      if (!replacement) break;
+      circuit.bridge = {
+        exerciseId: replacement.id,
+        slotLabel: ACTIVATOR_LABEL,
+        locked: false,
+        fixed: false,
+        slotKey: "bridge",
+      };
+      circuit.bridgeCompleted = false;
+      used.add(replacement.id);
+    }
   }
 
   function mainAssignments(circuit) {
@@ -1736,13 +1853,16 @@
           issues.push(`${day.name} circuit ${circuit.number} must track three rounds.`);
         }
         if (typeof circuit.bridgeCompleted !== "boolean") {
-          issues.push(`${day.name} circuit ${circuit.number} must track its random activator.`);
+          issues.push(`${day.name} circuit ${circuit.number} must track its total-body activator.`);
         }
         ids.push(...assignments.map((assignment) => assignment.exerciseId), circuit.bridge.exerciseId);
         const mainExercises = assignments.map((assignment) => exerciseById.get(assignment.exerciseId));
         const bridge = exerciseById.get(circuit.bridge.exerciseId);
         if (mainExercises.some((exercise) => !exercise) || !bridge) {
           issues.push(`${day.name} references an unknown exercise.`);
+        }
+        if (bridge && !bridge.total_body_activator) {
+          issues.push(`${day.name} circuit ${circuit.number} must use a checked total-body activator.`);
         }
         if (mainExercises.filter(requiresBothSides).length > 1) {
           issues.push(`${day.name} circuit ${circuit.number} combines multiple both-sides exercises.`);
@@ -1853,6 +1973,10 @@
     return DAY_CONFIG.filter((day) => state.daySettings[day.id].enabled);
   }
 
+  function libraryTotalCount() {
+    return exercises.filter((exercise) => !isDeleted(exercise.id)).length;
+  }
+
   function renderTabs() {
     const tabs = enabledDays().map((baseDay) => {
       const day = displayDay(baseDay);
@@ -1870,7 +1994,7 @@
     document.getElementById("day-tabs").innerHTML = `${tabs}
       <button class="day-tab library-tab ${libraryActive ? "active" : ""}" type="button" data-view="library" aria-current="${libraryActive ? "page" : "false"}">
         <span class="day-short">${ICONS.book}</span>
-        <span><strong>Exercise library</strong><small>${IMPORTED_EXERCISE_COUNT} spreadsheet exercises</small></span>
+        <span><strong>Exercise library</strong><small>${libraryTotalCount()} total exercises</small></span>
         <span class="tab-status">${ICONS.arrow}</span>
       </button>
       <button class="day-tab library-tab ${ui.currentView === "settings" ? "active" : ""}" type="button" data-view="settings" aria-current="${ui.currentView === "settings" ? "page" : "false"}">
@@ -1902,7 +2026,7 @@
           <span class="exercise-tools">
             ${
               context.position === "bridge"
-                ? `<label class="bridge-check" title="Mark the random activator complete">
+                ? `<label class="bridge-check" title="Mark the total-body activator complete">
                     <input type="checkbox" data-action="complete-bridge" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" ${context.bridgeCompleted ? "checked" : ""} />
                     <span>Done</span>
                   </label>`
@@ -2058,7 +2182,7 @@
           <div>
             <span class="eyebrow">${completed} of 3 circuits complete</span>
             <h1>${config.name} <span>— ${escapeHtml(config.focus)}</span></h1>
-            <p class="view-subtitle">Complete each circuit for three rounds. Focused, standard, and challenge circuits contain two to four exercises; the random activator adds a little movement during the rest period.</p>
+            <p class="view-subtitle">Complete each circuit for three rounds. Focused, standard, and challenge circuits contain two to four exercises; the total-body activator ties the session together with an integrated movement.</p>
           </div>
           <div class="session-chip">${ICONS.clock}<span><span>Target time</span><strong>About 45 minutes</strong></span></div>
         </header>
@@ -2084,14 +2208,22 @@
     return [...new Set(exercises.map((exercise) => exercise.primary_body_part))].sort();
   }
 
+  function equipmentOptions() {
+    return [...new Set(exercises.flatMap((exercise) => exercise.equipment_varieties))].sort((first, second) =>
+      first.localeCompare(second),
+    );
+  }
+
   function filteredLibrary() {
     const search = ui.librarySearch.trim().toLowerCase();
     const filtered = exercises.filter((exercise) => {
       if (isDeleted(exercise.id)) return false;
       if (isHidden(exercise.id) && !ui.showHidden) return false;
       const matchesCategory = ui.libraryCategory === "all" || exercise.primary_body_part === ui.libraryCategory;
-      const haystack = `${exercise.name} ${exercise.primary_body_part} ${exercise.equipment_label}`.toLowerCase();
-      return matchesCategory && (!search || haystack.includes(search));
+      const matchesEquipment =
+        ui.libraryEquipment === "all" || exercise.equipment_varieties.includes(ui.libraryEquipment);
+      const haystack = `${exercise.name} ${exercise.primary_body_part} ${exercise.equipment_label} ${exercise.equipment_varieties.join(" ")}`.toLowerCase();
+      return matchesCategory && matchesEquipment && (!search || haystack.includes(search));
     });
 
     return filtered.sort((first, second) => {
@@ -2105,6 +2237,11 @@
       }
       if (ui.librarySort === "category") {
         return first.primary_body_part.localeCompare(second.primary_body_part) || first.name.localeCompare(second.name);
+      }
+      if (ui.librarySort === "equipment") {
+        const firstEquipment = first.equipment_varieties[0] || first.equipment_label;
+        const secondEquipment = second.equipment_varieties[0] || second.equipment_label;
+        return firstEquipment.localeCompare(secondEquipment) || first.name.localeCompare(second.name);
       }
       return first.name.localeCompare(second.name);
     });
@@ -2123,10 +2260,14 @@
         </div>
         <div>
           <div class="library-equipment">${escapeHtml(exercise.equipment_label)}</div>
+          <div class="equipment-varieties" aria-label="Equipment varieties">
+            ${exercise.equipment_varieties.map((equipment) => `<span>${escapeHtml(equipment)}</span>`).join("")}
+          </div>
           <div class="library-tags">
             <span class="tag">${escapeHtml(exercise.movement_role.replace("_", " "))}</span>
             <span class="tag">${escapeHtml(exercise.force_type.replace("_", " "))}</span>
             ${caution ? `<span class="tag caution">${escapeHtml(caution)}</span>` : ""}
+            ${exercise.total_body_activator ? '<span class="tag activator">Total-body activator</span>' : ""}
           </div>
         </div>
         <div class="library-counts" aria-label="Exercise usage">
@@ -2158,9 +2299,9 @@
       <div class="content-frame">
         <header class="view-header">
           <div>
-            <span class="eyebrow">Imported from Excel</span>
+            <span class="eyebrow">Workout catalog</span>
             <h1>Exercise <span>library</span></h1>
-            <p class="view-subtitle">Browse every spreadsheet exercise, tune its saved reps and load, or sort by what you choose and skip most often.</p>
+            <p class="view-subtitle">Browse every exercise, filter or sort by equipment, and edit each movement's compatible equipment varieties.</p>
           </div>
           <button class="button button-primary" id="add-exercise-button" type="button" data-action="open-add-exercise">+ Add exercise</button>
         </header>
@@ -2170,17 +2311,20 @@
             <option value="all">All</option>
             ${categoryOptions().map((category) => `<option value="${escapeHtml(category)}" ${ui.libraryCategory === category ? "selected" : ""}>${escapeHtml(category)}</option>`).join("")}
           </select></label>
+          <label class="select-field"><span>Equipment</span><select id="library-equipment">
+            <option value="all">All equipment</option>
+            ${equipmentOptions().map((equipment) => `<option value="${escapeHtml(equipment)}" ${ui.libraryEquipment === equipment ? "selected" : ""}>${escapeHtml(equipment)}</option>`).join("")}
+          </select></label>
           <label class="select-field"><span>Sort</span><select id="library-sort">
             <option value="popular" ${ui.librarySort === "popular" ? "selected" : ""}>Most popular</option>
             <option value="skipped" ${ui.librarySort === "skipped" ? "selected" : ""}>Most skipped</option>
             <option value="name" ${ui.librarySort === "name" ? "selected" : ""}>Name A–Z</option>
             <option value="category" ${ui.librarySort === "category" ? "selected" : ""}>Category</option>
+            <option value="equipment" ${ui.librarySort === "equipment" ? "selected" : ""}>Equipment</option>
           </select></label>
         </div>
         <div class="library-stats">
-          <span class="stat-pill"><strong>${IMPORTED_EXERCISE_COUNT}</strong> spreadsheet exercises</span>
-          <span class="stat-pill"><strong>${CUSTOM_EXERCISES.length}</strong> fixed custom movements</span>
-          <span class="stat-pill"><strong>${state.customExercises.length}</strong> exercises added by you</span>
+          <span class="stat-pill result-summary"><strong>${items.length}</strong> of <strong>${libraryTotalCount()}</strong> exercises showing</span>
           <span class="stat-pill"><strong>${totalChosen}</strong> total selections</span>
           <span class="stat-pill"><strong>${totalSkipped}</strong> replacements</span>
           <label class="stat-pill show-hidden"><input id="show-hidden" type="checkbox" ${ui.showHidden ? "checked" : ""} /> Show ${state.hiddenExerciseIds.length} hidden</label>
@@ -2425,6 +2569,7 @@
       [exercise.category, 0.24],
       [exercise.movement_pattern, 0.28],
       [exercise.equipment_label, 0.32],
+      [exercise.equipment_varieties.join(" "), 0.3],
     ];
     const candidates = fields.flatMap(([value, fieldPenalty]) =>
       normalizeSearchText(value)
@@ -2468,6 +2613,7 @@
           return false;
         }
         if (searchScore === null) return false;
+        if (ui.replacement.position === "bridge" && !exercise.total_body_activator) return false;
         if (!adjacentExercises(ui.replacement).every((partner) => canCombine(exercise, partner))) return false;
         if (requiresBothSides(exercise) && otherCircuitExercises(ui.replacement).some(requiresBothSides)) return false;
         return ui.showAllReplacements || setupScoreForOption(exercise, ui.replacement) <= 2;
@@ -2565,7 +2711,11 @@
     if (!ui.replacement) return;
     const assignment = assignmentFor(ui.replacement);
     const next = exerciseById.get(exerciseId);
-    if (!next || (!ui.showAllReplacements && !matchesSlot(next, slotFor(ui.replacement)))) return;
+    if (
+      !next ||
+      (ui.replacement.position === "bridge" && !next.total_body_activator) ||
+      (!ui.showAllReplacements && !matchesSlot(next, slotFor(ui.replacement)))
+    ) return;
 
     const circuit = state.week.days[ui.replacement.dayId].circuits[ui.replacement.circuitIndex];
     const manualOverride =
@@ -2753,6 +2903,7 @@
     setValue("name", exercise.name);
     setValue("category", exercise.primary_body_part);
     setValue("equipment", exercise.equipment_label);
+    setValue("equipmentVarieties", exercise.equipment_varieties.join("\n"));
     setValue("movementPattern", exercise.movement_pattern);
     setValue("movementRole", exercise.movement_role);
     setValue("forceType", exercise.force_type);
@@ -2761,6 +2912,7 @@
     setValue("notes", exercise.notes);
     form.elements.shoulderCaution.checked = exercise.shoulder_caution;
     form.elements.backCaution.checked = exercise.back_caution;
+    form.elements.totalBodyActivator.checked = exercise.total_body_activator;
     document.getElementById("exercise-dialog-title").textContent = `Edit ${exercise.name}`;
     document.getElementById("exercise-dialog-description").textContent =
       "Changes apply throughout the library and current workout while preserving history.";
@@ -2783,6 +2935,10 @@
       name,
       category: String(data.get("category") || "Other"),
       equipment: String(data.get("equipment") || "User-defined").trim(),
+      equipmentVarieties: String(data.get("equipmentVarieties") || "")
+        .split(/\r?\n/)
+        .map((item) => item.trim())
+        .filter(Boolean),
       instructionUrl: String(data.get("instructionUrl") || "").trim() || null,
       sourceRow: null,
       custom: true,
@@ -2792,6 +2948,7 @@
       defaultReps: String(data.get("defaultReps") || "10").trim() || "10",
       shoulderCaution: data.get("shoulderCaution") === "on",
       backCaution: data.get("backCaution") === "on",
+      totalBodyActivator: data.get("totalBodyActivator") === "on",
       notes: String(data.get("notes") || "").trim() || null,
     };
 
@@ -2819,6 +2976,7 @@
       stateFor(exerciseId);
     }
     persist();
+    renderTabs();
     document.getElementById("exercise-dialog").close();
     renderLibrary();
     showToast(ui.editingExerciseId ? `${name} updated.` : `${name} added to the exercise library.`);
@@ -2850,6 +3008,7 @@
     state.deletedExerciseIds.push(exerciseId);
     state.hiddenExerciseIds = state.hiddenExerciseIds.filter((id) => id !== exerciseId);
     persist();
+    renderTabs();
     renderLibrary();
     showToast(`${exercise.name} deleted from the library.`);
   }
@@ -2958,6 +3117,7 @@
     if (core) {
       state.week.days[core.dataset.day].coreCompleted = core.checked;
       persist();
+      render();
       return;
     }
 
@@ -2980,6 +3140,10 @@
       ui.libraryCategory = event.target.value;
       renderLibrary();
     }
+    if (event.target.id === "library-equipment") {
+      ui.libraryEquipment = event.target.value;
+      renderLibrary();
+    }
     if (event.target.id === "library-sort") {
       ui.librarySort = event.target.value;
       renderLibrary();
@@ -2991,7 +3155,9 @@
     if (event.target.id === "show-all-replacements") {
       ui.showAllReplacements = event.target.checked;
       document.getElementById("replacement-scope-note").textContent = ui.showAllReplacements
-        ? "Showing every unused library exercise; target and setup limits are intentionally relaxed."
+        ? ui.replacement?.position === "bridge"
+          ? "Showing every unused exercise checked as a total-body activator."
+          : "Showing every unused library exercise; target and setup limits are intentionally relaxed."
         : "Only eligible, easy 0–2 options are shown.";
       renderReplacementResults();
     }
