@@ -9,6 +9,7 @@ const root = path.resolve(__dirname, "..");
 const exerciseDataScript = fs.readFileSync(path.join(root, "exercise-data.js"), "utf8");
 const equipmentExerciseDataScript = fs.readFileSync(path.join(root, "equipment-exercises.js"), "utf8");
 const appScript = fs.readFileSync(path.join(root, "app.js"), "utf8");
+const styles = fs.readFileSync(path.join(root, "styles.css"), "utf8");
 
 function elementStub() {
   const listeners = {};
@@ -21,7 +22,9 @@ function elementStub() {
     },
     appendChild() {},
     click() {},
-    close() {},
+    close() {
+      this.open = false;
+    },
     focus() {},
     reportValidity() {
       return true;
@@ -29,7 +32,9 @@ function elementStub() {
     reset() {},
     remove() {},
     setSelectionRange() {},
-    showModal() {},
+    showModal() {
+      this.open = true;
+    },
     style: {},
     classList: { toggle() {} },
     className: "",
@@ -195,6 +200,16 @@ assert.equal((workoutHtml.match(/data-action="core-check"/g) || []).length, 1);
 assert.equal((workoutHtml.match(/data-action="cardio-check"/g) || []).length, 1);
 assert.ok((workoutHtml.match(/data-action="random-replace"/g) || []).length > 0);
 assert.ok((workoutHtml.match(/class="exercise-note"/g) || []).length > 0);
+assert.ok((workoutHtml.match(/class="equipment-needed"/g) || []).length > 0);
+assert.ok((workoutHtml.match(/data-action="set-preference"/g) || []).length > 0);
+assert.ok((workoutHtml.match(/data-action="toggle-hide-workout"/g) || []).length > 0);
+assert.ok(
+  workoutHtml.indexOf('class="bridge-wrap activator-wrap"') < workoutHtml.indexOf('class="round-checks"') &&
+    workoutHtml.indexOf('class="round-checks"') < workoutHtml.indexOf('class="exercise-cycle"'),
+  "the total-body activator and sticky round controls should come before the cycle exercises",
+);
+assert.match(styles, /\.sidebar\s*{[^}]*position:\s*sticky/s);
+assert.match(styles, /\.round-checks\s*{[^}]*position:\s*sticky/s);
 changeAction(interactionApp, "complete-round", { day: "monday", circuit: "0", round: "0" }, true);
 changeAction(interactionApp, "complete-bridge", { day: "monday", circuit: "0" }, true);
 changeAction(interactionApp, "daily-check", { day: "monday", item: "stretch" }, true);
@@ -228,6 +243,14 @@ inputSetting(interactionApp, { setting: "notes", exerciseId: noteExerciseId }, "
 inputSetting(interactionApp, { setting: "measureType", exerciseId: noteExerciseId }, "seconds");
 assert.equal(interactionApp.Basement45.getState().exerciseState[noteExerciseId].notes, "Keep the tempo controlled");
 assert.equal(interactionApp.Basement45.getState().exerciseState[noteExerciseId].measureType, "seconds");
+clickAction(interactionApp, "set-preference", { exerciseId: noteExerciseId, value: "1" });
+assert.equal(interactionApp.Basement45.getState().exerciseState[noteExerciseId].preference, 1);
+assert.ok(interactionApp.__elements.get("workout-view").innerHTML.includes("More often"));
+clickAction(interactionApp, "toggle-hide-workout", { exerciseId: noteExerciseId });
+assert.ok(interactionApp.Basement45.getState().hiddenExerciseIds.includes(noteExerciseId));
+assert.ok(interactionApp.__elements.get("workout-view").innerHTML.includes("exercise-item is-hidden"));
+clickAction(interactionApp, "toggle-hide-workout", { exerciseId: noteExerciseId });
+assert.ok(!interactionApp.Basement45.getState().hiddenExerciseIds.includes(noteExerciseId));
 
 const exerciseLookup = new Map(interactionApp.Basement45.exercises.map((exercise) => [exercise.id, exercise]));
 assert.ok(exerciseLookup.get("cable-y-raise").equipment_varieties.includes("D-handles"));
@@ -300,6 +323,7 @@ interactionApp.document._listeners.change[0]({
   },
 });
 const activatorReplacementHtml = interactionApp.__elements.get("replace-results").innerHTML;
+assert.ok(activatorReplacementHtml.includes('data-action="hide-replacement"'));
 const activatorReplacementIds = [...activatorReplacementHtml.matchAll(/data-exercise-id="([^"]+)"/g)].map(
   (match) => match[1],
 );
@@ -308,6 +332,12 @@ assert.ok(
   activatorReplacementIds.every((exerciseId) => exerciseLookup.get(exerciseId).total_body_activator),
   "even Show all must keep the activator slot limited to checked exercises",
 );
+const hiddenReplacementId = activatorReplacementIds[0];
+clickAction(interactionApp, "hide-replacement", { exerciseId: hiddenReplacementId });
+assert.ok(interactionApp.Basement45.getState().hiddenExerciseIds.includes(hiddenReplacementId));
+assert.ok(!interactionApp.__elements.get("replace-results").innerHTML.includes(`data-exercise-id="${hiddenReplacementId}"`));
+clickAction(interactionApp, "toggle-hide-library", { exerciseId: hiddenReplacementId });
+assert.ok(!interactionApp.Basement45.getState().hiddenExerciseIds.includes(hiddenReplacementId));
 clickAction(interactionApp, "choose-replacement", { exerciseId: activatorReplacementIds[0] });
 assert.deepEqual(Array.from(interactionApp.Basement45.validateWeek()), []);
 
@@ -552,6 +582,11 @@ const directFileHandle = {
 interactionApp.showSaveFilePicker = async () => directFileHandle;
 await interactionApp.__elements.get("save-button")._listeners.click[0]();
 assert.equal(JSON.parse(directFileContents).app, "Basement 45");
+assert.equal(
+  JSON.parse(directFileContents).exerciseLibrary.find((exercise) => exercise.id === noteExerciseId)
+    .recommendation_preference,
+  1,
+);
 
 let roundTripState;
 for (let sequence = 0; sequence < 10; sequence += 1) {
@@ -621,7 +656,7 @@ assert.equal(
 assert.deepEqual(Array.from(activatorMigratedApp.Basement45.validateWeek()), []);
 
 console.log(
-  "Smoke test passed randomized starts, 140 generated weeks, equipment varieties, activator eligibility, migrations, direct-file save, editing, settings, and v1-v6 persistence.",
+  "Smoke test passed randomized starts, 140 generated weeks, equipment varieties, recommendation feedback, activator eligibility, migrations, direct-file save, editing, settings, and v1-v7 persistence.",
 );
 }
 

@@ -232,10 +232,16 @@ svg {
 }
 
 .sidebar {
+  position: sticky;
+  z-index: 15;
+  top: 76px;
   display: flex;
+  height: calc(100vh - 76px);
+  align-self: start;
   flex-direction: column;
   gap: 1.5rem;
   padding: 1.8rem 1.15rem 1.4rem;
+  overflow-y: auto;
   border-right: 1px solid rgb(23 63 52 / 12%);
   background: rgb(255 253 249 / 62%);
 }
@@ -513,7 +519,7 @@ svg {
   min-width: 0;
   min-height: 510px;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--paper);
@@ -525,7 +531,6 @@ svg {
 .circuit-card:hover {
   border-color: #c9cec6;
   box-shadow: 0 10px 34px rgb(24 35 31 / 8%);
-  transform: translateY(-2px);
 }
 
 .circuit-card.is-complete {
@@ -561,6 +566,7 @@ svg {
   gap: 0.75rem;
   padding: 1rem 1rem 0.85rem;
   border-bottom: 1px solid var(--line);
+  border-radius: calc(var(--radius-md) - 1px) calc(var(--radius-md) - 1px) 0 0;
 }
 
 .circuit-number {
@@ -658,6 +664,10 @@ svg {
   padding: 0.85rem 0;
 }
 
+.exercise-item.is-hidden {
+  opacity: 0.72;
+}
+
 .exercise-topline {
   display: flex;
   align-items: center;
@@ -748,6 +758,84 @@ svg {
 .exercise-meta a svg {
   width: 0.78rem;
   height: 0.78rem;
+}
+
+.exercise-support-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  margin: -0.15rem 0 0.65rem;
+}
+
+.equipment-needed {
+  min-width: 0;
+}
+
+.equipment-needed span,
+.equipment-needed strong {
+  display: block;
+}
+
+.equipment-needed span {
+  color: var(--ink-soft);
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.equipment-needed strong {
+  overflow: hidden;
+  color: var(--forest-2);
+  font-size: 0.67rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preference-controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.18rem;
+}
+
+.preference-controls > span {
+  min-width: 4.1rem;
+  color: var(--ink-soft);
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-align: right;
+}
+
+.feedback-button {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink-soft);
+  background: var(--white);
+}
+
+.feedback-button svg {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.feedback-button:hover,
+.feedback-button.active {
+  border-color: #9fc4b3;
+  color: var(--forest-2);
+  background: var(--mint);
+}
+
+.feedback-button.active.negative {
+  border-color: #e7b9a4;
+  color: var(--orange-dark);
+  background: #fae7dc;
 }
 
 .exercise-fields {
@@ -858,6 +946,11 @@ svg {
   padding: 0 0 0.9rem;
 }
 
+.activator-wrap {
+  padding-top: 0.55rem;
+  padding-bottom: 0;
+}
+
 .bridge-item {
   padding: 0.75rem;
   border: 1px dashed #cfd4cd;
@@ -875,12 +968,24 @@ svg {
 }
 
 .round-checks {
+  position: sticky;
+  z-index: 8;
+  top: 84px;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 0.42rem;
-  margin: 1rem 0 0.65rem;
-  padding-top: 0.85rem;
+  margin: 0.45rem -0.45rem 0.65rem;
+  padding: 0.65rem 0.45rem;
   border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: rgb(255 253 249 / 96%);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 7px 12px rgb(24 35 31 / 5%);
+}
+
+.circuit-card.is-complete .round-checks {
+  border-color: #b9d8ca;
+  background: rgb(232 244 238 / 96%);
 }
 
 .routine-row {
@@ -1523,9 +1628,8 @@ svg {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 0.8rem;
+  overflow: hidden;
   width: 100%;
-  padding: 0.78rem 0.9rem;
   border: 1px solid transparent;
   border-radius: 11px;
   text-align: left;
@@ -1535,6 +1639,41 @@ svg {
 .replace-option:hover {
   border-color: #c9dcd2;
   background: var(--mint-light);
+}
+
+.replace-option-choice {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.78rem 0.9rem;
+  text-align: left;
+  background: transparent;
+}
+
+.replace-option-hide {
+  display: flex;
+  height: 100%;
+  min-height: 48px;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.6rem 0.75rem;
+  border-left: 1px solid var(--line);
+  color: var(--ink-soft);
+  background: rgb(255 255 255 / 42%);
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+
+.replace-option-hide:hover {
+  color: var(--danger);
+  background: #fff0ed;
+}
+
+.replace-option-hide svg {
+  width: 0.9rem;
+  height: 0.9rem;
 }
 
 .replace-option strong,
@@ -1677,9 +1816,20 @@ svg {
   }
 
   .sidebar {
+    position: sticky;
+    z-index: 19;
+    top: 0;
+    height: auto;
     padding: 0.65rem 1rem;
+    overflow-y: visible;
     border-right: 0;
     border-bottom: 1px solid var(--line);
+    background: rgb(255 253 249 / 94%);
+    backdrop-filter: blur(14px);
+  }
+
+  .round-checks {
+    top: 57px;
   }
 
   .week-summary,
@@ -1812,6 +1962,24 @@ svg {
   .circuit-body {
     display: flex;
     gap: 0;
+  }
+
+  .exercise-support-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .equipment-needed strong {
+    overflow: visible;
+    white-space: normal;
+  }
+
+  .preference-controls > span {
+    text-align: left;
+  }
+
+  .replace-option-hide span {
+    display: none;
   }
 
   .transition-divider {

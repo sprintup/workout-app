@@ -1,9 +1,6 @@
-- [x] there should be a row above with checkboxes for stretch and 20 pushups and 5 pull ups; a row below for core
-- [x] I should be able to add notes to exercises and reorder them
-- [x] saving shouldn't download, but save on the filesystem. there should be a hotkey as well. It should also auto save.
-- [x] there should be a random button to replace an exercise with one that conforms to the intent. There should also be a button to delete exercises from the circuit
-- [x] exercises that include "both sides" shouldn't be combined
-- [x] Hidden exercises shouldn't be recommended
-- [x] I should be able to edit any exercise
-- [x] I should be able to edit the target of the days and their description. I should be able to select which days I want to workout in a settings page.
-- [x] You should be able to select between reps and seconds in a dropdownn on each exercise
+- [x] the exercise cards should show the equipment needed
+- [x] the total body activations should come first in the cycle
+- [x] you should be able to thumbs up or down an exercise to increase the weight it will get when being recommended
+- [x] I should be able to hide an exercise from both the exercise card and swap modal
+- [x] instead of being at the bottom, the round checkboxes should be toward the top of the circuit, just under the total body activator and should be sticky on scroll.
+- [x] The day sidebar should be sticky

@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = 6;
+  const APP_VERSION = 7;
   const STORAGE_KEY = "basement45-state-v1";
   const ACTIVATOR_LABEL = "Total Body activator";
 
@@ -19,6 +19,12 @@
       '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 9A7 7 0 0 1 18 6l2 2M17.9 15A7 7 0 0 1 6 18l-2-2"/></svg>',
     search:
       '<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg>',
+    thumbUp:
+      '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 10v11H3V10h4Zm0 9h10.3a2 2 0 0 0 2-1.7l1.1-7A2 2 0 0 0 18.4 8H14l.7-3.1A2.4 2.4 0 0 0 12.3 2L7 10v9Z"/></svg>',
+    thumbDown:
+      '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 14V3H3v11h4Zm0-9h10.3a2 2 0 0 1 2 1.7l1.1 7a2 2 0 0 1-2 2.3H14l.7 3.1a2.4 2.4 0 0 1-2.4 2.9L7 14V5Z"/></svg>',
+    eyeOff:
+      '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m3 3 18 18M10.6 10.7a2 2 0 0 0 2.7 2.7M9.9 4.2A10.8 10.8 0 0 1 12 4c5.5 0 9 6 9 6a16.7 16.7 0 0 1-2.1 2.8M6.6 6.6C4.4 8.1 3 10 3 10s3.5 6 9 6c1 0 1.9-.2 2.7-.5"/></svg>',
     unlock:
       '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 7.5-2"/></svg>',
   };
@@ -1091,6 +1097,7 @@
         {
           chosenCount: 0,
           skippedCount: 0,
+          preference: 0,
           reps: cleanRepValue(exercise.default_reps),
           measureType: defaultMeasureType(exercise),
           weight: "",
@@ -1153,6 +1160,7 @@
       state.exerciseState[exerciseId] = {
         chosenCount: 0,
         skippedCount: 0,
+        preference: 0,
         reps: cleanRepValue(exercise?.default_reps || "10"),
         measureType: defaultMeasureType(exercise),
         weight: "",
@@ -1223,7 +1231,7 @@
     const stats = stateFor(exercise.id);
     const listedIndex = slot.names.findIndex((name) => idFor(name) === exercise.id);
     const preferredIndex = listedIndex >= 0 ? listedIndex : slot.names.length;
-    let score = Math.random() * 16 + preferredIndex * 0.8 + stats.chosenCount * 0.35;
+    let score = Math.random() * 16 + preferredIndex * 0.8 + stats.chosenCount * 0.35 - stats.preference * 14;
     if (recent.has(exercise.id)) score += 28;
     if (slot.defaultName && exercise.id === idFor(slot.defaultName)) score -= 18;
     if (exercise.technical_difficulty === "advanced") score += 8;
@@ -1656,7 +1664,7 @@
       const stored = localStorage.getItem(STORAGE_KEY);
       if (!stored) return null;
       const parsed = JSON.parse(stored);
-      if (![1, 2, 3, 4, 5, APP_VERSION].includes(parsed.version) || !parsed.week?.days) return null;
+      if (![1, 2, 3, 4, 5, 6, APP_VERSION].includes(parsed.version) || !parsed.week?.days) return null;
       rebuildExerciseCatalog(parsed.customExercises || [], parsed.exerciseEdits || {});
       return normalizeState(parsed);
     } catch (error) {
@@ -1702,6 +1710,7 @@
         normalized.exerciseState[exercise.id] = {
           chosenCount: Math.max(0, Number(loaded.chosenCount) || 0),
           skippedCount: Math.max(0, Number(loaded.skippedCount) || 0),
+          preference: Math.max(-1, Math.min(1, Number(loaded.preference) || 0)),
           reps: cleanRepValue(loaded.reps ?? exercise.default_reps).slice(0, 40),
           measureType: ["reps", "seconds"].includes(loaded.measureType)
             ? loaded.measureType
@@ -2016,7 +2025,7 @@
     const settings = stateFor(exercise.id);
     const fixed = assignment.fixed || exercise.always_locked;
     const caution = cautionText(exercise);
-    const itemClass = context.position === "bridge" ? "exercise-item bridge-item" : "exercise-item";
+    const itemClass = `${context.position === "bridge" ? "exercise-item bridge-item" : "exercise-item"}${isHidden(exercise.id) ? " is-hidden" : ""}`;
     const slotLabel = context.position === "bridge" ? ACTIVATOR_LABEL : assignment.slotLabel;
 
     return `
@@ -2071,6 +2080,15 @@
               aria-label="Choose a replacement for ${escapeHtml(exercise.name)}"
               ${assignment.locked ? "disabled" : ""}
             >${ICONS.book}</button>
+            <button
+              class="mini-button ${isHidden(exercise.id) ? "active danger" : ""}"
+              type="button"
+              data-action="toggle-hide-workout"
+              data-exercise-id="${exercise.id}"
+              title="${isHidden(exercise.id) ? "Restore to future recommendations" : "Hide from future recommendations"}"
+              aria-label="${isHidden(exercise.id) ? `Restore ${escapeHtml(exercise.name)}` : `Hide ${escapeHtml(exercise.name)} from recommendations`}"
+              ${fixed ? "disabled" : ""}
+            >${ICONS.eyeOff}</button>
             ${
               context.position !== "bridge"
                 ? `<button class="mini-button danger" type="button" data-action="delete-circuit-exercise" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" data-position="${context.position}" title="Remove exercise from this circuit" aria-label="Remove ${escapeHtml(exercise.name)} from this circuit" ${context.exerciseCount <= 2 || assignment.locked ? "disabled" : ""}>×</button>`
@@ -2086,6 +2104,14 @@
               : `<span>Custom movement</span>`
           }
           ${caution ? `<span title="${escapeHtml(exercise.notes)}">• ${escapeHtml(caution)}</span>` : ""}
+        </div>
+        <div class="exercise-support-row">
+          <div class="equipment-needed"><span>Equipment</span><strong>${escapeHtml(exercise.equipment_label)}</strong></div>
+          <div class="preference-controls" aria-label="Recommendation preference for ${escapeHtml(exercise.name)}">
+            <button class="feedback-button ${settings.preference === 1 ? "active" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-value="1" title="Recommend more often" aria-label="Recommend ${escapeHtml(exercise.name)} more often">${ICONS.thumbUp}</button>
+            <button class="feedback-button ${settings.preference === -1 ? "active negative" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-value="-1" title="Recommend less often" aria-label="Recommend ${escapeHtml(exercise.name)} less often">${ICONS.thumbDown}</button>
+            <span>${settings.preference === 1 ? "More often" : settings.preference === -1 ? "Less often" : "Neutral"}</span>
+          </div>
         </div>
         <div class="exercise-fields">
           <label class="compact-field measure-field">
@@ -2146,7 +2172,14 @@
           </div>
         </header>
         <div class="circuit-body">
-          ${exerciseItems}
+          <div class="bridge-wrap activator-wrap">
+            ${renderExerciseItem(circuit.bridge, {
+              dayId,
+              circuitIndex,
+              position: "bridge",
+              bridgeCompleted: circuit.bridgeCompleted,
+            })}
+          </div>
           <div class="round-checks" aria-label="Completed rounds for circuit ${circuit.number}">
             ${[0, 1, 2]
               .map(
@@ -2157,14 +2190,7 @@
               )
               .join("")}
           </div>
-          <div class="bridge-wrap">
-            ${renderExerciseItem(circuit.bridge, {
-              dayId,
-              circuitIndex,
-              position: "bridge",
-              bridgeCompleted: circuit.bridgeCompleted,
-            })}
-          </div>
+          <div class="exercise-cycle">${exerciseItems}</div>
         </div>
       </article>`;
   }
@@ -2624,6 +2650,7 @@
         return (
           first.searchScore - second.searchScore ||
           firstCost - secondCost ||
+          stateFor(second.exercise.id).preference - stateFor(first.exercise.id).preference ||
           stateFor(second.exercise.id).chosenCount - stateFor(first.exercise.id).chosenCount ||
           first.exercise.name.localeCompare(second.exercise.name)
         );
@@ -2642,10 +2669,13 @@
       ? results
           .map(
             ({ exercise, cost, eligible }) => `
-              <button class="replace-option" type="button" data-action="choose-replacement" data-exercise-id="${exercise.id}">
-                <span><strong>${escapeHtml(exercise.name)}</strong><small>${escapeHtml(exercise.primary_body_part)} · ${escapeHtml(exercise.equipment_label)} · chosen ${stateFor(exercise.id).chosenCount} times${eligible ? "" : " · outside this slot's target"}</small></span>
-                <span class="cost-badge cost-${cost}">${ui.replacement.position === "bridge" && eligible ? "Eligible" : `Setup ${cost}/5`}</span>
-              </button>`,
+              <div class="replace-option">
+                <button class="replace-option-choice" type="button" data-action="choose-replacement" data-exercise-id="${exercise.id}">
+                  <span><strong>${escapeHtml(exercise.name)}</strong><small>${escapeHtml(exercise.primary_body_part)} · ${escapeHtml(exercise.equipment_label)} · chosen ${stateFor(exercise.id).chosenCount} times${eligible ? "" : " · outside this slot's target"}</small></span>
+                  <span class="cost-badge cost-${cost}">${ui.replacement.position === "bridge" && eligible ? "Eligible" : `Setup ${cost}/5`}</span>
+                </button>
+                <button class="replace-option-hide" type="button" data-action="hide-replacement" data-exercise-id="${exercise.id}" title="Hide from future recommendations" aria-label="Hide ${escapeHtml(exercise.name)} from recommendations">${ICONS.eyeOff}<span>Hide</span></button>
+              </div>`,
           )
           .join("")
       : '<div class="empty-state">No unused eligible exercises match this search.</div>';
@@ -2698,7 +2728,21 @@
       showToast("No unused eligible replacement is available for this slot.", "error");
       return;
     }
-    const selected = options[Math.floor(Math.random() * options.length)].exercise;
+    const weightedOptions = options.map((option) => ({
+      option,
+      weight:
+        stateFor(option.exercise.id).preference === 1
+          ? 4
+          : stateFor(option.exercise.id).preference === -1
+            ? 0.25
+            : 1,
+    }));
+    let draw = Math.random() * weightedOptions.reduce((sum, item) => sum + item.weight, 0);
+    const selected =
+      weightedOptions.find((item) => {
+        draw -= item.weight;
+        return draw <= 0;
+      })?.option.exercise || weightedOptions[weightedOptions.length - 1].option.exercise;
     replaceExercise(selected.id);
   }
 
@@ -2800,6 +2844,7 @@
         ...exercise,
         chosen_count: stateFor(exercise.id).chosenCount,
         skipped_count: stateFor(exercise.id).skippedCount,
+        recommendation_preference: stateFor(exercise.id).preference,
         current_reps: stateFor(exercise.id).reps,
         current_measure: stateFor(exercise.id).measureType,
         current_weight: stateFor(exercise.id).weight,
@@ -2983,18 +3028,20 @@
     ui.editingExerciseId = null;
   }
 
-  function toggleHiddenExercise(exerciseId) {
+  function toggleHiddenExercise(exerciseId, options = {}) {
     const exercise = exerciseById.get(exerciseId);
     if (!exercise || exercise.always_locked || isDeleted(exerciseId)) return;
-    if (isHidden(exerciseId)) {
+    const shouldHide = options.hideOnly || !isHidden(exerciseId);
+    if (!shouldHide) {
       state.hiddenExerciseIds = state.hiddenExerciseIds.filter((id) => id !== exerciseId);
       showToast(`${exercise.name} restored to recommendations.`);
     } else {
-      state.hiddenExerciseIds.push(exerciseId);
+      if (!isHidden(exerciseId)) state.hiddenExerciseIds.push(exerciseId);
       showToast(`${exercise.name} hidden from future recommendations.`);
     }
     persist();
-    renderLibrary();
+    render();
+    if (document.getElementById("replace-dialog").open) renderReplacementResults();
   }
 
   function deleteLibraryExercise(exerciseId) {
@@ -3062,6 +3109,29 @@
     }
     if (actionButton.dataset.action === "choose-replacement") {
       replaceExercise(actionButton.dataset.exerciseId);
+    }
+    if (actionButton.dataset.action === "set-preference") {
+      const exercise = exerciseById.get(actionButton.dataset.exerciseId);
+      if (exercise) {
+        const exerciseState = stateFor(exercise.id);
+        const requestedPreference = Math.max(-1, Math.min(1, Number(actionButton.dataset.value) || 0));
+        exerciseState.preference = exerciseState.preference === requestedPreference ? 0 : requestedPreference;
+        persist();
+        render();
+        showToast(
+          exerciseState.preference === 1
+            ? `${exercise.name} will be recommended more often.`
+            : exerciseState.preference === -1
+              ? `${exercise.name} will be recommended less often.`
+              : `${exercise.name} recommendation preference cleared.`,
+        );
+      }
+    }
+    if (actionButton.dataset.action === "toggle-hide-workout") {
+      toggleHiddenExercise(actionButton.dataset.exerciseId);
+    }
+    if (actionButton.dataset.action === "hide-replacement") {
+      toggleHiddenExercise(actionButton.dataset.exerciseId, { hideOnly: true });
     }
     if (actionButton.dataset.action === "open-add-exercise") {
       openExerciseDialog();
