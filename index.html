@@ -118,6 +118,22 @@
       </form>
     </dialog>
 
+    <dialog id="favorite-dialog" class="replace-dialog favorite-dialog">
+      <form method="dialog" class="dialog-shell">
+        <header class="dialog-header">
+          <div>
+            <span class="eyebrow">Saved circuits</span>
+            <h2 id="favorite-title">Use a favorite circuit</h2>
+            <p>Favorites are kept for the same day and circuit position so the training split remains valid.</p>
+          </div>
+          <button class="icon-button" value="cancel" aria-label="Close favorite circuit picker">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></svg>
+          </button>
+        </header>
+        <div id="favorite-results" class="favorite-results"></div>
+      </form>
+    </dialog>
+
     <dialog id="exercise-dialog" class="replace-dialog exercise-dialog">
       <form id="exercise-form" class="dialog-shell">
         <header class="dialog-header">
@@ -188,6 +204,22 @@
             <span>Default reps</span>
             <input name="defaultReps" maxlength="40" value="10" placeholder="10 or 30 sec" />
           </label>
+          <fieldset class="score-fields form-field-wide">
+            <legend>Recommendation score inputs</legend>
+            <label class="form-field">
+              <span>Difficulty <small>1 simple · 5 technical</small></span>
+              <input name="difficultyScore" type="number" min="1" max="5" step="1" value="2" required />
+            </label>
+            <label class="form-field">
+              <span>Setup cost <small>1 easy · 5 involved</small></span>
+              <input name="setupDifficulty" type="number" min="1" max="5" step="1" value="2" required />
+            </label>
+            <label class="form-field">
+              <span>Effectiveness <small>1 low · 5 high</small></span>
+              <input name="effectivenessScore" type="number" min="1" max="5" step="1" value="3" required />
+            </label>
+            <small class="score-help">The combined 0–100 score favors effectiveness while still rewarding simple technique and easy setup.</small>
+          </fieldset>
           <label class="form-field form-field-wide">
             <span>Demo or instruction URL <small>optional</small></span>
             <input name="instructionUrl" type="url" maxlength="500" placeholder="https://…" />
@@ -198,6 +230,7 @@
           </label>
           <div class="form-checks form-field-wide">
             <label><input type="checkbox" name="totalBodyActivator" /> Total-body activator</label>
+            <label><input type="checkbox" name="bothSides" /> Perform on both sides</label>
             <label><input type="checkbox" name="shoulderCaution" /> Shoulder-aware</label>
             <label><input type="checkbox" name="backCaution" /> Back-aware</label>
           </div>

@@ -10,6 +10,7 @@ const exerciseDataScript = fs.readFileSync(path.join(root, "exercise-data.js"), 
 const equipmentExerciseDataScript = fs.readFileSync(path.join(root, "equipment-exercises.js"), "utf8");
 const appScript = fs.readFileSync(path.join(root, "app.js"), "utf8");
 const styles = fs.readFileSync(path.join(root, "styles.css"), "utf8");
+const exampleSave = JSON.parse(fs.readFileSync(path.join(root, "basement-45-workouts.json"), "utf8"));
 
 function elementStub() {
   const listeners = {};
@@ -73,6 +74,7 @@ function launchApp(storedState = null) {
     clearTimeout,
     setTimeout,
     confirm: () => true,
+    prompt: () => "Test favorite circuit",
     FormData: class FakeFormData {
       constructor(form) {
         this.data = form._formData || new Map();
@@ -152,6 +154,15 @@ for (let attempt = 0; attempt < 50; attempt += 1) {
   const catalogById = new Map(catalog.map((exercise) => [exercise.id, exercise]));
   assert.equal(new Set(catalog.map((exercise) => exercise.id)).size, catalog.length, "catalog IDs should be unique");
   assert.ok(catalog.every((exercise) => exercise.equipment_varieties.length > 0));
+  assert.ok(catalog.every((exercise) => exercise.always_locked || exercise.instruction_url));
+  assert.ok(catalog.every((exercise) => exercise.difficulty_score >= 1 && exercise.difficulty_score <= 5));
+  assert.ok(catalog.every((exercise) => exercise.setup_difficulty >= 1 && exercise.setup_difficulty <= 5));
+  assert.ok(catalog.every((exercise) => exercise.effectiveness_score >= 1 && exercise.effectiveness_score <= 5));
+  assert.ok(
+    catalog.filter((exercise) => exercise.equipment_varieties.includes("Physio ball")).length >= 7,
+    "the available equipment catalog should include the physio-ball exercise set",
+  );
+  assert.equal(catalog.find((exercise) => exercise.id === "kettlebell-swing").custom, false);
   const days = Object.values(state.week.days);
   assert.equal(days.length, 7);
   assert.ok(days.every((day) => day.circuits.length === 3));
@@ -203,13 +214,49 @@ assert.ok((workoutHtml.match(/class="exercise-note"/g) || []).length > 0);
 assert.ok((workoutHtml.match(/class="equipment-needed"/g) || []).length > 0);
 assert.ok((workoutHtml.match(/data-action="set-preference"/g) || []).length > 0);
 assert.ok((workoutHtml.match(/data-action="toggle-hide-workout"/g) || []).length > 0);
+assert.ok((workoutHtml.match(/data-action="edit-workout-exercise"/g) || []).length > 0);
+assert.ok((workoutHtml.match(/data-action="toggle-favorite-circuit"/g) || []).length === 3);
+assert.ok((workoutHtml.match(/class="recommendation-score"/g) || []).length > 0);
+assert.ok(!workoutHtml.includes(">Neutral<"));
 assert.ok(
-  workoutHtml.indexOf('class="bridge-wrap activator-wrap"') < workoutHtml.indexOf('class="round-checks"') &&
+  workoutHtml.indexOf('class="bridge-wrap activator-wrap ') < workoutHtml.indexOf('class="round-checks"') &&
     workoutHtml.indexOf('class="round-checks"') < workoutHtml.indexOf('class="exercise-cycle"'),
   "the total-body activator and sticky round controls should come before the cycle exercises",
 );
+assert.ok(!workoutHtml.includes("circuit-sticky-progress"));
 assert.match(styles, /\.sidebar\s*{[^}]*position:\s*sticky/s);
 assert.match(styles, /\.round-checks\s*{[^}]*position:\s*sticky/s);
+assert.match(styles, /\.pre-routine:not\(\.is-complete\)\s*{[^}]*position:\s*sticky/s);
+assert.match(styles, /\.activator-wrap\.is-pending\s*{[^}]*position:\s*sticky/s);
+assert.match(styles, /\.replace-option\s*{[^}]*min-height:\s*76px/s);
+
+const favoriteOriginalIds = [
+  interactionApp.Basement45.getState().week.days.monday.circuits[0].first.exerciseId,
+  interactionApp.Basement45.getState().week.days.monday.circuits[0].second.exerciseId,
+  ...interactionApp.Basement45.getState().week.days.monday.circuits[0].extras.map(
+    (assignment) => assignment.exerciseId,
+  ),
+  interactionApp.Basement45.getState().week.days.monday.circuits[0].bridge.exerciseId,
+];
+clickAction(interactionApp, "toggle-favorite-circuit", { day: "monday", circuit: "0" });
+const favoriteId = interactionApp.Basement45.getState().favoriteCircuits[0].id;
+assert.ok(favoriteId);
+assert.equal(interactionApp.Basement45.getState().favoriteCircuits[0].name, "Test favorite circuit");
+clickAction(interactionApp, "random-replace", { day: "monday", circuit: "0", position: "first" });
+clickAction(interactionApp, "open-favorite-circuits", { day: "monday", circuit: "0" });
+assert.ok(interactionApp.__elements.get("favorite-results").innerHTML.includes("Use circuit"));
+clickAction(interactionApp, "apply-favorite-circuit", { favoriteId });
+const favoriteRestoredCircuit = interactionApp.Basement45.getState().week.days.monday.circuits[0];
+assert.deepEqual(
+  [
+    favoriteRestoredCircuit.first.exerciseId,
+    favoriteRestoredCircuit.second.exerciseId,
+    ...favoriteRestoredCircuit.extras.map((assignment) => assignment.exerciseId),
+    favoriteRestoredCircuit.bridge.exerciseId,
+  ],
+  favoriteOriginalIds,
+);
+assert.deepEqual(Array.from(interactionApp.Basement45.validateWeek()), []);
 changeAction(interactionApp, "complete-round", { day: "monday", circuit: "0", round: "0" }, true);
 changeAction(interactionApp, "complete-bridge", { day: "monday", circuit: "0" }, true);
 changeAction(interactionApp, "daily-check", { day: "monday", item: "stretch" }, true);
@@ -239,13 +286,16 @@ assert.ok(
 );
 
 const noteExerciseId = interactionApp.Basement45.getState().week.days.monday.circuits[0].first.exerciseId;
+clickAction(interactionApp, "edit-workout-exercise", { exerciseId: noteExerciseId });
+assert.ok(interactionApp.__elements.get("exercise-dialog-title").textContent.startsWith("Edit "));
+clickAction(interactionApp, "close-exercise-dialog");
 inputSetting(interactionApp, { setting: "notes", exerciseId: noteExerciseId }, "Keep the tempo controlled");
 inputSetting(interactionApp, { setting: "measureType", exerciseId: noteExerciseId }, "seconds");
 assert.equal(interactionApp.Basement45.getState().exerciseState[noteExerciseId].notes, "Keep the tempo controlled");
 assert.equal(interactionApp.Basement45.getState().exerciseState[noteExerciseId].measureType, "seconds");
 clickAction(interactionApp, "set-preference", { exerciseId: noteExerciseId, value: "1" });
 assert.equal(interactionApp.Basement45.getState().exerciseState[noteExerciseId].preference, 1);
-assert.ok(interactionApp.__elements.get("workout-view").innerHTML.includes("More often"));
+assert.ok(interactionApp.__elements.get("workout-view").innerHTML.includes('class="feedback-button active"'));
 clickAction(interactionApp, "toggle-hide-workout", { exerciseId: noteExerciseId });
 assert.ok(interactionApp.Basement45.getState().hiddenExerciseIds.includes(noteExerciseId));
 assert.ok(interactionApp.__elements.get("workout-view").innerHTML.includes("exercise-item is-hidden"));
@@ -357,7 +407,18 @@ assert.deepEqual(Array.from(interactionApp.Basement45.validateWeek()), []);
 const beforeAdd = interactionApp.Basement45.getState().week.days.tuesday.circuits[0];
 assert.equal(beforeAdd.extras.length, 0);
 clickAction(interactionApp, "add-round-exercise", { day: "tuesday", circuit: "0" });
+assert.equal(interactionApp.Basement45.getState().week.days.tuesday.circuits[0].extras.length, 1);
+assert.equal(interactionApp.Basement45.getState().week.days.tuesday.circuits[0].extras[0].manualOverride, false);
+assert.deepEqual(Array.from(interactionApp.Basement45.validateWeek()), []);
+const automaticAddReload = launchApp(JSON.stringify(interactionApp.Basement45.getState()));
+assert.deepEqual(Array.from(automaticAddReload.Basement45.validateWeek()), []);
+clickAction(interactionApp, "remove-round-exercise", { day: "tuesday", circuit: "0" });
+assert.equal(interactionApp.Basement45.getState().week.days.tuesday.circuits[0].extras.length, 0);
+
+clickAction(interactionApp, "replace", { day: "tuesday", circuit: "0", position: "first" });
 const replacementHtml = interactionApp.__elements.get("replace-results").innerHTML;
+assert.ok(replacementHtml.includes('class="replace-option"'));
+assert.ok(replacementHtml.includes('data-action="choose-replacement"'));
 assert.ok(!replacementHtml.includes('data-exercise-id="decline-dumbbell-press"'));
 interactionApp.document._listeners.change[0]({
   target: {
@@ -391,13 +452,11 @@ assert.ok(
   "replacement search should tolerate partial words and small misspellings",
 );
 clickAction(interactionApp, "choose-replacement", { exerciseId: replacementId });
-assert.equal(interactionApp.Basement45.getState().week.days.tuesday.circuits[0].extras.length, 1);
-assert.equal(interactionApp.Basement45.getState().week.days.tuesday.circuits[0].extras[0].manualOverride, true);
+assert.equal(interactionApp.Basement45.getState().week.days.tuesday.circuits[0].first.exerciseId, replacementId);
+assert.equal(interactionApp.Basement45.getState().week.days.tuesday.circuits[0].first.manualOverride, true);
 assert.deepEqual(Array.from(interactionApp.Basement45.validateWeek()), []);
 const manualOverrideReload = launchApp(JSON.stringify(interactionApp.Basement45.getState()));
 assert.deepEqual(Array.from(manualOverrideReload.Basement45.validateWeek()), []);
-clickAction(interactionApp, "remove-round-exercise", { day: "tuesday", circuit: "0" });
-assert.equal(interactionApp.Basement45.getState().week.days.tuesday.circuits[0].extras.length, 0);
 
 const customForm = interactionApp.__elements.get("exercise-form");
 customForm._formData = new Map([
@@ -411,6 +470,10 @@ customForm._formData = new Map([
   ["defaultReps", "10"],
   ["instructionUrl", ""],
   ["totalBodyActivator", "on"],
+  ["bothSides", "on"],
+  ["difficultyScore", "1"],
+  ["setupDifficulty", "1"],
+  ["effectivenessScore", "5"],
 ]);
 customForm._listeners.submit[0]({ preventDefault() {}, currentTarget: customForm });
 assert.equal(interactionApp.Basement45.getState().customExercises.length, 1);
@@ -421,6 +484,11 @@ assert.deepEqual(
 assert.equal(
   interactionApp.Basement45.exercises.find((exercise) => exercise.id === "test-supported-row").total_body_activator,
   true,
+);
+assert.equal(interactionApp.Basement45.exercises.find((exercise) => exercise.id === "test-supported-row").unilateral, true);
+assert.equal(
+  interactionApp.Basement45.exercises.find((exercise) => exercise.id === "test-supported-row").effectiveness_score,
+  5,
 );
 
 clickAction(interactionApp, "edit-library", { exerciseId: "flat-dumbbell-bench-press" });
@@ -655,8 +723,61 @@ assert.equal(
 );
 assert.deepEqual(Array.from(activatorMigratedApp.Basement45.validateWeek()), []);
 
+assert.equal(exampleSave.schemaVersion, 7, "the provided example should document its original schema version");
+const exampleApp = launchApp(JSON.stringify(exampleSave.appState));
+assert.deepEqual(Array.from(exampleApp.Basement45.validateWeek()), []);
+assert.equal(exampleApp.Basement45.getState().version, 8);
+assert.ok(exampleApp.Basement45.exercises.some((exercise) => exercise.id === "egyptian-raise"));
+assert.ok(
+  Object.values(exampleApp.Basement45.getState().week.days).every((day) =>
+    day.circuits.every((circuit) =>
+      [circuit.first, circuit.second, ...circuit.extras, circuit.bridge].every((assignment) =>
+        exampleApp.Basement45.exercises.some((exercise) => exercise.id === assignment.exerciseId),
+      ),
+    ),
+  ),
+  "every exercise referenced by the example save should resolve in the current catalog",
+);
+
+const portableApp = launchApp();
+const portableState = portableApp.Basement45.getState();
+await portableApp.__elements.get("load-input")._listeners.change[0]({
+  target: {
+    files: [
+      {
+        name: "portable-save.json",
+        async text() {
+          return JSON.stringify({
+            app: "Basement 45",
+            schemaVersion: 7,
+            appState: portableState,
+            exerciseLibrary: [
+              {
+                id: "portable-missing-exercise",
+                name: "Portable missing exercise",
+                primary_body_part: "Core",
+                equipment_label: "Physio ball + body weight",
+                equipment_varieties: ["Physio ball", "Body weight"],
+                movement_pattern: "isometric",
+                movement_role: "bridge",
+                force_type: "isometric",
+                default_reps: "30 sec",
+                unilateral: false,
+                difficulty_score: 2,
+                setup_difficulty: 1,
+                effectiveness_score: 4,
+              },
+            ],
+          });
+        },
+      },
+    ],
+  },
+});
+assert.ok(portableApp.Basement45.exercises.some((exercise) => exercise.id === "portable-missing-exercise"));
+
 console.log(
-  "Smoke test passed randomized starts, 140 generated weeks, equipment varieties, recommendation feedback, activator eligibility, migrations, direct-file save, editing, settings, and v1-v7 persistence.",
+  "Smoke test passed randomized starts, 140 generated weeks, example/portable JSON migration, favorites, exercise scoring, equipment varieties, recommendation feedback, activator eligibility, direct-file save, editing, settings, and v1-v8 persistence.",
 );
 }
 

@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = 7;
+  const APP_VERSION = 8;
   const STORAGE_KEY = "basement45-state-v1";
   const ACTIVATOR_LABEL = "Total Body activator";
 
@@ -25,6 +25,11 @@
       '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 14V3H3v11h4Zm0-9h10.3a2 2 0 0 1 2 1.7l1.1 7a2 2 0 0 1-2 2.3H14l.7 3.1a2.4 2.4 0 0 1-2.4 2.9L7 14V5Z"/></svg>',
     eyeOff:
       '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m3 3 18 18M10.6 10.7a2 2 0 0 0 2.7 2.7M9.9 4.2A10.8 10.8 0 0 1 12 4c5.5 0 9 6 9 6a16.7 16.7 0 0 1-2.1 2.8M6.6 6.6C4.4 8.1 3 10 3 10s3.5 6 9 6c1 0 1.9-.2 2.7-.5"/></svg>',
+    star: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg>',
+    favorites:
+      '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8.5 3 1.4 2.9 3.1.4-2.3 2.2.6 3.1-2.8-1.5-2.8 1.5.6-3.1L4 6.3l3.1-.4L8.5 3Z"/><path d="M14 13.5h6M17 10.5v6M5 19h15"/></svg>',
+    pencil:
+      '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 20h4l11-11-4-4L4 16v4ZM13.5 6.5l4 4"/></svg>',
     unlock:
       '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 7.5-2"/></svg>',
   };
@@ -279,6 +284,38 @@
     return "10";
   }
 
+  function clampRating(value, fallback) {
+    const rating = Number(value);
+    return Number.isFinite(rating) ? Math.max(1, Math.min(5, Math.round(rating))) : fallback;
+  }
+
+  function inferSetupDifficulty(record) {
+    const equipment = inferEquipment(record.equipment);
+    if (equipment.includes("body weight") || equipment.includes("physio ball")) return 1;
+    if (equipment.includes("barbell") || equipment.includes("squat rack")) return 4;
+    if (equipment.includes("FT2") && inferAttachment(record)) return 3;
+    if (equipment.includes("bench") || equipment.length > 1) return 2;
+    return 2;
+  }
+
+  function inferEffectiveness(record, movementRole) {
+    if (record.totalBodyActivator || movementRole === "total_body") return 5;
+    if (movementRole === "compound") return 4;
+    if (movementRole === "bridge") return 3;
+    return 3;
+  }
+
+  function exerciseRecommendationScore(exercise) {
+    const effectiveness = exercise.effectiveness_score;
+    const setupEase = 6 - exercise.setup_difficulty;
+    const techniqueEase = 6 - exercise.difficulty_score;
+    return Math.round((effectiveness * 0.5 + setupEase * 0.25 + techniqueEase * 0.25) * 20);
+  }
+
+  function demoSearchUrl(name) {
+    return `https://www.youtube.com/results?search_query=${encodeURIComponent(`${name} exercise proper form`)}`;
+  }
+
   function enrichExercise(record) {
     const movementPattern = record.movementPattern || inferMovementPattern(record);
     const forceType = record.forceType || inferForceType(record, movementPattern);
@@ -307,8 +344,33 @@
       "barbell conventional",
     ]);
 
+    const inferredTechnicalDifficulty = advanced
+      ? "advanced"
+      : backCaution || record.category === "Full Body and Golf Support"
+        ? "intermediate"
+        : "beginner";
+    const difficultyScore = clampRating(
+      record.difficultyScore ?? record.difficulty_score,
+      { beginner: 1, intermediate: 3, advanced: 5 }[record.technicalDifficulty || inferredTechnicalDifficulty],
+    );
+    const setupDifficulty = clampRating(
+      record.setupDifficulty ?? record.setup_difficulty,
+      inferSetupDifficulty(record),
+    );
+    const effectivenessScore = clampRating(
+      record.effectivenessScore ?? record.effectiveness_score,
+      inferEffectiveness(record, movementRole),
+    );
+    const bothSides =
+      typeof record.bothSides === "boolean"
+        ? record.bothSides
+        : typeof record.unilateral === "boolean"
+          ? record.unilateral
+          : includesAny(value, ["single-arm", "single-leg", "one-arm", "unilateral", "split-stance"]);
+    const alwaysLocked = Boolean(record.alwaysLocked);
+
     return {
-      id: slugify(record.name),
+      id: String(record.id || slugify(record.name)),
       name: record.name,
       primary_body_part: record.category,
       secondary_body_parts: [],
@@ -328,14 +390,17 @@
       bench_position: inferBenchPosition(record),
       pulley_height: inferPulleyHeight(record),
       attachment: inferAttachment(record),
-      unilateral: includesAny(value, ["single-arm", "single-leg", "one-arm", "unilateral", "split-stance"]),
+      unilateral: bothSides,
       overhead,
       must_be_seated: overhead,
       shoulder_caution: shoulderCaution,
       back_caution: backCaution,
-      technical_difficulty: advanced ? "advanced" : backCaution || record.category === "Full Body and Golf Support" ? "intermediate" : "beginner",
+      technical_difficulty: difficultyScore >= 4 ? "advanced" : difficultyScore >= 2 ? "intermediate" : "beginner",
+      difficulty_score: difficultyScore,
+      setup_difficulty: setupDifficulty,
+      effectiveness_score: effectivenessScore,
       default_reps: record.defaultReps || inferDefaultReps(record),
-      instruction_url: record.instructionUrl || null,
+      instruction_url: record.instructionUrl || (!alwaysLocked ? demoSearchUrl(record.name) : null),
       user_locked: Boolean(record.alwaysLocked),
       notes:
         record.notes ??
@@ -355,7 +420,7 @@
           : record.name.startsWith("PT Exercise") ||
             movementRole === "total_body" ||
             includesAny(value, ["carry", "turkish get-up", "bear crawl", "mountain climber"]),
-      always_locked: Boolean(record.alwaysLocked),
+      always_locked: alwaysLocked,
     };
   }
 
@@ -395,6 +460,10 @@
       notes: edit.notes ?? exercise.notes,
       equipmentVarieties: edit.equipmentVarieties || exercise.equipment_varieties,
       totalBodyActivator: edit.totalBodyActivator ?? exercise.total_body_activator,
+      bothSides: edit.bothSides ?? exercise.unilateral,
+      difficultyScore: edit.difficultyScore ?? exercise.difficulty_score,
+      setupDifficulty: edit.setupDifficulty ?? exercise.setup_difficulty,
+      effectivenessScore: edit.effectivenessScore ?? exercise.effectiveness_score,
       catalogExpansion: exercise.catalog_expansion,
     });
     edited.id = exercise.id;
@@ -1075,6 +1144,7 @@
     replaceSearch: "",
     showAllReplacements: false,
     editingExerciseId: null,
+    favoriteTarget: null,
   };
 
   let state;
@@ -1115,6 +1185,7 @@
       exerciseState: initialExerciseState(),
       customExercises: [],
       exerciseEdits: {},
+      favoriteCircuits: [],
       hiddenExerciseIds: [],
       deletedExerciseIds: [],
       daySettings: Object.fromEntries(
@@ -1235,6 +1306,7 @@
     if (recent.has(exercise.id)) score += 28;
     if (slot.defaultName && exercise.id === idFor(slot.defaultName)) score -= 18;
     if (exercise.technical_difficulty === "advanced") score += 8;
+    score += (70 - exerciseRecommendationScore(exercise)) * 0.18;
     return score;
   }
 
@@ -1664,7 +1736,7 @@
       const stored = localStorage.getItem(STORAGE_KEY);
       if (!stored) return null;
       const parsed = JSON.parse(stored);
-      if (![1, 2, 3, 4, 5, 6, APP_VERSION].includes(parsed.version) || !parsed.week?.days) return null;
+      if (![1, 2, 3, 4, 5, 6, 7, APP_VERSION].includes(parsed.version) || !parsed.week?.days) return null;
       rebuildExerciseCatalog(parsed.customExercises || [], parsed.exerciseEdits || {});
       return normalizeState(parsed);
     } catch (error) {
@@ -1682,6 +1754,21 @@
     normalized.exerciseEdits = candidate.exerciseEdits && typeof candidate.exerciseEdits === "object"
       ? candidate.exerciseEdits
       : {};
+    normalized.favoriteCircuits = Array.isArray(candidate.favoriteCircuits)
+      ? candidate.favoriteCircuits
+          .filter(
+            (favorite) =>
+              favorite &&
+              typeof favorite.id === "string" &&
+              DAY_CONFIG.some((day) => day.id === favorite.dayId) &&
+              Number.isInteger(Number(favorite.circuitIndex)) &&
+              Array.isArray(favorite.assignments) &&
+              favorite.assignments.length >= 2 &&
+              favorite.assignments.length <= 4 &&
+              favorite.bridge,
+          )
+          .slice(-30)
+      : [];
     normalized.daySettings = Object.fromEntries(
       DAY_CONFIG.map((day) => {
         const loaded = candidate.daySettings?.[day.id] || {};
@@ -1835,6 +1922,157 @@
     if (count === 2) return "Focused";
     if (count === 3) return "Standard";
     return "Challenge";
+  }
+
+  function circuitExerciseIds(circuit) {
+    return [...mainAssignments(circuit).map((assignment) => assignment.exerciseId), circuit.bridge.exerciseId];
+  }
+
+  function favoriteSignature(circuit) {
+    return circuitExerciseIds(circuit).join("|");
+  }
+
+  function favoritesForSlot(dayId, circuitIndex) {
+    return state.favoriteCircuits.filter(
+      (favorite) => favorite.dayId === dayId && Number(favorite.circuitIndex) === Number(circuitIndex),
+    );
+  }
+
+  function isFavoriteCircuit(dayId, circuitIndex, circuit) {
+    const signature = favoriteSignature(circuit);
+    return favoritesForSlot(dayId, circuitIndex).some((favorite) => favorite.signature === signature);
+  }
+
+  function toggleFavoriteCircuit(dayId, circuitIndex) {
+    const circuit = state.week.days[dayId]?.circuits?.[circuitIndex];
+    if (!circuit) return;
+    const signature = favoriteSignature(circuit);
+    const existing = favoritesForSlot(dayId, circuitIndex).find((favorite) => favorite.signature === signature);
+    if (existing) {
+      state.favoriteCircuits = state.favoriteCircuits.filter((favorite) => favorite.id !== existing.id);
+      showToast("Circuit removed from favorites.");
+    } else {
+      const exerciseNames = circuitExerciseIds(circuit)
+        .map((exerciseId) => exerciseById.get(exerciseId)?.name)
+        .filter(Boolean);
+      const dayName = displayDay(DAY_CONFIG.find((day) => day.id === dayId)).name;
+      const suggestedName = `${dayName} Circuit ${circuit.number} — ${exerciseNames.slice(0, 2).join(" + ")}`;
+      const requestedName = window.prompt("Name this favorite circuit:", suggestedName);
+      if (requestedName === null) return;
+      const favoriteName = String(requestedName).trim().slice(0, 100) || suggestedName;
+      state.favoriteCircuits.push({
+        id: `favorite-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        dayId,
+        circuitIndex,
+        category: circuit.category,
+        name: favoriteName,
+        exerciseNames,
+        signature,
+        assignments: JSON.parse(JSON.stringify(mainAssignments(circuit))),
+        bridge: JSON.parse(JSON.stringify(circuit.bridge)),
+        savedAt: new Date().toISOString(),
+      });
+      state.favoriteCircuits = state.favoriteCircuits.slice(-30);
+      showToast("Circuit saved as a favorite.");
+    }
+    persist();
+    render();
+  }
+
+  function favoriteUnavailableReason(favorite, target) {
+    const assignments = [...favorite.assignments, favorite.bridge];
+    const ids = assignments.map((assignment) => assignment.exerciseId);
+    if (ids.some((id) => !exerciseById.has(id))) return "An exercise is no longer in the library";
+    if (ids.some((id) => isHidden(id) || isDeleted(id))) return "Contains a hidden or deleted exercise";
+    if (!exerciseById.get(favorite.bridge.exerciseId)?.total_body_activator) return "Activator is no longer eligible";
+    const usedElsewhere = new Set(
+      allAssignments()
+        .filter(
+          (assignment) =>
+            assignment.dayId !== target.dayId || Number(assignment.circuitIndex) !== Number(target.circuitIndex),
+        )
+        .map((assignment) => assignment.exerciseId),
+    );
+    if (ids.some((id) => usedElsewhere.has(id))) return "One or more exercises are already used elsewhere this week";
+    const exercisesInRound = favorite.assignments.map((assignment) => exerciseById.get(assignment.exerciseId));
+    if (exercisesInRound.filter(requiresBothSides).length > 1) return "Contains multiple both-sides exercises";
+    for (let index = 1; index < exercisesInRound.length; index += 1) {
+      if (
+        transitionCost(exercisesInRound[index - 1], exercisesInRound[index]) > 2 &&
+        !favorite.assignments[index - 1].manualOverride &&
+        !favorite.assignments[index].manualOverride
+      ) {
+        return "Contains a setup transition above 2";
+      }
+    }
+    return "";
+  }
+
+  function renderFavoriteResults() {
+    const target = ui.favoriteTarget;
+    if (!target) return;
+    const favorites = favoritesForSlot(target.dayId, target.circuitIndex);
+    document.getElementById("favorite-results").innerHTML = favorites.length
+      ? favorites
+          .map((favorite) => {
+            const reason = favoriteUnavailableReason(favorite, target);
+            return `<article class="favorite-option">
+              <div><strong>${escapeHtml(favorite.name)}</strong><small>${favorite.exerciseNames.map(escapeHtml).join(" · ")}</small>${reason ? `<span class="favorite-warning">${escapeHtml(reason)}</span>` : ""}</div>
+              <button class="library-action" type="button" data-action="apply-favorite-circuit" data-favorite-id="${favorite.id}" ${reason ? "disabled" : ""}>Use circuit</button>
+              <button class="library-action delete" type="button" data-action="delete-favorite-circuit" data-favorite-id="${favorite.id}">Remove</button>
+            </article>`;
+          })
+          .join("")
+      : '<div class="empty-state">No favorites are saved for this circuit position yet.</div>';
+  }
+
+  function openFavoriteCircuits(dayId, circuitIndex) {
+    ui.favoriteTarget = { dayId, circuitIndex };
+    const day = displayDay(DAY_CONFIG.find((item) => item.id === dayId));
+    document.getElementById("favorite-title").textContent = `${day.name} Circuit ${circuitIndex + 1} favorites`;
+    renderFavoriteResults();
+    document.getElementById("favorite-dialog").showModal();
+  }
+
+  function applyFavoriteCircuit(favoriteId) {
+    const target = ui.favoriteTarget;
+    const favorite = state.favoriteCircuits.find((item) => item.id === favoriteId);
+    if (!target || !favorite || favoriteUnavailableReason(favorite, target)) return;
+    const circuit = state.week.days[target.dayId].circuits[target.circuitIndex];
+    const previous = JSON.parse(JSON.stringify(circuit));
+    const previousIds = circuitExerciseIds(circuit);
+    const nextIds = [...favorite.assignments.map((assignment) => assignment.exerciseId), favorite.bridge.exerciseId];
+    circuit.first = JSON.parse(JSON.stringify(favorite.assignments[0]));
+    circuit.second = JSON.parse(JSON.stringify(favorite.assignments[1]));
+    circuit.extras = JSON.parse(JSON.stringify(favorite.assignments.slice(2)));
+    circuit.bridge = JSON.parse(JSON.stringify(favorite.bridge));
+    circuit.preferredExerciseCount = favorite.assignments.length;
+    resetCircuitCompletion(circuit);
+    const issues = validateWeek(state.week);
+    if (issues.length) {
+      state.week.days[target.dayId].circuits[target.circuitIndex] = previous;
+      showToast(`That favorite cannot be used here: ${issues[0]}`, "error");
+      return;
+    }
+    previousIds.filter((id) => !nextIds.includes(id)).forEach((id) => {
+      stateFor(id).skippedCount += 1;
+    });
+    nextIds.filter((id) => !previousIds.includes(id)).forEach((id) => {
+      stateFor(id).chosenCount += 1;
+    });
+    persist();
+    document.getElementById("favorite-dialog").close();
+    ui.favoriteTarget = null;
+    render();
+    showToast("Favorite circuit substituted.");
+  }
+
+  function deleteFavoriteCircuit(favoriteId) {
+    state.favoriteCircuits = state.favoriteCircuits.filter((favorite) => favorite.id !== favoriteId);
+    persist();
+    if (document.getElementById("favorite-dialog").open) renderFavoriteResults();
+    render();
+    showToast("Favorite circuit removed.");
   }
 
   function validateWeek(week) {
@@ -2081,6 +2319,14 @@
               ${assignment.locked ? "disabled" : ""}
             >${ICONS.book}</button>
             <button
+              class="mini-button"
+              type="button"
+              data-action="edit-workout-exercise"
+              data-exercise-id="${exercise.id}"
+              title="Edit exercise details"
+              aria-label="Edit ${escapeHtml(exercise.name)}"
+            >${ICONS.pencil}</button>
+            <button
               class="mini-button ${isHidden(exercise.id) ? "active danger" : ""}"
               type="button"
               data-action="toggle-hide-workout"
@@ -2101,16 +2347,17 @@
           ${
             exercise.instruction_url
               ? `<a href="${escapeHtml(exercise.instruction_url)}" target="_blank" rel="noreferrer">View demo ${ICONS.external}</a>`
-              : `<span>Custom movement</span>`
+              : `<span>Edit this exercise to add its instructions</span>`
           }
+          ${requiresBothSides(exercise) ? '<span class="both-sides-label">• Both sides</span>' : ""}
           ${caution ? `<span title="${escapeHtml(exercise.notes)}">• ${escapeHtml(caution)}</span>` : ""}
         </div>
         <div class="exercise-support-row">
           <div class="equipment-needed"><span>Equipment</span><strong>${escapeHtml(exercise.equipment_label)}</strong></div>
+          <span class="recommendation-score" title="50% effectiveness, 25% setup ease, and 25% technique ease">Score ${exerciseRecommendationScore(exercise)}</span>
           <div class="preference-controls" aria-label="Recommendation preference for ${escapeHtml(exercise.name)}">
             <button class="feedback-button ${settings.preference === 1 ? "active" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-value="1" title="Recommend more often" aria-label="Recommend ${escapeHtml(exercise.name)} more often">${ICONS.thumbUp}</button>
             <button class="feedback-button ${settings.preference === -1 ? "active negative" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-value="-1" title="Recommend less often" aria-label="Recommend ${escapeHtml(exercise.name)} less often">${ICONS.thumbDown}</button>
-            <span>${settings.preference === 1 ? "More often" : settings.preference === -1 ? "Less often" : "Neutral"}</span>
           </div>
         </div>
         <div class="exercise-fields">
@@ -2129,6 +2376,21 @@
         </div>
         <label class="exercise-note"><span>Notes</span><input data-setting="notes" data-exercise-id="${exercise.id}" value="${escapeHtml(settings.notes)}" maxlength="1000" placeholder="Add a cue or note" aria-label="Notes for ${escapeHtml(exercise.name)}" /></label>
       </div>`;
+  }
+
+  function syncCircuitStickyOffsets() {
+    const cards = document.querySelectorAll?.(".circuit-card") || [];
+    cards.forEach((card) => {
+      const pendingActivator = card.querySelector(".activator-wrap.is-pending");
+      const height = pendingActivator ? Math.ceil(pendingActivator.getBoundingClientRect().height) + 10 : 0;
+      card.style.setProperty("--activator-sticky-height", `${height}px`);
+    });
+  }
+
+  function scheduleCircuitStickyOffsets() {
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(syncCircuitStickyOffsets);
+    }
   }
 
   function renderCircuit(dayId, circuit, circuitIndex) {
@@ -2155,7 +2417,24 @@
     const lastExtra = circuit.extras[circuit.extras.length - 1];
     const canRemove = circuit.extras.length > 0 && !lastExtra?.locked;
     const complete = isCircuitComplete(circuit);
-
+    const activatorMarkup = `<div class="bridge-wrap activator-wrap ${circuit.bridgeCompleted ? "is-complete" : "is-pending"}">
+      ${renderExerciseItem(circuit.bridge, {
+        dayId,
+        circuitIndex,
+        position: "bridge",
+        bridgeCompleted: circuit.bridgeCompleted,
+      })}
+    </div>`;
+    const roundChecksMarkup = `<div class="round-checks" aria-label="Completed rounds for circuit ${circuit.number}">
+      ${[0, 1, 2]
+        .map(
+          (round) => `<label class="round-check">
+            <input type="checkbox" data-action="complete-round" data-day="${dayId}" data-circuit="${circuitIndex}" data-round="${round}" ${circuit.roundsCompleted[round] ? "checked" : ""} />
+            <span>Round ${round + 1}</span>
+          </label>`,
+        )
+        .join("")}
+    </div>`;
     return `
       <article class="circuit-card ${complete ? "is-complete" : ""}">
         <header class="circuit-header">
@@ -2164,6 +2443,8 @@
             <span class="circuit-title"><span>Circuit ${circuit.number}</span><strong>${escapeHtml(circuit.category)}</strong></span>
           </div>
           <div class="circuit-scaling">
+            <button class="favorite-button ${isFavoriteCircuit(dayId, circuitIndex, circuit) ? "active" : ""}" type="button" data-action="toggle-favorite-circuit" data-day="${dayId}" data-circuit="${circuitIndex}" title="${isFavoriteCircuit(dayId, circuitIndex, circuit) ? "Remove this circuit from favorites" : "Save this circuit as a favorite"}" aria-label="${isFavoriteCircuit(dayId, circuitIndex, circuit) ? "Remove circuit from favorites" : "Favorite this circuit"}">${ICONS.star}</button>
+            <button class="favorite-button" type="button" data-action="open-favorite-circuits" data-day="${dayId}" data-circuit="${circuitIndex}" title="Substitute a saved favorite circuit" aria-label="Substitute a favorite circuit" ${favoritesForSlot(dayId, circuitIndex).length ? "" : "disabled"}>${ICONS.favorites}</button>
             <span class="rounds-badge">${difficultyFor(circuit)} · ${assignments.length} exercises</span>
             <span class="scale-buttons">
               <button type="button" data-action="remove-round-exercise" data-day="${dayId}" data-circuit="${circuitIndex}" aria-label="Remove the last round exercise" title="Remove the last round exercise" ${canRemove ? "" : "disabled"}>−</button>
@@ -2172,24 +2453,8 @@
           </div>
         </header>
         <div class="circuit-body">
-          <div class="bridge-wrap activator-wrap">
-            ${renderExerciseItem(circuit.bridge, {
-              dayId,
-              circuitIndex,
-              position: "bridge",
-              bridgeCompleted: circuit.bridgeCompleted,
-            })}
-          </div>
-          <div class="round-checks" aria-label="Completed rounds for circuit ${circuit.number}">
-            ${[0, 1, 2]
-              .map(
-                (round) => `<label class="round-check">
-                  <input type="checkbox" data-action="complete-round" data-day="${dayId}" data-circuit="${circuitIndex}" data-round="${round}" ${circuit.roundsCompleted[round] ? "checked" : ""} />
-                  <span>Round ${round + 1}</span>
-                </label>`,
-              )
-              .join("")}
-          </div>
+          ${activatorMarkup}
+          ${roundChecksMarkup}
           <div class="exercise-cycle">${exerciseItems}</div>
         </div>
       </article>`;
@@ -2203,7 +2468,7 @@
     const finisherComplete = day.coreCompleted && day.cardioCompleted;
 
     document.getElementById("workout-view").innerHTML = `
-      <div class="content-frame">
+      <div class="content-frame workout-content ${beforeCircuitsComplete ? "" : "has-pending-warmup"}">
         <header class="view-header">
           <div>
             <span class="eyebrow">${completed} of 3 circuits complete</span>
@@ -2228,6 +2493,7 @@
           <label><input type="checkbox" data-action="cardio-check" data-day="${dayId}" ${day.cardioCompleted ? "checked" : ""} /> 20 minutes cardio</label>
         </div>
       </div>`;
+    scheduleCircuitStickyOffsets();
   }
 
   function categoryOptions() {
@@ -2261,6 +2527,9 @@
       if (ui.librarySort === "skipped") {
         return secondStats.skippedCount - firstStats.skippedCount || first.name.localeCompare(second.name);
       }
+      if (ui.librarySort === "score") {
+        return exerciseRecommendationScore(second) - exerciseRecommendationScore(first) || first.name.localeCompare(second.name);
+      }
       if (ui.librarySort === "category") {
         return first.primary_body_part.localeCompare(second.primary_body_part) || first.name.localeCompare(second.name);
       }
@@ -2292,6 +2561,8 @@
           <div class="library-tags">
             <span class="tag">${escapeHtml(exercise.movement_role.replace("_", " "))}</span>
             <span class="tag">${escapeHtml(exercise.force_type.replace("_", " "))}</span>
+            <span class="tag score">Score ${exerciseRecommendationScore(exercise)}</span>
+            ${requiresBothSides(exercise) ? '<span class="tag both-sides">Both sides</span>' : ""}
             ${caution ? `<span class="tag caution">${escapeHtml(caution)}</span>` : ""}
             ${exercise.total_body_activator ? '<span class="tag activator">Total-body activator</span>' : ""}
           </div>
@@ -2344,6 +2615,7 @@
           <label class="select-field"><span>Sort</span><select id="library-sort">
             <option value="popular" ${ui.librarySort === "popular" ? "selected" : ""}>Most popular</option>
             <option value="skipped" ${ui.librarySort === "skipped" ? "selected" : ""}>Most skipped</option>
+            <option value="score" ${ui.librarySort === "score" ? "selected" : ""}>Recommendation score</option>
             <option value="name" ${ui.librarySort === "name" ? "selected" : ""}>Name A–Z</option>
             <option value="category" ${ui.librarySort === "category" ? "selected" : ""}>Category</option>
             <option value="equipment" ${ui.librarySort === "equipment" ? "selected" : ""}>Equipment</option>
@@ -2650,6 +2922,7 @@
         return (
           first.searchScore - second.searchScore ||
           firstCost - secondCost ||
+          exerciseRecommendationScore(second.exercise) - exerciseRecommendationScore(first.exercise) ||
           stateFor(second.exercise.id).preference - stateFor(first.exercise.id).preference ||
           stateFor(second.exercise.id).chosenCount - stateFor(first.exercise.id).chosenCount ||
           first.exercise.name.localeCompare(second.exercise.name)
@@ -2669,13 +2942,15 @@
       ? results
           .map(
             ({ exercise, cost, eligible }) => `
-              <div class="replace-option">
-                <button class="replace-option-choice" type="button" data-action="choose-replacement" data-exercise-id="${exercise.id}">
-                  <span><strong>${escapeHtml(exercise.name)}</strong><small>${escapeHtml(exercise.primary_body_part)} · ${escapeHtml(exercise.equipment_label)} · chosen ${stateFor(exercise.id).chosenCount} times${eligible ? "" : " · outside this slot's target"}</small></span>
+              <article class="replace-option">
+                <div class="replace-option-copy"><strong>${escapeHtml(exercise.name)}</strong><small>${escapeHtml(exercise.primary_body_part)} · ${escapeHtml(exercise.equipment_label)}${requiresBothSides(exercise) ? " · both sides" : ""} · chosen ${stateFor(exercise.id).chosenCount} times${eligible ? "" : " · outside this slot's target"}</small></div>
+                <div class="replace-option-actions">
+                  <span class="recommendation-score">Score ${exerciseRecommendationScore(exercise)}</span>
                   <span class="cost-badge cost-${cost}">${ui.replacement.position === "bridge" && eligible ? "Eligible" : `Setup ${cost}/5`}</span>
-                </button>
+                  <button class="replace-option-use" type="button" data-action="choose-replacement" data-exercise-id="${exercise.id}">Use</button>
+                </div>
                 <button class="replace-option-hide" type="button" data-action="hide-replacement" data-exercise-id="${exercise.id}" title="Hide from future recommendations" aria-label="Hide ${escapeHtml(exercise.name)} from recommendations">${ICONS.eyeOff}<span>Hide</span></button>
-              </div>`,
+              </article>`,
           )
           .join("")
       : '<div class="empty-state">No unused eligible exercises match this search.</div>';
@@ -2705,15 +2980,13 @@
     ui.replacement = { dayId, circuitIndex, position: "extra-new", mode: "add" };
     ui.replaceSearch = "";
     ui.showAllReplacements = false;
-    document.getElementById("replace-title").textContent = "Add a round exercise";
-    document.getElementById("replace-description").textContent =
-      "Choose an unused exercise that fits this day and keeps adjacent setup changes easy.";
-    document.getElementById("replace-search").value = "";
-    document.getElementById("show-all-replacements").checked = false;
-    document.getElementById("replacement-scope-note").textContent = "Only eligible, easy 0–2 options are shown.";
-    renderReplacementResults();
-    document.getElementById("replace-dialog").showModal();
-    setTimeout(() => document.getElementById("replace-search").focus(), 0);
+    const recommended = replacementOptions()[0]?.exercise;
+    if (!recommended) {
+      ui.replacement = null;
+      showToast("No unused compatible exercise is available for this circuit.", "error");
+      return;
+    }
+    replaceExercise(recommended.id);
   }
 
   function randomReplace(context) {
@@ -2879,6 +3152,44 @@
     }
   }
 
+  function portableExerciseRecord(exercise) {
+    return {
+      id: exercise.id,
+      name: exercise.name,
+      category: exercise.primary_body_part || "Other",
+      equipment: exercise.equipment_label || "User-defined",
+      equipmentVarieties: exercise.equipment_varieties || [],
+      instructionUrl: exercise.instruction_url || null,
+      sourceRow: exercise.source_row ?? null,
+      custom: true,
+      movementPattern: exercise.movement_pattern || "other",
+      movementRole: exercise.movement_role || "isolation",
+      forceType: exercise.force_type || "other",
+      defaultReps: exercise.default_reps || "10",
+      shoulderCaution: Boolean(exercise.shoulder_caution),
+      backCaution: Boolean(exercise.back_caution),
+      totalBodyActivator: Boolean(exercise.total_body_activator),
+      bothSides: Boolean(exercise.unilateral),
+      difficultyScore: exercise.difficulty_score,
+      setupDifficulty: exercise.setup_difficulty,
+      effectivenessScore: exercise.effectiveness_score,
+      notes: exercise.notes || null,
+    };
+  }
+
+  function stateWithPortableExercises(parsed) {
+    const candidate = JSON.parse(JSON.stringify(parsed.appState));
+    candidate.customExercises = Array.isArray(candidate.customExercises) ? candidate.customExercises : [];
+    rebuildExerciseCatalog(candidate.customExercises, candidate.exerciseEdits || {});
+    const recovered = Array.isArray(parsed.exerciseLibrary)
+      ? parsed.exerciseLibrary.filter(
+          (exercise) => exercise?.id && exercise?.name && !exerciseById.has(exercise.id),
+        )
+      : [];
+    candidate.customExercises.push(...recovered.map(portableExerciseRecord));
+    return { candidate, recoveredCount: recovered.length };
+  }
+
   async function loadJson(file, handle = null) {
     if (!file) return;
     const previousCustomExercises = state.customExercises.slice();
@@ -2886,7 +3197,8 @@
     try {
       const parsed = JSON.parse(await file.text());
       if (!parsed.appState) throw new Error("This is not a Basement 45 save file.");
-      state = normalizeState(parsed.appState);
+      const { candidate, recoveredCount } = stateWithPortableExercises(parsed);
+      state = normalizeState(candidate);
       ui.currentView = enabledDays()[0]?.id || "settings";
       if (handle) {
         fileHandle = handle;
@@ -2895,7 +3207,9 @@
       }
       persist();
       render();
-      showToast(`Loaded Week ${state.weekNumber} from ${file.name}.`);
+      showToast(
+        `Loaded Week ${state.weekNumber} from ${file.name}.${recoveredCount ? ` Recovered ${recoveredCount} portable library exercise${recoveredCount === 1 ? "" : "s"}.` : ""}`,
+      );
     } catch (error) {
       rebuildExerciseCatalog(previousCustomExercises, previousExerciseEdits);
       showToast(error.message || "The JSON file could not be loaded.", "error");
@@ -2953,11 +3267,15 @@
     setValue("movementRole", exercise.movement_role);
     setValue("forceType", exercise.force_type);
     setValue("defaultReps", exercise.default_reps);
+    setValue("difficultyScore", exercise.difficulty_score);
+    setValue("setupDifficulty", exercise.setup_difficulty);
+    setValue("effectivenessScore", exercise.effectiveness_score);
     setValue("instructionUrl", exercise.instruction_url);
     setValue("notes", exercise.notes);
     form.elements.shoulderCaution.checked = exercise.shoulder_caution;
     form.elements.backCaution.checked = exercise.back_caution;
     form.elements.totalBodyActivator.checked = exercise.total_body_activator;
+    form.elements.bothSides.checked = exercise.unilateral;
     document.getElementById("exercise-dialog-title").textContent = `Edit ${exercise.name}`;
     document.getElementById("exercise-dialog-description").textContent =
       "Changes apply throughout the library and current workout while preserving history.";
@@ -2991,9 +3309,13 @@
       movementRole: String(data.get("movementRole") || "isolation"),
       forceType: String(data.get("forceType") || "other"),
       defaultReps: String(data.get("defaultReps") || "10").trim() || "10",
+      difficultyScore: clampRating(data.get("difficultyScore"), 2),
+      setupDifficulty: clampRating(data.get("setupDifficulty"), 2),
+      effectivenessScore: clampRating(data.get("effectivenessScore"), 3),
       shoulderCaution: data.get("shoulderCaution") === "on",
       backCaution: data.get("backCaution") === "on",
       totalBodyActivator: data.get("totalBodyActivator") === "on",
+      bothSides: data.get("bothSides") === "on",
       notes: String(data.get("notes") || "").trim() || null,
     };
 
@@ -3098,6 +3420,18 @@
     if (actionButton.dataset.action === "remove-round-exercise") {
       removeRoundExercise(actionButton.dataset.day, Number(actionButton.dataset.circuit));
     }
+    if (actionButton.dataset.action === "toggle-favorite-circuit") {
+      toggleFavoriteCircuit(actionButton.dataset.day, Number(actionButton.dataset.circuit));
+    }
+    if (actionButton.dataset.action === "open-favorite-circuits") {
+      openFavoriteCircuits(actionButton.dataset.day, Number(actionButton.dataset.circuit));
+    }
+    if (actionButton.dataset.action === "apply-favorite-circuit") {
+      applyFavoriteCircuit(actionButton.dataset.favoriteId);
+    }
+    if (actionButton.dataset.action === "delete-favorite-circuit") {
+      deleteFavoriteCircuit(actionButton.dataset.favoriteId);
+    }
     if (actionButton.dataset.action === "toggle-lock") {
       const assignment = assignmentFor(parseContext(actionButton));
       if (!assignment.fixed) {
@@ -3135,6 +3469,9 @@
     }
     if (actionButton.dataset.action === "open-add-exercise") {
       openExerciseDialog();
+    }
+    if (actionButton.dataset.action === "edit-workout-exercise") {
+      openEditExerciseDialog(actionButton.dataset.exerciseId);
     }
     if (actionButton.dataset.action === "close-exercise-dialog") {
       ui.editingExerciseId = null;
@@ -3284,6 +3621,10 @@
       ui.replaceSearch = "";
       ui.showAllReplacements = false;
     });
+    document.getElementById("favorite-dialog").addEventListener("close", () => {
+      ui.favoriteTarget = null;
+    });
+    window.addEventListener?.("resize", scheduleCircuitStickyOffsets);
   }
 
   function initialize() {

@@ -1,8 +1,12 @@
-- [ ] the total body activator should be sticky unless checked. Same with warm up
-- [ ] I also have a physio ball
-- [ ] Remove the 'Neutral' thing from the exercise cards. Add a 'both sides' if it's a both sides exercise. also add a checkbox in that exercise to mark it as both sides. -[ ] ability to indivdually adjust number of exercises per cirucuit
-- [ ] a score for each exercise that combines difficulty with setup cost with effectiveness that are adjustable. Should recommend partially based on score
-- [ ] unchecked boxes should stick out a bit more
-- [ ] why are there custom movements that I didn't make? no demo? I don't know how to do it.
-- [ ] the fuzzy search should display by default. The elements seem to be populating in the swap tool, but not displaying.
-- [ ] ability to favorite a circuit with button to substitute with a favorite cirucit
+- [x] the total body activator should be sticky unless checked. The round checkboxes remain a separate sticky row below it, and the completed activator scrolls away. Same with warm up
+- [x] I also have a physio ball
+- [x] Remove the 'Neutral' thing from the exercise cards. Add a 'both sides' if it's a both sides exercise. Also add a checkbox in that exercise to mark it as both sides.
+- [x] ability to individually adjust number of exercises per circuit
+- [x] a score for each exercise that combines difficulty with setup cost with effectiveness that are adjustable. Should recommend partially based on score
+- [x] unchecked boxes should stick out a bit more
+- [x] why are there custom movements that I didn't make? no demo? I don't know how to do it.
+- [x] the fuzzy search should display by default. The elements seem to be populating in the swap tool, but not displaying.
+- [x] ability to favorite a circuit with button to substitute with a favorite circuit
+- [x] ask for a favorite circuit name when saving it
+- [x] automatically select a suitable exercise when adding one to a circuit
+- [x] edit an exercise directly from its workout card

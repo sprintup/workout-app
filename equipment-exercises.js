@@ -11,7 +11,7 @@
         equipmentVarieties,
         instructionUrl: null,
         sourceRow: null,
-        custom: true,
+        custom: false,
         catalogExpansion: true,
         ...defaults,
         ...exercise,
