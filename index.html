@@ -36,7 +36,7 @@
           </svg>
           Save file
         </button>
-        <span id="file-status" class="file-status" title="Browser-local autosave is active">Local autosave</span>
+        <span id="file-status" class="file-status" title="No JSON file is connected">Not connected · basement-45-workouts.json</span>
         <button class="button button-primary" id="new-week-button" type="button">
           New week
           <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -54,8 +54,19 @@
             <strong id="week-number">Week 1</strong>
             <span id="week-date">Starting today</span>
           </div>
-          <div class="progress-track" aria-hidden="true">
-            <span id="week-progress-bar"></span>
+          <div class="progress-timer-row">
+            <div class="progress-track" aria-hidden="true">
+              <span id="week-progress-bar"></span>
+            </div>
+            <div id="workout-timer" class="workout-timer" aria-label="45-minute workout timer">
+              <span id="timer-display" class="timer-display">45:00</span>
+              <button id="timer-toggle" type="button" data-action="toggle-workout-timer">Start</button>
+              <button id="timer-reset" type="button" data-action="reset-workout-timer" aria-label="Reset workout timer" title="Reset timer">↺</button>
+              <div class="timer-adjustments" aria-label="Adjust workout time">
+                <button id="timer-minus" type="button" data-action="adjust-workout-timer" data-minutes="-5" aria-label="Remove five minutes">−5 min</button>
+                <button id="timer-plus" type="button" data-action="adjust-workout-timer" data-minutes="5" aria-label="Add five minutes">+5 min</button>
+              </div>
+            </div>
           </div>
           <p id="week-progress-label">0 of 15 circuits complete</p>
         </div>
@@ -104,11 +115,10 @@
           <span id="replace-count" class="result-count"></span>
         </div>
         <div class="cost-explainer">
-          <strong>Setup score</strong>
-          <span><b>0</b> no change</span>
-          <span><b>1</b> grip or position</span>
-          <span><b>2</b> one quick equipment adjustment</span>
-          <small id="replacement-scope-note">Only eligible, easy 0–2 options are shown.</small>
+          <strong>Automatic eligibility</strong>
+          <span>Compatible movement</span>
+          <span>Quick transition</span>
+          <small id="replacement-scope-note">Eligible exercises with easy transitions are shown. Enter the manual setup score on the workout card after choosing.</small>
           <label class="replacement-scope">
             <input id="show-all-replacements" type="checkbox" />
             Show all library exercises
@@ -205,20 +215,12 @@
             <input name="defaultReps" maxlength="40" value="10" placeholder="10 or 30 sec" />
           </label>
           <fieldset class="score-fields form-field-wide">
-            <legend>Recommendation score inputs</legend>
-            <label class="form-field">
-              <span>Difficulty <small>1 simple · 5 technical</small></span>
-              <input name="difficultyScore" type="number" min="1" max="5" step="1" value="2" required />
-            </label>
-            <label class="form-field">
-              <span>Setup cost <small>1 easy · 5 involved</small></span>
-              <input name="setupDifficulty" type="number" min="1" max="5" step="1" value="2" required />
-            </label>
+            <legend>Exercise score</legend>
             <label class="form-field">
               <span>Effectiveness <small>1 low · 5 high</small></span>
               <input name="effectivenessScore" type="number" min="1" max="5" step="1" value="3" required />
             </label>
-            <small class="score-help">The combined 0–100 score favors effectiveness while still rewarding simple technique and easy setup.</small>
+            <small class="score-help">Effectiveness belongs to the exercise. Setup is scored separately on each workout card because it depends on the other exercises in that circuit.</small>
           </fieldset>
           <label class="form-field form-field-wide">
             <span>Demo or instruction URL <small>optional</small></span>

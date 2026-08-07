@@ -1,9 +1,13 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = 8;
+  const APP_VERSION = 13;
   const STORAGE_KEY = "basement45-state-v1";
   const ACTIVATOR_LABEL = "Total Body activator";
+  const DEFAULT_WORKOUT_DURATION_MS = 45 * 60 * 1000;
+  const MIN_WORKOUT_DURATION_MS = 15 * 60 * 1000;
+  const MAX_WORKOUT_DURATION_MS = 120 * 60 * 1000;
+  const TIMER_ADJUSTMENT_MS = 5 * 60 * 1000;
 
   const ICONS = {
     arrow:
@@ -73,7 +77,7 @@
       name: "Friday",
       focus: "Pull",
       guidance:
-        "Keep hinges crisp and conservative. The three PT total-body activator slots are fixed and carry forward into every new week.",
+        "Keep hinges crisp and conservative. PT exercises remain available in the library and can be edited, hidden, or removed whenever needed.",
     },
     {
       id: "saturday",
@@ -112,7 +116,7 @@
       instructionUrl: null,
       sourceRow: null,
       custom: true,
-      alwaysLocked: true,
+      alwaysLocked: false,
     })),
   ];
 
@@ -289,15 +293,6 @@
     return Number.isFinite(rating) ? Math.max(1, Math.min(5, Math.round(rating))) : fallback;
   }
 
-  function inferSetupDifficulty(record) {
-    const equipment = inferEquipment(record.equipment);
-    if (equipment.includes("body weight") || equipment.includes("physio ball")) return 1;
-    if (equipment.includes("barbell") || equipment.includes("squat rack")) return 4;
-    if (equipment.includes("FT2") && inferAttachment(record)) return 3;
-    if (equipment.includes("bench") || equipment.length > 1) return 2;
-    return 2;
-  }
-
   function inferEffectiveness(record, movementRole) {
     if (record.totalBodyActivator || movementRole === "total_body") return 5;
     if (movementRole === "compound") return 4;
@@ -305,11 +300,8 @@
     return 3;
   }
 
-  function exerciseRecommendationScore(exercise) {
-    const effectiveness = exercise.effectiveness_score;
-    const setupEase = 6 - exercise.setup_difficulty;
-    const techniqueEase = 6 - exercise.difficulty_score;
-    return Math.round((effectiveness * 0.5 + setupEase * 0.25 + techniqueEase * 0.25) * 20);
+  function exerciseEffectivenessScore(exercise) {
+    return clampRating(exercise?.effectiveness_score, 3);
   }
 
   function demoSearchUrl(name) {
@@ -349,14 +341,7 @@
       : backCaution || record.category === "Full Body and Golf Support"
         ? "intermediate"
         : "beginner";
-    const difficultyScore = clampRating(
-      record.difficultyScore ?? record.difficulty_score,
-      { beginner: 1, intermediate: 3, advanced: 5 }[record.technicalDifficulty || inferredTechnicalDifficulty],
-    );
-    const setupDifficulty = clampRating(
-      record.setupDifficulty ?? record.setup_difficulty,
-      inferSetupDifficulty(record),
-    );
+    const technicalDifficulty = record.technicalDifficulty || inferredTechnicalDifficulty;
     const effectivenessScore = clampRating(
       record.effectivenessScore ?? record.effectiveness_score,
       inferEffectiveness(record, movementRole),
@@ -395,9 +380,7 @@
       must_be_seated: overhead,
       shoulder_caution: shoulderCaution,
       back_caution: backCaution,
-      technical_difficulty: difficultyScore >= 4 ? "advanced" : difficultyScore >= 2 ? "intermediate" : "beginner",
-      difficulty_score: difficultyScore,
-      setup_difficulty: setupDifficulty,
+      technical_difficulty: technicalDifficulty,
       effectiveness_score: effectivenessScore,
       default_reps: record.defaultReps || inferDefaultReps(record),
       instruction_url: record.instructionUrl || (!alwaysLocked ? demoSearchUrl(record.name) : null),
@@ -461,8 +444,6 @@
       equipmentVarieties: edit.equipmentVarieties || exercise.equipment_varieties,
       totalBodyActivator: edit.totalBodyActivator ?? exercise.total_body_activator,
       bothSides: edit.bothSides ?? exercise.unilateral,
-      difficultyScore: edit.difficultyScore ?? exercise.difficulty_score,
-      setupDifficulty: edit.setupDifficulty ?? exercise.setup_difficulty,
       effectivenessScore: edit.effectivenessScore ?? exercise.effectiveness_score,
       catalogExpansion: exercise.catalog_expansion,
     });
@@ -1145,12 +1126,14 @@
     showAllReplacements: false,
     editingExerciseId: null,
     favoriteTarget: null,
+    expandedActivators: new Set(),
   };
 
   let state;
   let toastTimer;
   let fileHandle = null;
   let fileSaveTimer = null;
+  let timerInterval = null;
 
   function defaultMeasureType(exercise) {
     return /sec|second/i.test(exercise?.default_reps || "") ? "seconds" : "reps";
@@ -1168,6 +1151,7 @@
           chosenCount: 0,
           skippedCount: 0,
           preference: 0,
+          loadProgressCount: 0,
           reps: cleanRepValue(exercise.default_reps),
           measureType: defaultMeasureType(exercise),
           weight: "",
@@ -1232,6 +1216,7 @@
         chosenCount: 0,
         skippedCount: 0,
         preference: 0,
+        loadProgressCount: 0,
         reps: cleanRepValue(exercise?.default_reps || "10"),
         measureType: defaultMeasureType(exercise),
         weight: "",
@@ -1239,6 +1224,34 @@
       };
     }
     return state.exerciseState[exerciseId];
+  }
+
+  function updateCircuitLoadProgress(circuit, direction) {
+    for (const assignment of mainAssignments(circuit)) {
+      const stats = stateFor(assignment.exerciseId);
+      stats.loadProgressCount = Math.max(0, Math.min(4, stats.loadProgressCount + direction));
+    }
+  }
+
+  function increaseExerciseLoad(exerciseId) {
+    const exercise = exerciseById.get(exerciseId);
+    if (!exercise) return;
+    const stats = stateFor(exerciseId);
+    const currentLoad = String(stats.weight || "").trim();
+    const numericLoad = Number(currentLoad);
+    const suggestion = currentLoad && Number.isFinite(numericLoad) ? String(numericLoad + 5) : currentLoad;
+    const requested = window.prompt(`Enter a higher load for ${exercise.name}:`, suggestion);
+    if (requested === null) return;
+    const nextLoad = String(requested).trim().slice(0, 40);
+    if (!nextLoad || nextLoad === currentLoad) {
+      showToast("Enter a different load to begin a new four-workout progression.", "error");
+      return;
+    }
+    stats.weight = nextLoad;
+    stats.loadProgressCount = 0;
+    persist();
+    render();
+    showToast(`${exercise.name} load updated. Progress checks reset.`);
   }
 
   function transitionCost(first, second) {
@@ -1306,7 +1319,7 @@
     if (recent.has(exercise.id)) score += 28;
     if (slot.defaultName && exercise.id === idFor(slot.defaultName)) score -= 18;
     if (exercise.technical_difficulty === "advanced") score += 8;
-    score += (70 - exerciseRecommendationScore(exercise)) * 0.18;
+    score += (5 - exerciseEffectivenessScore(exercise)) * 4;
     return score;
   }
 
@@ -1405,6 +1418,7 @@
       fixed: Boolean(slot.alwaysLocked),
       manualOverride: Boolean(preserved?.manualOverride),
       slotKey: preserved?.slotKey || null,
+      setupScore: defaultSetupScore(exercise),
     });
 
     return {
@@ -1443,31 +1457,62 @@
       fixed: false,
       manualOverride: Boolean(preserved?.manualOverride),
       slotKey: "extra",
+      setupScore: defaultSetupScore(selected),
     };
   }
 
-  function chooseBridge(slot, used, oldCircuit) {
-    const preserved = preservedAssignment(oldCircuit, "bridge", slot, used);
+  function optionalActivatorSlot() {
+    return {
+      label: ACTIVATOR_LABEL,
+      names: exercises.filter((exercise) => exercise.total_body_activator).map((exercise) => exercise.name),
+    };
+  }
+
+  function chooseOptionalActivator(used, oldCircuit) {
+    const slot = optionalActivatorSlot();
+    const previousCircuit = oldCircuit?.optionalActivator
+      ? oldCircuit
+      : oldCircuit?.bridge
+        ? { ...oldCircuit, optionalActivator: oldCircuit.bridge }
+        : oldCircuit;
+    const preserved = preservedAssignment(previousCircuit, "optionalActivator", slot, used);
     if (preserved) return preserved;
 
-    const recent = recentIds();
-    const candidates = candidatesFor(slot, used).sort(
-      (a, b) => exerciseScore(a, slot, recent) - exerciseScore(b, slot, recent),
-    );
+    const candidates = candidatesFor(slot, used);
+    if (state) {
+      const recent = recentIds();
+      candidates.sort((a, b) => exerciseScore(a, slot, recent) - exerciseScore(b, slot, recent));
+    } else {
+      candidates.sort((a, b) => a.name.localeCompare(b.name));
+    }
     const selected = candidates[0];
-    if (!selected) throw new Error(`No bridge exercise remains for ${slot.label}.`);
+    if (!selected) throw new Error(`No unused total-body activator remains.`);
 
     return {
       exerciseId: selected.id,
       slotLabel: slot.label,
       locked: Boolean(slot.alwaysLocked),
       fixed: Boolean(slot.alwaysLocked),
-      slotKey: "bridge",
+      slotKey: "optionalActivator",
     };
   }
 
   function generateWeek(previousWeek) {
-    const used = new Set();
+    const reservedActivatorIds = new Set(
+      DAY_CONFIG.flatMap((day) =>
+        (previousWeek?.days?.[day.id]?.circuits || [])
+          .map((circuit) => circuit.optionalActivator || circuit.bridge)
+          .filter(
+            (assignment) =>
+              assignment?.locked &&
+              exerciseById.get(assignment.exerciseId)?.total_body_activator &&
+              !isHidden(assignment.exerciseId) &&
+              !isDeleted(assignment.exerciseId),
+          )
+          .map((assignment) => assignment.exerciseId),
+      ),
+    );
+    const used = new Set(reservedActivatorIds);
     const days = {};
 
     for (const day of DAY_CONFIG) {
@@ -1507,20 +1552,17 @@
           previousExercise = exerciseById.get(extra.exerciseId);
           circuitExercises.push(previousExercise);
         }
-        const bridge = chooseBridge(definition.bridge, used, oldCircuit);
-        used.add(bridge.exerciseId);
-
         return {
           number: index + 1,
           category: definition.category,
           first: pair.first,
           second: pair.second,
           extras,
-          bridge,
           rounds: 3,
           preferredExerciseCount: desiredCount,
           roundsCompleted: [false, false, false],
-          bridgeCompleted: false,
+          optionalActivatorCompleted: false,
+          completionCredited: false,
         };
       });
 
@@ -1530,8 +1572,18 @@
         circuits,
         preChecklist: { stretch: false, pushups: false, pullups: false },
         coreCompleted: false,
-        cardioCompleted: false,
+        timer: { durationMs: DEFAULT_WORKOUT_DURATION_MS, elapsedMs: 0, startedAt: null },
       };
+    }
+
+    const roundExerciseIds = new Set([...used].filter((exerciseId) => !reservedActivatorIds.has(exerciseId)));
+    for (const exerciseId of reservedActivatorIds) used.delete(exerciseId);
+    for (const day of DAY_CONFIG) {
+      days[day.id].circuits.forEach((circuit, index) => {
+        const optionalActivator = chooseOptionalActivator(used, previousWeek?.days?.[day.id]?.circuits?.[index]);
+        circuit.optionalActivator = optionalActivator;
+        used.add(optionalActivator.exerciseId);
+      });
     }
 
     state.week = {
@@ -1540,14 +1592,14 @@
       days,
     };
 
-    for (const exerciseId of used) stateFor(exerciseId).chosenCount += 1;
+    for (const exerciseId of roundExerciseIds) stateFor(exerciseId).chosenCount += 1;
   }
 
   function createMissingWorkoutDay(day, week, excludedIds = new Set()) {
     const used = new Set();
     for (const dayData of Object.values(week.days || {})) {
       for (const circuit of dayData?.circuits || []) {
-        for (const assignment of [circuit.first, circuit.second, ...(circuit.extras || []), circuit.bridge]) {
+        for (const assignment of [circuit.first, circuit.second, ...(circuit.extras || [])]) {
           if (assignment?.exerciseId) used.add(assignment.exerciseId);
         }
       }
@@ -1578,9 +1630,6 @@
       used.add(pair.first.id);
       used.add(pair.second.id);
 
-      const bridge = candidatesForMissingSlot(definition.bridge)[0];
-      if (!bridge) throw new Error(`No total-body activator remains while adding ${day.name}.`);
-      used.add(bridge.id);
       const manualOverride = pair.cost > 2;
 
       return {
@@ -1593,6 +1642,7 @@
           fixed: false,
           manualOverride,
           slotKey: "first",
+          setupScore: defaultSetupScore(pair.first),
         },
         second: {
           exerciseId: pair.second.id,
@@ -1601,21 +1651,22 @@
           fixed: false,
           manualOverride,
           slotKey: "second",
+          setupScore: defaultSetupScore(pair.second),
         },
         extras: [],
-        bridge: {
-          exerciseId: bridge.id,
-          slotLabel: definition.bridge.label,
-          locked: false,
-          fixed: false,
-          slotKey: "bridge",
-        },
         rounds: 3,
         preferredExerciseCount: 2,
         roundsCompleted: [false, false, false],
-        bridgeCompleted: false,
+        optionalActivatorCompleted: false,
+        completionCredited: false,
       };
     });
+
+    for (const circuit of circuits) {
+      const optionalActivator = chooseOptionalActivator(used, null);
+      circuit.optionalActivator = optionalActivator;
+      used.add(optionalActivator.exerciseId);
+    }
 
     return {
       day: day.name,
@@ -1623,7 +1674,7 @@
       circuits,
       preChecklist: { stretch: false, pushups: false, pullups: false },
       coreCompleted: false,
-      cardioCompleted: false,
+      timer: { durationMs: DEFAULT_WORKOUT_DURATION_MS, elapsedMs: 0, startedAt: null },
     };
   }
 
@@ -1634,7 +1685,6 @@
         circuit.first.exerciseId,
         circuit.second.exerciseId,
         ...(circuit.extras || []).map((assignment) => assignment.exerciseId),
-        circuit.bridge.exerciseId,
       ]),
     );
     state.history.push({
@@ -1654,13 +1704,22 @@
     scheduleFileAutosave();
   }
 
+  function fileDisplayPath(fileOrHandle) {
+    return String(
+      fileOrHandle?.path ||
+        fileOrHandle?.webkitRelativePath ||
+        fileOrHandle?.name ||
+        "basement-45-workouts.json",
+    );
+  }
+
   function setFileStatus(message, connected = false) {
     const status = document.getElementById("file-status");
     status.textContent = message;
     status.classList.toggle("connected", connected);
     status.title = connected
-      ? "Changes automatically save to the connected JSON file."
-      : "Browser-local autosave is active. Choose Save file to connect a JSON file.";
+      ? `${message}. Changes automatically save to this connected JSON file. Browsers may hide its parent folders.`
+      : `${message}. Browser-local autosave is active; browsers may hide a selected file's parent folders.`;
   }
 
   function openFileHandleDatabase() {
@@ -1695,7 +1754,7 @@
       });
       if (handle && (await handle.queryPermission({ mode: "readwrite" })) === "granted") {
         fileHandle = handle;
-        setFileStatus(`Autosaving · ${handle.name}`, true);
+        setFileStatus(`Autosaving · ${fileDisplayPath(handle)}`, true);
       }
     } catch (error) {
       console.warn("The previous workout file could not be restored.", error);
@@ -1713,7 +1772,7 @@
     const writable = await handle.createWritable();
     await writable.write(JSON.stringify(exportPayload(), null, 2));
     await writable.close();
-    setFileStatus(`Saved · ${handle.name}`, true);
+    setFileStatus(`Saved · ${fileDisplayPath(handle)}`, true);
     if (announce) showToast(`Saved directly to ${handle.name}.`);
     return true;
   }
@@ -1725,7 +1784,7 @@
       try {
         await writeStateToFile(fileHandle, false, false);
       } catch (error) {
-        setFileStatus("File autosave paused", false);
+        setFileStatus(`Autosave paused · ${fileDisplayPath(fileHandle)}`, false);
         console.warn("File autosave failed.", error);
       }
     }, 700);
@@ -1736,7 +1795,7 @@
       const stored = localStorage.getItem(STORAGE_KEY);
       if (!stored) return null;
       const parsed = JSON.parse(stored);
-      if (![1, 2, 3, 4, 5, 6, 7, APP_VERSION].includes(parsed.version) || !parsed.week?.days) return null;
+      if (!Number.isInteger(parsed.version) || parsed.version < 1 || parsed.version > APP_VERSION || !parsed.week?.days) return null;
       rebuildExerciseCatalog(parsed.customExercises || [], parsed.exerciseEdits || {});
       return normalizeState(parsed);
     } catch (error) {
@@ -1764,9 +1823,30 @@
               Number.isInteger(Number(favorite.circuitIndex)) &&
               Array.isArray(favorite.assignments) &&
               favorite.assignments.length >= 2 &&
-              favorite.assignments.length <= 4 &&
-              favorite.bridge,
+              favorite.assignments.length <= 4,
           )
+          .map((favorite) => {
+            const assignments = favorite.assignments.slice(0, 4).map((assignment) => ({
+              ...assignment,
+              setupScore:
+                normalizeSetupScore(assignment.setupScore) ??
+                defaultSetupScore(exerciseById.get(assignment.exerciseId)),
+            }));
+            const exerciseNames = assignments
+              .map((assignment) => exerciseById.get(assignment.exerciseId)?.name)
+              .filter(Boolean);
+            const migrated = {
+              ...favorite,
+              assignments,
+              exerciseNames,
+              totalScore: assignments.reduce((total, assignment) => total + assignmentExerciseScore(assignment), 0),
+              signature: assignments
+                .map((assignment) => `${assignment.exerciseId}:${normalizeSetupScore(assignment.setupScore) ?? ""}`)
+                .join("|"),
+            };
+            delete migrated.bridge;
+            return migrated;
+          })
           .slice(-30)
       : [];
     normalized.daySettings = Object.fromEntries(
@@ -1798,6 +1878,7 @@
           chosenCount: Math.max(0, Number(loaded.chosenCount) || 0),
           skippedCount: Math.max(0, Number(loaded.skippedCount) || 0),
           preference: Math.max(-1, Math.min(1, Number(loaded.preference) || 0)),
+          loadProgressCount: Math.max(0, Math.min(4, Math.floor(Number(loaded.loadProgressCount) || 0))),
           reps: cleanRepValue(loaded.reps ?? exercise.default_reps).slice(0, 40),
           measureType: ["reps", "seconds"].includes(loaded.measureType)
             ? loaded.measureType
@@ -1823,16 +1904,29 @@
         pullups: Boolean(dayData.preChecklist?.pullups),
       };
       dayData.coreCompleted = Boolean(dayData.coreCompleted);
-      dayData.cardioCompleted = Boolean(dayData.cardioCompleted);
+      delete dayData.cardioCompleted;
+      const durationMs = normalizeTimerDuration(dayData.timer?.durationMs);
+      dayData.timer = {
+        durationMs,
+        elapsedMs: Math.max(0, Math.min(durationMs, Number(dayData.timer?.elapsedMs) || 0)),
+        startedAt:
+          dayData.timer?.startedAt && Number.isFinite(new Date(dayData.timer.startedAt).getTime())
+            ? dayData.timer.startedAt
+            : null,
+      };
       for (const circuit of dayData.circuits) {
+        const loadedOptionalActivator = circuit.optionalActivator || circuit.bridge || null;
         circuit.extras = Array.isArray(circuit.extras) ? circuit.extras.slice(0, 2) : [];
         circuit.first.slotKey ||= "first";
         circuit.second.slotKey ||= "second";
         circuit.extras.forEach((assignment) => {
           assignment.slotKey ||= "extra";
         });
-        circuit.bridge.slotKey ||= "bridge";
-        circuit.bridge.slotLabel = ACTIVATOR_LABEL;
+        mainAssignments(circuit).forEach((assignment) => {
+          assignment.setupScore =
+            normalizeSetupScore(assignment.setupScore) ??
+            defaultSetupScore(exerciseById.get(assignment.exerciseId));
+        });
         circuit.preferredExerciseCount = Math.min(
           4,
           Math.max(2, Number(circuit.preferredExerciseCount) || 2 + circuit.extras.length),
@@ -1841,9 +1935,15 @@
         circuit.roundsCompleted = Array.isArray(circuit.roundsCompleted)
           ? [0, 1, 2].map((index) => Boolean(circuit.roundsCompleted[index]))
           : [wasComplete, wasComplete, wasComplete];
-        circuit.bridgeCompleted =
-          typeof circuit.bridgeCompleted === "boolean" ? circuit.bridgeCompleted : wasComplete;
+        circuit.optionalActivatorCompleted = Boolean(circuit.optionalActivatorCompleted);
+        circuit.optionalActivator = loadedOptionalActivator;
+        circuit.completionCredited =
+          typeof circuit.completionCredited === "boolean"
+            ? circuit.completionCredited
+            : circuit.roundsCompleted.every(Boolean);
         delete circuit.completed;
+        delete circuit.bridge;
+        delete circuit.bridgeCompleted;
       }
     }
     migrateTotalBodyActivators(normalized.week, excludedIds);
@@ -1863,20 +1963,45 @@
           circuitIndex,
           position: `extra-${extraIndex}`,
         })),
-        { ...circuit.bridge, dayId: day.id, circuitIndex, position: "bridge" },
+        ...(circuit.optionalActivator
+          ? [{ ...circuit.optionalActivator, dayId: day.id, circuitIndex, position: "optionalActivator" }]
+          : []),
       ]),
     );
   }
 
   function migrateTotalBodyActivators(week, excludedIds = new Set()) {
     const invalid = [];
-    const used = new Set();
+    const mainIds = new Set();
     for (const day of DAY_CONFIG) {
       for (const circuit of week.days[day.id].circuits) {
-        for (const assignment of mainAssignments(circuit)) used.add(assignment.exerciseId);
-        const exercise = exerciseById.get(circuit.bridge.exerciseId);
-        if (exercise?.total_body_activator) used.add(circuit.bridge.exerciseId);
-        else invalid.push(circuit);
+        for (const assignment of mainAssignments(circuit)) mainIds.add(assignment.exerciseId);
+      }
+    }
+
+    const used = new Set(mainIds);
+    for (const day of DAY_CONFIG) {
+      for (const circuit of week.days[day.id].circuits) {
+        const assignment = circuit.optionalActivator;
+        const exercise = exerciseById.get(assignment?.exerciseId);
+        if (
+          assignment &&
+          exercise?.total_body_activator &&
+          !excludedIds.has(exercise.id) &&
+          !used.has(exercise.id)
+        ) {
+          circuit.optionalActivator = {
+            ...assignment,
+            slotLabel: ACTIVATOR_LABEL,
+            fixed: Boolean(assignment.fixed),
+            locked: Boolean(assignment.locked),
+            slotKey: "optionalActivator",
+          };
+          used.add(exercise.id);
+        } else {
+          circuit.optionalActivator = null;
+          invalid.push(circuit);
+        }
       }
     }
 
@@ -1892,14 +2017,14 @@
     for (const circuit of invalid) {
       const replacement = available.shift();
       if (!replacement) break;
-      circuit.bridge = {
+      circuit.optionalActivator = {
         exerciseId: replacement.id,
         slotLabel: ACTIVATOR_LABEL,
         locked: false,
         fixed: false,
-        slotKey: "bridge",
+        slotKey: "optionalActivator",
       };
-      circuit.bridgeCompleted = false;
+      circuit.optionalActivatorCompleted = false;
       used.add(replacement.id);
     }
   }
@@ -1908,12 +2033,42 @@
     return [circuit.first, circuit.second, ...(circuit.extras || [])];
   }
 
+  function normalizeSetupScore(value) {
+    if (value === null || value === undefined || value === "") return null;
+    const score = Number(value);
+    return Number.isFinite(score) ? Math.max(0, Math.min(5, Math.round(score))) : null;
+  }
+
+  function defaultSetupScore(exercise) {
+    if (!exercise) return 4;
+    const equipmentLabel = String(exercise.equipment_label || "").toLowerCase();
+    const varieties = Array.isArray(exercise.equipment_varieties) ? exercise.equipment_varieties : [];
+    const onlyBodyWeight = varieties.length > 0 && varieties.every((item) => item.toLowerCase() === "body weight");
+    const bodyWeightOption = equipmentLabel.includes("body weight or") || equipmentLabel.includes("bodyweight or");
+    const explicitlyEquipmentFree = includesAny(equipmentLabel, ["no equipment", "none required"]);
+    return onlyBodyWeight || bodyWeightOption || explicitlyEquipmentFree ? 5 : 4;
+  }
+
+  function assignmentExerciseScore(assignment) {
+    const exercise = exerciseById.get(assignment.exerciseId);
+    return exerciseEffectivenessScore(exercise) + (normalizeSetupScore(assignment.setupScore) ?? 0);
+  }
+
+  function circuitTotalScore(circuit) {
+    return mainAssignments(circuit).reduce((total, assignment) => total + assignmentExerciseScore(assignment), 0);
+  }
+
+  function clearCircuitSetupScores(circuit) {
+    mainAssignments(circuit).forEach((assignment) => {
+      assignment.setupScore = defaultSetupScore(exerciseById.get(assignment.exerciseId));
+    });
+  }
+
   function isCircuitComplete(circuit) {
     return (
       Array.isArray(circuit.roundsCompleted) &&
       circuit.roundsCompleted.length === 3 &&
-      circuit.roundsCompleted.every(Boolean) &&
-      Boolean(circuit.bridgeCompleted)
+      circuit.roundsCompleted.every(Boolean)
     );
   }
 
@@ -1925,11 +2080,13 @@
   }
 
   function circuitExerciseIds(circuit) {
-    return [...mainAssignments(circuit).map((assignment) => assignment.exerciseId), circuit.bridge.exerciseId];
+    return mainAssignments(circuit).map((assignment) => assignment.exerciseId);
   }
 
   function favoriteSignature(circuit) {
-    return circuitExerciseIds(circuit).join("|");
+    return mainAssignments(circuit)
+      .map((assignment) => `${assignment.exerciseId}:${normalizeSetupScore(assignment.setupScore) ?? ""}`)
+      .join("|");
   }
 
   function favoritesForSlot(dayId, circuitIndex) {
@@ -1969,7 +2126,7 @@
         exerciseNames,
         signature,
         assignments: JSON.parse(JSON.stringify(mainAssignments(circuit))),
-        bridge: JSON.parse(JSON.stringify(circuit.bridge)),
+        totalScore: circuitTotalScore(circuit),
         savedAt: new Date().toISOString(),
       });
       state.favoriteCircuits = state.favoriteCircuits.slice(-30);
@@ -1980,11 +2137,10 @@
   }
 
   function favoriteUnavailableReason(favorite, target) {
-    const assignments = [...favorite.assignments, favorite.bridge];
+    const assignments = favorite.assignments;
     const ids = assignments.map((assignment) => assignment.exerciseId);
     if (ids.some((id) => !exerciseById.has(id))) return "An exercise is no longer in the library";
     if (ids.some((id) => isHidden(id) || isDeleted(id))) return "Contains a hidden or deleted exercise";
-    if (!exerciseById.get(favorite.bridge.exerciseId)?.total_body_activator) return "Activator is no longer eligible";
     const usedElsewhere = new Set(
       allAssignments()
         .filter(
@@ -2017,7 +2173,7 @@
           .map((favorite) => {
             const reason = favoriteUnavailableReason(favorite, target);
             return `<article class="favorite-option">
-              <div><strong>${escapeHtml(favorite.name)}</strong><small>${favorite.exerciseNames.map(escapeHtml).join(" · ")}</small>${reason ? `<span class="favorite-warning">${escapeHtml(reason)}</span>` : ""}</div>
+              <div><strong>${escapeHtml(favorite.name)}</strong><small>Total score ${favorite.assignments.reduce((total, assignment) => total + assignmentExerciseScore(assignment), 0)} · ${favorite.exerciseNames.map(escapeHtml).join(" · ")}</small>${reason ? `<span class="favorite-warning">${escapeHtml(reason)}</span>` : ""}</div>
               <button class="library-action" type="button" data-action="apply-favorite-circuit" data-favorite-id="${favorite.id}" ${reason ? "disabled" : ""}>Use circuit</button>
               <button class="library-action delete" type="button" data-action="delete-favorite-circuit" data-favorite-id="${favorite.id}">Remove</button>
             </article>`;
@@ -2041,11 +2197,10 @@
     const circuit = state.week.days[target.dayId].circuits[target.circuitIndex];
     const previous = JSON.parse(JSON.stringify(circuit));
     const previousIds = circuitExerciseIds(circuit);
-    const nextIds = [...favorite.assignments.map((assignment) => assignment.exerciseId), favorite.bridge.exerciseId];
+    const nextIds = favorite.assignments.map((assignment) => assignment.exerciseId);
     circuit.first = JSON.parse(JSON.stringify(favorite.assignments[0]));
     circuit.second = JSON.parse(JSON.stringify(favorite.assignments[1]));
     circuit.extras = JSON.parse(JSON.stringify(favorite.assignments.slice(2)));
-    circuit.bridge = JSON.parse(JSON.stringify(favorite.bridge));
     circuit.preferredExerciseCount = favorite.assignments.length;
     resetCircuitCompletion(circuit);
     const issues = validateWeek(state.week);
@@ -2088,7 +2243,7 @@
       }
 
       for (const circuit of dayData.circuits) {
-        if (!circuit.first || !circuit.second || !circuit.bridge || !Array.isArray(circuit.extras)) {
+        if (!circuit.first || !circuit.second || !Array.isArray(circuit.extras)) {
           issues.push(`${day.name} circuit ${circuit.number} is incomplete.`);
           continue;
         }
@@ -2099,17 +2254,20 @@
         if (!Array.isArray(circuit.roundsCompleted) || circuit.roundsCompleted.length !== 3) {
           issues.push(`${day.name} circuit ${circuit.number} must track three rounds.`);
         }
-        if (typeof circuit.bridgeCompleted !== "boolean") {
-          issues.push(`${day.name} circuit ${circuit.number} must track its total-body activator.`);
+        if (typeof circuit.optionalActivatorCompleted !== "boolean") {
+          issues.push(`${day.name} circuit ${circuit.number} must track its optional activator.`);
         }
-        ids.push(...assignments.map((assignment) => assignment.exerciseId), circuit.bridge.exerciseId);
+        const optionalActivatorExercise = exerciseById.get(circuit.optionalActivator?.exerciseId);
+        if (!optionalActivatorExercise?.total_body_activator) {
+          issues.push(`${day.name} circuit ${circuit.number} must have one eligible optional total-body activator.`);
+        }
+        if (typeof circuit.completionCredited !== "boolean") {
+          issues.push(`${day.name} circuit ${circuit.number} must track its load-progression credit.`);
+        }
+        ids.push(...assignments.map((assignment) => assignment.exerciseId));
         const mainExercises = assignments.map((assignment) => exerciseById.get(assignment.exerciseId));
-        const bridge = exerciseById.get(circuit.bridge.exerciseId);
-        if (mainExercises.some((exercise) => !exercise) || !bridge) {
+        if (mainExercises.some((exercise) => !exercise)) {
           issues.push(`${day.name} references an unknown exercise.`);
-        }
-        if (bridge && !bridge.total_body_activator) {
-          issues.push(`${day.name} circuit ${circuit.number} must use a checked total-body activator.`);
         }
         if (mainExercises.filter(requiresBothSides).length > 1) {
           issues.push(`${day.name} circuit ${circuit.number} combines multiple both-sides exercises.`);
@@ -2128,7 +2286,7 @@
             issues.push(`${day.name} circuit ${circuit.number} has a setup score above 2.`);
           }
         }
-        for (const exercise of [...mainExercises, bridge].filter(Boolean)) {
+        for (const exercise of mainExercises.filter(Boolean)) {
           if (exercise.overhead && !exercise.must_be_seated) {
             issues.push(`${exercise.name} violates the low-ceiling rule.`);
           }
@@ -2154,7 +2312,6 @@
         circuit.first.exerciseId,
         circuit.second.exerciseId,
         ...(circuit.extras || []).map((assignment) => assignment.exerciseId),
-        circuit.bridge.exerciseId,
       ]),
     );
     if (!wednesdayIds.has(idFor("Shoulder Exercise Placeholder"))) {
@@ -2175,13 +2332,6 @@
       }
     }
 
-    const fridayBridges = (week.days.friday?.circuits || []).map((circuit) => circuit.bridge.exerciseId);
-    [1, 2, 3].forEach((number, index) => {
-      if (fridayBridges[index] !== idFor(`PT Exercise ${number}`)) {
-        issues.push(`Friday must preserve PT Exercise ${number}.`);
-      }
-    });
-
     return issues;
   }
 
@@ -2198,6 +2348,144 @@
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "Starting today";
     return `Started ${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date)}`;
+  }
+
+  function workoutDayForTimer() {
+    return DAY_CONFIG.some((day) => day.id === ui.currentView) ? state.week.days[ui.currentView] : null;
+  }
+
+  function normalizeTimerDuration(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return DEFAULT_WORKOUT_DURATION_MS;
+    const rounded = Math.round(numeric / TIMER_ADJUSTMENT_MS) * TIMER_ADJUSTMENT_MS;
+    return Math.max(MIN_WORKOUT_DURATION_MS, Math.min(MAX_WORKOUT_DURATION_MS, rounded));
+  }
+
+  function timerDuration(day) {
+    return normalizeTimerDuration(day?.timer?.durationMs);
+  }
+
+  function roundDeadlineMs(day, globalRound) {
+    return (timerDuration(day) * (globalRound + 1)) / 9;
+  }
+
+  function timerElapsed(day) {
+    if (!day?.timer) return 0;
+    const runningFor = day.timer.startedAt
+      ? Math.max(0, Date.now() - new Date(day.timer.startedAt).getTime())
+      : 0;
+    return Math.min(timerDuration(day), Math.max(0, day.timer.elapsedMs + runningFor));
+  }
+
+  function allRoundsComplete(day) {
+    return day.circuits.every((circuit) => circuit.roundsCompleted.every(Boolean));
+  }
+
+  function pauseWorkoutTimer(day, shouldPersist = true) {
+    if (!day?.timer?.startedAt) return;
+    day.timer.elapsedMs = timerElapsed(day);
+    day.timer.startedAt = null;
+    if (shouldPersist) persist();
+  }
+
+  function formatTimer(milliseconds) {
+    const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  function updateWorkoutTimer() {
+    const timer = document.getElementById("workout-timer");
+    const display = document.getElementById("timer-display");
+    const toggle = document.getElementById("timer-toggle");
+    const reset = document.getElementById("timer-reset");
+    const subtract = document.getElementById("timer-minus");
+    const add = document.getElementById("timer-plus");
+    if (!timer || !display || !toggle || !reset || !subtract || !add) return;
+
+    const day = workoutDayForTimer();
+    timer.hidden = !day;
+    if (!day) return;
+
+    const duration = timerDuration(day);
+    day.timer.durationMs = duration;
+    let elapsed = timerElapsed(day);
+    if (elapsed >= duration && day.timer.startedAt) {
+      day.timer.elapsedMs = duration;
+      day.timer.startedAt = null;
+      elapsed = duration;
+      persist();
+    }
+    const remaining = duration - elapsed;
+    const warmupComplete = Object.values(day.preChecklist).every(Boolean);
+    const workoutComplete = allRoundsComplete(day);
+    const isRunning = Boolean(day.timer.startedAt);
+    display.textContent = formatTimer(remaining);
+    timer.setAttribute("aria-label", `${duration / 60000}-minute workout timer`);
+    timer.classList.toggle("is-running", isRunning);
+    timer.classList.toggle("is-expired", remaining <= 0 && !workoutComplete);
+    toggle.textContent = isRunning ? "Pause" : elapsed > 0 ? "Resume" : "Start";
+    toggle.disabled = !warmupComplete || workoutComplete || remaining <= 0;
+    toggle.title = !warmupComplete
+      ? "Complete the warm-up before starting the workout timer"
+      : workoutComplete
+        ? "All nine rounds are complete"
+        : isRunning
+          ? "Pause the workout timer"
+          : elapsed > 0
+            ? "Resume the workout timer"
+            : "Start the workout timer";
+    reset.disabled = elapsed <= 0;
+    subtract.disabled = isRunning || workoutComplete || duration <= MIN_WORKOUT_DURATION_MS || duration - TIMER_ADJUSTMENT_MS <= elapsed;
+    add.disabled = isRunning || workoutComplete || duration >= MAX_WORKOUT_DURATION_MS;
+    subtract.title = isRunning ? "Pause the timer before adjusting it" : "Remove five minutes";
+    add.title = isRunning ? "Pause the timer before adjusting it" : "Add five minutes";
+
+    const targetSummary = document.getElementById("timer-target-summary");
+    const deadlineSummary = document.getElementById("timer-deadline-summary");
+    if (targetSummary) targetSummary.textContent = `About ${duration / 60000} minutes`;
+    if (deadlineSummary) deadlineSummary.textContent = `The nine round deadlines scale evenly across your ${duration / 60000}-minute workout after the warm-up.`;
+
+    document.querySelectorAll?.(".round-check[data-global-round]").forEach((label) => {
+      const globalRound = Number(label.dataset.globalRound);
+      const circuit = day.circuits[Math.floor(globalRound / 3)];
+      const checked = circuit?.roundsCompleted[globalRound % 3];
+      label.classList.toggle("is-overdue", !checked && elapsed >= roundDeadlineMs(day, globalRound));
+    });
+  }
+
+  function toggleWorkoutTimer() {
+    const day = workoutDayForTimer();
+    if (!day || !Object.values(day.preChecklist).every(Boolean) || allRoundsComplete(day)) return;
+    if (day.timer.startedAt) {
+      pauseWorkoutTimer(day, false);
+    } else if (timerElapsed(day) < timerDuration(day)) {
+      day.timer.startedAt = new Date().toISOString();
+    }
+    persist();
+    updateWorkoutTimer();
+  }
+
+  function resetWorkoutTimer() {
+    const day = workoutDayForTimer();
+    if (!day) return;
+    day.timer = { durationMs: timerDuration(day), elapsedMs: 0, startedAt: null };
+    persist();
+    updateWorkoutTimer();
+  }
+
+  function adjustWorkoutTimer(minutes) {
+    const day = workoutDayForTimer();
+    if (!day || day.timer.startedAt || allRoundsComplete(day)) return;
+    const adjustment = Number(minutes) * 60 * 1000;
+    if (!Number.isFinite(adjustment) || adjustment === 0) return;
+    const currentDuration = timerDuration(day);
+    const nextDuration = normalizeTimerDuration(currentDuration + adjustment);
+    if (nextDuration === currentDuration || nextDuration <= timerElapsed(day)) return;
+    day.timer.durationMs = nextDuration;
+    persist();
+    updateWorkoutTimer();
   }
 
   function completedCircuits() {
@@ -2263,8 +2551,32 @@
     const settings = stateFor(exercise.id);
     const fixed = assignment.fixed || exercise.always_locked;
     const caution = cautionText(exercise);
-    const itemClass = `${context.position === "bridge" ? "exercise-item bridge-item" : "exercise-item"}${isHidden(exercise.id) ? " is-hidden" : ""}`;
-    const slotLabel = context.position === "bridge" ? ACTIVATOR_LABEL : assignment.slotLabel;
+    const isOptionalActivator = context.position === "optionalActivator";
+    const itemClass = `${isOptionalActivator ? "exercise-item activator-item" : "exercise-item"}${isHidden(exercise.id) ? " is-hidden" : ""}`;
+    const slotLabel = isOptionalActivator ? ACTIVATOR_LABEL : assignment.slotLabel;
+    const loadProgressMarkup = `<div class="load-progression" aria-label="${settings.loadProgressCount} of 4 workouts completed at this load">
+      <span class="load-progress-marks" aria-hidden="true">
+        ${[0, 1, 2, 3]
+          .map((index) => `<span class="load-progress-mark ${index < settings.loadProgressCount ? "is-complete" : ""}">${index < settings.loadProgressCount ? "✓" : ""}</span>`)
+          .join("")}
+      </span>
+      ${settings.loadProgressCount >= 4 ? `<button class="increase-load-button" type="button" data-action="increase-load" data-exercise-id="${exercise.id}">Increase load</button>` : ""}
+    </div>`;
+    const effectivenessFieldMarkup = `<label class="effectiveness-score effectiveness-score-field">
+      <span>Effectiveness</span>
+      <input type="number" min="1" max="5" step="1" value="${exerciseEffectivenessScore(exercise)}" data-exercise-setting="effectivenessScore" data-exercise-id="${exercise.id}" aria-label="Effectiveness score from 1 to 5 for ${escapeHtml(exercise.name)}" />
+    </label>`;
+    const scoreMarkup = isOptionalActivator
+      ? `<div class="activator-score-row">${effectivenessFieldMarkup}<span>Independent of circuit score</span></div>`
+      : `<div class="exercise-score-row">
+          ${effectivenessFieldMarkup}
+          <label class="setup-score-field">
+            <span>Setup</span>
+            <input type="number" min="0" max="5" step="1" value="${normalizeSetupScore(assignment.setupScore) ?? ""}" placeholder="0" data-assignment-setting="setupScore" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" data-position="${context.position}" aria-label="Manual setup ease score from 0 to 5 for ${escapeHtml(exercise.name)}" />
+            <small>/ 5</small>
+          </label>
+          <span class="exercise-total-score">Exercise score <strong>${assignmentExerciseScore(assignment)}</strong></span>
+        </div>`;
 
     return `
       <div class="${itemClass}">
@@ -2272,15 +2584,15 @@
           <span class="slot-label">${escapeHtml(slotLabel)}</span>
           <span class="exercise-tools">
             ${
-              context.position === "bridge"
-                ? `<label class="bridge-check" title="Mark the total-body activator complete">
-                    <input type="checkbox" data-action="complete-bridge" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" ${context.bridgeCompleted ? "checked" : ""} />
+              isOptionalActivator
+                ? `<label class="bridge-check" title="Mark the optional total-body activator complete">
+                    <input type="checkbox" data-action="complete-optional-activator" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" ${context.activatorCompleted ? "checked" : ""} />
                     <span>Done</span>
                   </label>`
                 : ""
             }
             ${
-              context.position !== "bridge"
+              !isOptionalActivator
                 ? `<button class="mini-button" type="button" data-action="move-exercise" data-direction="-1" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" data-position="${context.position}" title="Move exercise up" aria-label="Move ${escapeHtml(exercise.name)} up" ${context.orderIndex === 0 ? "disabled" : ""}>↑</button>
                    <button class="mini-button" type="button" data-action="move-exercise" data-direction="1" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" data-position="${context.position}" title="Move exercise down" aria-label="Move ${escapeHtml(exercise.name)} down" ${context.orderIndex === context.exerciseCount - 1 ? "disabled" : ""}>↓</button>`
                 : ""
@@ -2336,7 +2648,7 @@
               ${fixed ? "disabled" : ""}
             >${ICONS.eyeOff}</button>
             ${
-              context.position !== "bridge"
+              !isOptionalActivator
                 ? `<button class="mini-button danger" type="button" data-action="delete-circuit-exercise" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" data-position="${context.position}" title="Remove exercise from this circuit" aria-label="Remove ${escapeHtml(exercise.name)} from this circuit" ${context.exerciseCount <= 2 || assignment.locked ? "disabled" : ""}>×</button>`
                 : ""
             }
@@ -2354,12 +2666,12 @@
         </div>
         <div class="exercise-support-row">
           <div class="equipment-needed"><span>Equipment</span><strong>${escapeHtml(exercise.equipment_label)}</strong></div>
-          <span class="recommendation-score" title="50% effectiveness, 25% setup ease, and 25% technique ease">Score ${exerciseRecommendationScore(exercise)}</span>
           <div class="preference-controls" aria-label="Recommendation preference for ${escapeHtml(exercise.name)}">
             <button class="feedback-button ${settings.preference === 1 ? "active" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-value="1" title="Recommend more often" aria-label="Recommend ${escapeHtml(exercise.name)} more often">${ICONS.thumbUp}</button>
             <button class="feedback-button ${settings.preference === -1 ? "active negative" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-value="-1" title="Recommend less often" aria-label="Recommend ${escapeHtml(exercise.name)} less often">${ICONS.thumbDown}</button>
           </div>
         </div>
+        ${scoreMarkup}
         <div class="exercise-fields">
           <label class="compact-field measure-field">
             <select data-setting="measureType" data-exercise-id="${exercise.id}" aria-label="Measure repetitions or seconds for ${escapeHtml(exercise.name)}">
@@ -2368,67 +2680,63 @@
             </select>
             <input data-setting="reps" data-exercise-id="${exercise.id}" value="${escapeHtml(settings.reps)}" aria-label="Repetitions for ${escapeHtml(exercise.name)}" />
           </label>
-          <label class="compact-field">
-            <span>Load</span>
-            <input data-setting="weight" data-exercise-id="${exercise.id}" value="${escapeHtml(settings.weight)}" placeholder="—" inputmode="decimal" aria-label="Weight for ${escapeHtml(exercise.name)}" />
-            <small>lb</small>
-          </label>
+          <div class="load-control">
+            <label class="compact-field load-field ${String(settings.weight).trim() ? "has-recommended-weight" : ""}">
+              <span>Load</span>
+              <input data-setting="weight" data-exercise-id="${exercise.id}" value="${escapeHtml(settings.weight)}" placeholder="—" inputmode="decimal" aria-label="Weight for ${escapeHtml(exercise.name)}" />
+              <small>lb</small>
+            </label>
+            ${loadProgressMarkup}
+          </div>
         </div>
         <label class="exercise-note"><span>Notes</span><input data-setting="notes" data-exercise-id="${exercise.id}" value="${escapeHtml(settings.notes)}" maxlength="1000" placeholder="Add a cue or note" aria-label="Notes for ${escapeHtml(exercise.name)}" /></label>
       </div>`;
   }
 
-  function syncCircuitStickyOffsets() {
-    const cards = document.querySelectorAll?.(".circuit-card") || [];
-    cards.forEach((card) => {
-      const pendingActivator = card.querySelector(".activator-wrap.is-pending");
-      const height = pendingActivator ? Math.ceil(pendingActivator.getBoundingClientRect().height) + 10 : 0;
-      card.style.setProperty("--activator-sticky-height", `${height}px`);
-    });
-  }
-
-  function scheduleCircuitStickyOffsets() {
-    if (typeof window.requestAnimationFrame === "function") {
-      window.requestAnimationFrame(syncCircuitStickyOffsets);
-    }
-  }
-
   function renderCircuit(dayId, circuit, circuitIndex) {
     const assignments = mainAssignments(circuit);
+    const elapsed = timerElapsed(state.week.days[dayId]);
     const exerciseItems = assignments
       .map((assignment, index) => {
         const position = index === 0 ? "first" : index === 1 ? "second" : `extra-${index - 2}`;
-        const item = renderExerciseItem(assignment, {
+        return renderExerciseItem(assignment, {
           dayId,
           circuitIndex,
           position,
           orderIndex: index,
           exerciseCount: assignments.length,
         });
-        if (index === assignments.length - 1) return item;
-        const current = exerciseById.get(assignment.exerciseId);
-        const nextAssignment = assignments[index + 1];
-        const next = exerciseById.get(nextAssignment.exerciseId);
-        const cost = transitionCost(current, next);
-        const manual = assignment.manualOverride || nextAssignment.manualOverride;
-        return `${item}<div class="transition-divider"><span title="Setup score: 0 is no change, 1 is a small change, and 2 is one quick adjustment.">${manual ? "Manual · " : ""}Setup ${cost}/5</span></div>`;
       })
-      .join("");
+      .join('<hr class="exercise-divider" aria-hidden="true" />');
     const lastExtra = circuit.extras[circuit.extras.length - 1];
     const canRemove = circuit.extras.length > 0 && !lastExtra?.locked;
     const complete = isCircuitComplete(circuit);
-    const activatorMarkup = `<div class="bridge-wrap activator-wrap ${circuit.bridgeCompleted ? "is-complete" : "is-pending"}">
-      ${renderExerciseItem(circuit.bridge, {
-        dayId,
-        circuitIndex,
-        position: "bridge",
-        bridgeCompleted: circuit.bridgeCompleted,
-      })}
-    </div>`;
+    const activatorKey = `${dayId}-${circuitIndex}`;
+    const activatorExpanded = ui.expandedActivators.has(activatorKey);
+    const activatorExercise = exerciseById.get(circuit.optionalActivator.exerciseId);
+    const optionalActivatorMarkup = `<section class="optional-activator-panel ${circuit.optionalActivatorCompleted ? "is-complete" : ""} ${activatorExpanded ? "is-expanded" : ""}">
+      <button class="optional-activator-toggle" type="button" data-action="toggle-optional-activator-pane" data-day="${dayId}" data-circuit="${circuitIndex}" aria-expanded="${activatorExpanded}" aria-controls="optional-activator-${dayId}-${circuitIndex}">
+        <span class="optional-activator-status" aria-hidden="true">${circuit.optionalActivatorCompleted ? "✓" : ""}</span>
+        <span class="optional-activator-copy"><strong>Optional total-body activator</strong><small>${escapeHtml(activatorExercise.name)} · If time remains</small></span>
+        <span class="optional-activator-chevron">${ICONS.arrow}</span>
+      </button>
+      ${
+        activatorExpanded
+          ? `<div id="optional-activator-${dayId}-${circuitIndex}" class="optional-activator-content">
+              ${renderExerciseItem(circuit.optionalActivator, {
+                dayId,
+                circuitIndex,
+                position: "optionalActivator",
+                activatorCompleted: circuit.optionalActivatorCompleted,
+              })}
+            </div>`
+          : ""
+      }
+    </section>`;
     const roundChecksMarkup = `<div class="round-checks" aria-label="Completed rounds for circuit ${circuit.number}">
       ${[0, 1, 2]
         .map(
-          (round) => `<label class="round-check">
+          (round) => `<label class="round-check ${!circuit.roundsCompleted[round] && elapsed >= roundDeadlineMs(state.week.days[dayId], circuitIndex * 3 + round) ? "is-overdue" : ""}" data-global-round="${circuitIndex * 3 + round}">
             <input type="checkbox" data-action="complete-round" data-day="${dayId}" data-circuit="${circuitIndex}" data-round="${round}" ${circuit.roundsCompleted[round] ? "checked" : ""} />
             <span>Round ${round + 1}</span>
           </label>`,
@@ -2445,6 +2753,7 @@
           <div class="circuit-scaling">
             <button class="favorite-button ${isFavoriteCircuit(dayId, circuitIndex, circuit) ? "active" : ""}" type="button" data-action="toggle-favorite-circuit" data-day="${dayId}" data-circuit="${circuitIndex}" title="${isFavoriteCircuit(dayId, circuitIndex, circuit) ? "Remove this circuit from favorites" : "Save this circuit as a favorite"}" aria-label="${isFavoriteCircuit(dayId, circuitIndex, circuit) ? "Remove circuit from favorites" : "Favorite this circuit"}">${ICONS.star}</button>
             <button class="favorite-button" type="button" data-action="open-favorite-circuits" data-day="${dayId}" data-circuit="${circuitIndex}" title="Substitute a saved favorite circuit" aria-label="Substitute a favorite circuit" ${favoritesForSlot(dayId, circuitIndex).length ? "" : "disabled"}>${ICONS.favorites}</button>
+            <span class="circuit-total-score">Total score ${circuitTotalScore(circuit)}</span>
             <span class="rounds-badge">${difficultyFor(circuit)} · ${assignments.length} exercises</span>
             <span class="scale-buttons">
               <button type="button" data-action="remove-round-exercise" data-day="${dayId}" data-circuit="${circuitIndex}" aria-label="Remove the last round exercise" title="Remove the last round exercise" ${canRemove ? "" : "disabled"}>−</button>
@@ -2453,7 +2762,7 @@
           </div>
         </header>
         <div class="circuit-body">
-          ${activatorMarkup}
+          ${optionalActivatorMarkup}
           ${roundChecksMarkup}
           <div class="exercise-cycle">${exerciseItems}</div>
         </div>
@@ -2465,7 +2774,7 @@
     const day = state.week.days[dayId];
     const completed = day.circuits.filter(isCircuitComplete).length;
     const beforeCircuitsComplete = Object.values(day.preChecklist).every(Boolean);
-    const finisherComplete = day.coreCompleted && day.cardioCompleted;
+    const finisherComplete = day.coreCompleted;
 
     document.getElementById("workout-view").innerHTML = `
       <div class="content-frame workout-content ${beforeCircuitsComplete ? "" : "has-pending-warmup"}">
@@ -2473,9 +2782,9 @@
           <div>
             <span class="eyebrow">${completed} of 3 circuits complete</span>
             <h1>${config.name} <span>— ${escapeHtml(config.focus)}</span></h1>
-            <p class="view-subtitle">Complete each circuit for three rounds. Focused, standard, and challenge circuits contain two to four exercises; the total-body activator ties the session together with an integrated movement.</p>
+            <p id="timer-deadline-summary" class="view-subtitle">The nine round deadlines scale evenly across your ${timerDuration(day) / 60000}-minute workout after the warm-up.</p>
           </div>
-          <div class="session-chip">${ICONS.clock}<span><span>Target time</span><strong>About 45 minutes</strong></span></div>
+          <div class="session-chip">${ICONS.clock}<span><span>Target time</span><strong id="timer-target-summary">About ${timerDuration(day) / 60000} minutes</strong></span></div>
         </header>
         <div class="day-guidance">${ICONS.info}<span>${escapeHtml(config.guidance)}</span></div>
         <div class="routine-row pre-routine ${beforeCircuitsComplete ? "is-complete" : ""}" aria-label="Before-circuit checklist">
@@ -2490,10 +2799,9 @@
         <div class="routine-row core-routine ${finisherComplete ? "is-complete" : ""}">
           <strong>Finisher</strong>
           <label><input type="checkbox" data-action="core-check" data-day="${dayId}" ${day.coreCompleted ? "checked" : ""} /> Core complete</label>
-          <label><input type="checkbox" data-action="cardio-check" data-day="${dayId}" ${day.cardioCompleted ? "checked" : ""} /> 20 minutes cardio</label>
         </div>
       </div>`;
-    scheduleCircuitStickyOffsets();
+    updateWorkoutTimer();
   }
 
   function categoryOptions() {
@@ -2528,7 +2836,7 @@
         return secondStats.skippedCount - firstStats.skippedCount || first.name.localeCompare(second.name);
       }
       if (ui.librarySort === "score") {
-        return exerciseRecommendationScore(second) - exerciseRecommendationScore(first) || first.name.localeCompare(second.name);
+        return exerciseEffectivenessScore(second) - exerciseEffectivenessScore(first) || first.name.localeCompare(second.name);
       }
       if (ui.librarySort === "category") {
         return first.primary_body_part.localeCompare(second.primary_body_part) || first.name.localeCompare(second.name);
@@ -2561,7 +2869,7 @@
           <div class="library-tags">
             <span class="tag">${escapeHtml(exercise.movement_role.replace("_", " "))}</span>
             <span class="tag">${escapeHtml(exercise.force_type.replace("_", " "))}</span>
-            <span class="tag score">Score ${exerciseRecommendationScore(exercise)}</span>
+            <span class="tag score">Effectiveness ${exerciseEffectivenessScore(exercise)}</span>
             ${requiresBothSides(exercise) ? '<span class="tag both-sides">Both sides</span>' : ""}
             ${caution ? `<span class="tag caution">${escapeHtml(caution)}</span>` : ""}
             ${exercise.total_body_activator ? '<span class="tag activator">Total-body activator</span>' : ""}
@@ -2574,7 +2882,7 @@
         <div class="library-fields">
           <select data-setting="measureType" data-exercise-id="${exercise.id}" aria-label="Measure type for ${escapeHtml(exercise.name)}"><option value="reps" ${stats.measureType === "reps" ? "selected" : ""}>Reps</option><option value="seconds" ${stats.measureType === "seconds" ? "selected" : ""}>Seconds</option></select>
           <input data-setting="reps" data-exercise-id="${exercise.id}" value="${escapeHtml(stats.reps)}" aria-label="Default repetitions for ${escapeHtml(exercise.name)}" title="Repetitions" />
-          <input data-setting="weight" data-exercise-id="${exercise.id}" value="${escapeHtml(stats.weight)}" placeholder="Load lb" inputmode="decimal" aria-label="Default load for ${escapeHtml(exercise.name)}" title="Load in pounds" />
+          <input class="${String(stats.weight).trim() ? "has-recommended-weight" : ""}" data-setting="weight" data-exercise-id="${exercise.id}" value="${escapeHtml(stats.weight)}" placeholder="Load lb" inputmode="decimal" aria-label="Default load for ${escapeHtml(exercise.name)}" title="Load in pounds" />
           ${
             exercise.instruction_url
               ? `<a class="demo-button" href="${escapeHtml(exercise.instruction_url)}" target="_blank" rel="noreferrer" aria-label="View a demonstration of ${escapeHtml(exercise.name)}" title="View demo">${ICONS.external}</a>`
@@ -2615,7 +2923,7 @@
           <label class="select-field"><span>Sort</span><select id="library-sort">
             <option value="popular" ${ui.librarySort === "popular" ? "selected" : ""}>Most popular</option>
             <option value="skipped" ${ui.librarySort === "skipped" ? "selected" : ""}>Most skipped</option>
-            <option value="score" ${ui.librarySort === "score" ? "selected" : ""}>Recommendation score</option>
+            <option value="score" ${ui.librarySort === "score" ? "selected" : ""}>Effectiveness</option>
             <option value="name" ${ui.librarySort === "name" ? "selected" : ""}>Name A–Z</option>
             <option value="category" ${ui.librarySort === "category" ? "selected" : ""}>Category</option>
             <option value="equipment" ${ui.librarySort === "equipment" ? "selected" : ""}>Equipment</option>
@@ -2679,6 +2987,7 @@
     if (showingLibrary) renderLibrary();
     else if (showingSettings) renderSettings();
     else renderWorkout(ui.currentView);
+    updateWorkoutTimer();
   }
 
   function showToast(message, type = "success") {
@@ -2692,6 +3001,7 @@
   }
 
   function slotFor(context) {
+    if (context.position === "optionalActivator") return optionalActivatorSlot();
     const definition = SLOTS[context.dayId][context.circuitIndex];
     if (context.position === "extra-new") return definition.extra;
     const assignment = assignmentFor(context);
@@ -2708,7 +3018,7 @@
   }
 
   function adjacentExercises(context) {
-    if (context.position === "bridge") return [];
+    if (context.position === "optionalActivator") return [];
     const circuit = state.week.days[context.dayId].circuits[context.circuitIndex];
     const assignments = mainAssignments(circuit);
     let index;
@@ -2724,7 +3034,7 @@
   }
 
   function otherCircuitExercises(context) {
-    if (context.position === "bridge") return [];
+    if (context.position === "optionalActivator") return [];
     const circuit = state.week.days[context.dayId].circuits[context.circuitIndex];
     const current = assignmentFor(context);
     return mainAssignments(circuit)
@@ -2733,7 +3043,7 @@
       .filter(Boolean);
   }
 
-  function setupScoreForOption(exercise, context) {
+  function automaticTransitionCost(exercise, context) {
     const adjacent = adjacentExercises(context);
     return adjacent.length ? Math.max(...adjacent.map((partner) => transitionCost(exercise, partner))) : 0;
   }
@@ -2774,6 +3084,7 @@
     }
     markManualSetupTransitions(assignments);
     writeMainAssignments(circuit, assignments);
+    clearCircuitSetupScores(circuit);
     resetCircuitCompletion(circuit);
     persist();
     render();
@@ -2800,6 +3111,7 @@
     }
     markManualSetupTransitions(assignments);
     writeMainAssignments(circuit, assignments);
+    clearCircuitSetupScores(circuit);
     stateFor(removed.exerciseId).skippedCount += 1;
     resetCircuitCompletion(circuit);
     persist();
@@ -2911,18 +3223,18 @@
           return false;
         }
         if (searchScore === null) return false;
-        if (ui.replacement.position === "bridge" && !exercise.total_body_activator) return false;
+        if (ui.replacement.position === "optionalActivator" && !exercise.total_body_activator) return false;
         if (!adjacentExercises(ui.replacement).every((partner) => canCombine(exercise, partner))) return false;
         if (requiresBothSides(exercise) && otherCircuitExercises(ui.replacement).some(requiresBothSides)) return false;
-        return ui.showAllReplacements || setupScoreForOption(exercise, ui.replacement) <= 2;
+        return ui.showAllReplacements || automaticTransitionCost(exercise, ui.replacement) <= 2;
       })
       .sort((first, second) => {
-        const firstCost = setupScoreForOption(first.exercise, ui.replacement);
-        const secondCost = setupScoreForOption(second.exercise, ui.replacement);
+        const firstCost = automaticTransitionCost(first.exercise, ui.replacement);
+        const secondCost = automaticTransitionCost(second.exercise, ui.replacement);
         return (
           first.searchScore - second.searchScore ||
           firstCost - secondCost ||
-          exerciseRecommendationScore(second.exercise) - exerciseRecommendationScore(first.exercise) ||
+          exerciseEffectivenessScore(second.exercise) - exerciseEffectivenessScore(first.exercise) ||
           stateFor(second.exercise.id).preference - stateFor(first.exercise.id).preference ||
           stateFor(second.exercise.id).chosenCount - stateFor(first.exercise.id).chosenCount ||
           first.exercise.name.localeCompare(second.exercise.name)
@@ -2930,7 +3242,6 @@
       })
       .map(({ exercise }) => ({
         exercise,
-        cost: setupScoreForOption(exercise, ui.replacement),
         eligible: matchesSlot(exercise, slot),
       }));
   }
@@ -2941,12 +3252,11 @@
     document.getElementById("replace-results").innerHTML = results.length
       ? results
           .map(
-            ({ exercise, cost, eligible }) => `
+            ({ exercise, eligible }) => `
               <article class="replace-option">
                 <div class="replace-option-copy"><strong>${escapeHtml(exercise.name)}</strong><small>${escapeHtml(exercise.primary_body_part)} · ${escapeHtml(exercise.equipment_label)}${requiresBothSides(exercise) ? " · both sides" : ""} · chosen ${stateFor(exercise.id).chosenCount} times${eligible ? "" : " · outside this slot's target"}</small></div>
                 <div class="replace-option-actions">
-                  <span class="recommendation-score">Score ${exerciseRecommendationScore(exercise)}</span>
-                  <span class="cost-badge cost-${cost}">${ui.replacement.position === "bridge" && eligible ? "Eligible" : `Setup ${cost}/5`}</span>
+                  <span class="recommendation-score">Effectiveness ${exerciseEffectivenessScore(exercise)}</span>
                   <button class="replace-option-use" type="button" data-action="choose-replacement" data-exercise-id="${exercise.id}">Use</button>
                 </div>
                 <button class="replace-option-hide" type="button" data-action="hide-replacement" data-exercise-id="${exercise.id}" title="Hide from future recommendations" aria-label="Hide ${escapeHtml(exercise.name)} from recommendations">${ICONS.eyeOff}<span>Hide</span></button>
@@ -2964,11 +3274,12 @@
     ui.replaceSearch = "";
     ui.showAllReplacements = false;
     document.getElementById("replace-title").textContent = `Replace ${exercise.name}`;
-    const slotLabel = context.position === "bridge" ? ACTIVATOR_LABEL : assignment.slotLabel;
+    const slotLabel = context.position === "optionalActivator" ? ACTIVATOR_LABEL : assignment.slotLabel;
     document.getElementById("replace-description").textContent = `Only exercises that fit this ${slotLabel.toLowerCase()} slot and the day's target are shown.`;
     document.getElementById("replace-search").value = "";
     document.getElementById("show-all-replacements").checked = false;
-    document.getElementById("replacement-scope-note").textContent = "Only eligible, easy 0–2 options are shown.";
+    document.getElementById("replacement-scope-note").textContent =
+      "Eligible exercises with easy transitions are shown. Enter the manual setup score on the workout card after choosing.";
     renderReplacementResults();
     document.getElementById("replace-dialog").showModal();
     setTimeout(() => document.getElementById("replace-search").focus(), 0);
@@ -3021,7 +3332,7 @@
 
   function resetCircuitCompletion(circuit) {
     circuit.roundsCompleted = [false, false, false];
-    circuit.bridgeCompleted = false;
+    circuit.completionCredited = false;
   }
 
   function replaceExercise(exerciseId) {
@@ -3030,13 +3341,33 @@
     const next = exerciseById.get(exerciseId);
     if (
       !next ||
-      (ui.replacement.position === "bridge" && !next.total_body_activator) ||
+      (ui.replacement.position === "optionalActivator" && !next.total_body_activator) ||
       (!ui.showAllReplacements && !matchesSlot(next, slotFor(ui.replacement)))
     ) return;
 
     const circuit = state.week.days[ui.replacement.dayId].circuits[ui.replacement.circuitIndex];
+    if (ui.replacement.position === "optionalActivator") {
+      const previous = exerciseById.get(assignment.exerciseId);
+      stateFor(previous.id).skippedCount += 1;
+      stateFor(next.id).chosenCount += 1;
+      circuit.optionalActivator = {
+        ...assignment,
+        exerciseId: next.id,
+        locked: false,
+        fixed: false,
+        slotLabel: ACTIVATOR_LABEL,
+        slotKey: "optionalActivator",
+      };
+      circuit.optionalActivatorCompleted = false;
+      persist();
+      if (document.getElementById("replace-dialog").open) document.getElementById("replace-dialog").close();
+      ui.replacement = null;
+      render();
+      showToast(`${next.name} selected as the optional activator.`);
+      return;
+    }
     const manualOverride =
-      !matchesSlot(next, slotFor(ui.replacement)) || setupScoreForOption(next, ui.replacement) > 2;
+      !matchesSlot(next, slotFor(ui.replacement)) || automaticTransitionCost(next, ui.replacement) > 2;
     if (ui.replacement.mode === "add") {
       circuit.extras.push({
         exerciseId: next.id,
@@ -3044,8 +3375,11 @@
         locked: false,
         fixed: false,
         manualOverride,
+        slotKey: "extra",
+        setupScore: defaultSetupScore(next),
       });
       circuit.preferredExerciseCount = mainAssignments(circuit).length;
+      clearCircuitSetupScores(circuit);
       stateFor(next.id).chosenCount += 1;
       resetCircuitCompletion(circuit);
       persist();
@@ -3062,6 +3396,7 @@
     assignment.exerciseId = next.id;
     assignment.locked = false;
     assignment.manualOverride = manualOverride;
+    clearCircuitSetupScores(circuit);
     resetCircuitCompletion(circuit);
     persist();
     if (document.getElementById("replace-dialog").open) document.getElementById("replace-dialog").close();
@@ -3118,6 +3453,7 @@
         chosen_count: stateFor(exercise.id).chosenCount,
         skipped_count: stateFor(exercise.id).skippedCount,
         recommendation_preference: stateFor(exercise.id).preference,
+        load_progress_count: stateFor(exercise.id).loadProgressCount,
         current_reps: stateFor(exercise.id).reps,
         current_measure: stateFor(exercise.id).measureType,
         current_weight: stateFor(exercise.id).weight,
@@ -3170,8 +3506,6 @@
       backCaution: Boolean(exercise.back_caution),
       totalBodyActivator: Boolean(exercise.total_body_activator),
       bothSides: Boolean(exercise.unilateral),
-      difficultyScore: exercise.difficulty_score,
-      setupDifficulty: exercise.setup_difficulty,
       effectivenessScore: exercise.effectiveness_score,
       notes: exercise.notes || null,
     };
@@ -3203,7 +3537,9 @@
       if (handle) {
         fileHandle = handle;
         await rememberFileHandle(handle);
-        setFileStatus(`Autosaving · ${handle.name}`, true);
+        setFileStatus(`Autosaving · ${fileDisplayPath(handle)}`, true);
+      } else {
+        setFileStatus(`Opened · ${fileDisplayPath(file)}`, false);
       }
       persist();
       render();
@@ -3267,8 +3603,6 @@
     setValue("movementRole", exercise.movement_role);
     setValue("forceType", exercise.force_type);
     setValue("defaultReps", exercise.default_reps);
-    setValue("difficultyScore", exercise.difficulty_score);
-    setValue("setupDifficulty", exercise.setup_difficulty);
     setValue("effectivenessScore", exercise.effectiveness_score);
     setValue("instructionUrl", exercise.instruction_url);
     setValue("notes", exercise.notes);
@@ -3309,8 +3643,6 @@
       movementRole: String(data.get("movementRole") || "isolation"),
       forceType: String(data.get("forceType") || "other"),
       defaultReps: String(data.get("defaultReps") || "10").trim() || "10",
-      difficultyScore: clampRating(data.get("difficultyScore"), 2),
-      setupDifficulty: clampRating(data.get("setupDifficulty"), 2),
       effectivenessScore: clampRating(data.get("effectivenessScore"), 3),
       shoulderCaution: data.get("shoulderCaution") === "on",
       backCaution: data.get("backCaution") === "on",
@@ -3345,7 +3677,7 @@
     persist();
     renderTabs();
     document.getElementById("exercise-dialog").close();
-    renderLibrary();
+    render();
     showToast(ui.editingExerciseId ? `${name} updated.` : `${name} added to the exercise library.`);
     ui.editingExerciseId = null;
   }
@@ -3401,6 +3733,30 @@
 
     const actionButton = event.target.closest("[data-action]");
     if (!actionButton) return;
+
+    if (actionButton.dataset.action === "toggle-workout-timer") {
+      toggleWorkoutTimer();
+      return;
+    }
+    if (actionButton.dataset.action === "reset-workout-timer") {
+      resetWorkoutTimer();
+      return;
+    }
+    if (actionButton.dataset.action === "adjust-workout-timer") {
+      adjustWorkoutTimer(actionButton.dataset.minutes);
+      return;
+    }
+    if (actionButton.dataset.action === "toggle-optional-activator-pane") {
+      const key = `${actionButton.dataset.day}-${Number(actionButton.dataset.circuit)}`;
+      if (ui.expandedActivators.has(key)) ui.expandedActivators.delete(key);
+      else ui.expandedActivators.add(key);
+      render();
+      return;
+    }
+    if (actionButton.dataset.action === "increase-load") {
+      increaseExerciseLoad(actionButton.dataset.exerciseId);
+      return;
+    }
 
     if (actionButton.dataset.action === "replace") {
       openReplacement(parseContext(actionButton));
@@ -3489,6 +3845,33 @@
   }
 
   function handleChange(event) {
+    if (event.target.dataset?.exerciseSetting === "effectivenessScore" && event.target.dataset.exerciseId) {
+      const exerciseId = event.target.dataset.exerciseId;
+      const exercise = exerciseById.get(exerciseId);
+      if (!exercise) return;
+      const effectivenessScore = clampRating(event.target.value, exerciseEffectivenessScore(exercise));
+      state.exerciseEdits[exerciseId] = {
+        ...(state.exerciseEdits[exerciseId] || {}),
+        effectivenessScore,
+      };
+      rebuildExerciseCatalog(state.customExercises, state.exerciseEdits);
+      persist();
+      render();
+      return;
+    }
+    if (event.target.dataset?.assignmentSetting === "setupScore") {
+      const assignment = assignmentFor({
+        dayId: event.target.dataset.day,
+        circuitIndex: Number(event.target.dataset.circuit),
+        position: event.target.dataset.position,
+      });
+      if (assignment) {
+        assignment.setupScore = normalizeSetupScore(event.target.value);
+        persist();
+        render();
+      }
+      return;
+    }
     if (event.target.dataset?.setting === "measureType" && event.target.dataset.exerciseId) {
       stateFor(event.target.dataset.exerciseId).measureType = event.target.value;
       persist();
@@ -3497,16 +3880,27 @@
     const round = event.target.closest('[data-action="complete-round"]');
     if (round) {
       const circuit = state.week.days[round.dataset.day].circuits[Number(round.dataset.circuit)];
+      const wasComplete = isCircuitComplete(circuit);
       circuit.roundsCompleted[Number(round.dataset.round)] = round.checked;
+      const isComplete = isCircuitComplete(circuit);
+      if (!wasComplete && isComplete && !circuit.completionCredited) {
+        updateCircuitLoadProgress(circuit, 1);
+        circuit.completionCredited = true;
+      } else if (wasComplete && !isComplete && circuit.completionCredited) {
+        updateCircuitLoadProgress(circuit, -1);
+        circuit.completionCredited = false;
+      }
+      const day = state.week.days[round.dataset.day];
+      if (allRoundsComplete(day)) pauseWorkoutTimer(day, false);
       persist();
       render();
       return;
     }
 
-    const bridge = event.target.closest('[data-action="complete-bridge"]');
-    if (bridge) {
-      const circuit = state.week.days[bridge.dataset.day].circuits[Number(bridge.dataset.circuit)];
-      circuit.bridgeCompleted = bridge.checked;
+    const optionalActivator = event.target.closest('[data-action="complete-optional-activator"]');
+    if (optionalActivator) {
+      const circuit = state.week.days[optionalActivator.dataset.day].circuits[Number(optionalActivator.dataset.circuit)];
+      circuit.optionalActivatorCompleted = optionalActivator.checked;
       persist();
       render();
       return;
@@ -3523,14 +3917,6 @@
     const core = event.target.closest('[data-action="core-check"]');
     if (core) {
       state.week.days[core.dataset.day].coreCompleted = core.checked;
-      persist();
-      render();
-      return;
-    }
-
-    const cardio = event.target.closest('[data-action="cardio-check"]');
-    if (cardio) {
-      state.week.days[cardio.dataset.day].cardioCompleted = cardio.checked;
       persist();
       render();
       return;
@@ -3562,10 +3948,8 @@
     if (event.target.id === "show-all-replacements") {
       ui.showAllReplacements = event.target.checked;
       document.getElementById("replacement-scope-note").textContent = ui.showAllReplacements
-        ? ui.replacement?.position === "bridge"
-          ? "Showing every unused exercise checked as a total-body activator."
-          : "Showing every unused library exercise; target and setup limits are intentionally relaxed."
-        : "Only eligible, easy 0–2 options are shown.";
+        ? "Showing every unused library exercise; automatic target and transition limits are relaxed. Enter setup manually after choosing."
+        : "Eligible exercises with easy transitions are shown. Enter the manual setup score on the workout card after choosing.";
       renderReplacementResults();
     }
   }
@@ -3574,7 +3958,25 @@
     const setting = event.target.dataset.setting;
     const exerciseId = event.target.dataset.exerciseId;
     if (setting && exerciseId && ["reps", "weight", "notes", "measureType"].includes(setting)) {
-      stateFor(exerciseId)[setting] = event.target.value.slice(0, setting === "notes" ? 1000 : 40);
+      const stats = stateFor(exerciseId);
+      const nextValue = event.target.value.slice(0, setting === "notes" ? 1000 : 40);
+      if (setting === "weight" && stats.weight !== nextValue) stats.loadProgressCount = 0;
+      stats[setting] = nextValue;
+      if (setting === "weight") {
+        event.target.closest?.(".load-field")?.classList.toggle("has-recommended-weight", Boolean(event.target.value.trim()));
+        const progress = event.target.closest?.(".load-control")?.querySelector?.(".load-progression");
+        if (progress) {
+          progress.setAttribute("aria-label", "0 of 4 workouts completed at this load");
+          progress.querySelectorAll(".load-progress-mark").forEach((mark) => {
+            mark.classList.remove("is-complete");
+            mark.textContent = "";
+          });
+          progress.querySelector(".increase-load-button")?.remove();
+        }
+        if (event.target.closest?.(".library-fields")) {
+          event.target.classList.toggle("has-recommended-weight", Boolean(event.target.value.trim()));
+        }
+      }
       persist();
       return;
     }
@@ -3624,7 +4026,6 @@
     document.getElementById("favorite-dialog").addEventListener("close", () => {
       ui.favoriteTarget = null;
     });
-    window.addEventListener?.("resize", scheduleCircuitStickyOffsets);
   }
 
   function initialize() {
@@ -3650,6 +4051,7 @@
     bindEvents();
     render();
     restoreFileHandle();
+    timerInterval = window.setInterval?.(updateWorkoutTimer, 1000) || null;
 
     window.Basement45 = {
       get exercises() {

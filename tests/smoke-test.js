@@ -9,6 +9,7 @@ const root = path.resolve(__dirname, "..");
 const exerciseDataScript = fs.readFileSync(path.join(root, "exercise-data.js"), "utf8");
 const equipmentExerciseDataScript = fs.readFileSync(path.join(root, "equipment-exercises.js"), "utf8");
 const appScript = fs.readFileSync(path.join(root, "app.js"), "utf8");
+const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
 const styles = fs.readFileSync(path.join(root, "styles.css"), "utf8");
 const exampleSave = JSON.parse(fs.readFileSync(path.join(root, "basement-45-workouts.json"), "utf8"));
 
@@ -32,6 +33,9 @@ function elementStub() {
     },
     reset() {},
     remove() {},
+    setAttribute(name, value) {
+      this[name] = String(value);
+    },
     setSelectionRange() {},
     showModal() {
       this.open = true;
@@ -136,6 +140,30 @@ function changeAction(app, action, dataset, checked) {
   app.document._listeners.change[0]({ target });
 }
 
+function changeAssignmentSetup(app, dataset, value) {
+  const target = {
+    value,
+    dataset: { assignmentSetting: "setupScore", ...dataset },
+  };
+  app.document._listeners.change[0]({ target });
+}
+
+function changeExerciseEffectiveness(app, exerciseId, value) {
+  const target = {
+    value,
+    dataset: { exerciseSetting: "effectivenessScore", exerciseId },
+  };
+  app.document._listeners.change[0]({ target });
+}
+
+function expectedDefaultSetup(exercise) {
+  const equipmentLabel = String(exercise.equipment_label || "").toLowerCase();
+  const onlyBodyWeight =
+    exercise.equipment_varieties.length > 0 &&
+    exercise.equipment_varieties.every((item) => item.toLowerCase() === "body weight");
+  return onlyBodyWeight || equipmentLabel.includes("body weight or") || equipmentLabel.includes("bodyweight or") ? 5 : 4;
+}
+
 function inputSetting(app, dataset, value) {
   app.document._listeners.input[0]({
     target: { dataset, value, id: "" },
@@ -154,10 +182,13 @@ for (let attempt = 0; attempt < 50; attempt += 1) {
   const catalogById = new Map(catalog.map((exercise) => [exercise.id, exercise]));
   assert.equal(new Set(catalog.map((exercise) => exercise.id)).size, catalog.length, "catalog IDs should be unique");
   assert.ok(catalog.every((exercise) => exercise.equipment_varieties.length > 0));
-  assert.ok(catalog.every((exercise) => exercise.always_locked || exercise.instruction_url));
-  assert.ok(catalog.every((exercise) => exercise.difficulty_score >= 1 && exercise.difficulty_score <= 5));
-  assert.ok(catalog.every((exercise) => exercise.setup_difficulty >= 1 && exercise.setup_difficulty <= 5));
+  assert.ok(
+    catalog.every(
+      (exercise) => exercise.always_locked || exercise.instruction_url || exercise.id.startsWith("pt-exercise-"),
+    ),
+  );
   assert.ok(catalog.every((exercise) => exercise.effectiveness_score >= 1 && exercise.effectiveness_score <= 5));
+  assert.ok(catalog.every((exercise) => !("difficulty_score" in exercise) && !("setup_difficulty" in exercise)));
   assert.ok(
     catalog.filter((exercise) => exercise.equipment_varieties.includes("Physio ball")).length >= 7,
     "the available equipment catalog should include the physio-ball exercise set",
@@ -170,13 +201,37 @@ for (let attempt = 0; attempt < 50; attempt += 1) {
   assert.equal(state.daySettings.sunday.enabled, false);
 
   const assignments = days.flatMap((day) =>
-    day.circuits.flatMap((circuit) => [circuit.first, circuit.second, ...circuit.extras, circuit.bridge]),
+    day.circuits.flatMap((circuit) => [circuit.first, circuit.second, ...circuit.extras]),
   );
-  assert.equal(assignments.length, 77);
+  assert.ok(assignments.length >= 42 && assignments.length <= 84);
   assert.equal(new Set(assignments.map((assignment) => assignment.exerciseId)).size, assignments.length);
+  assert.ok(days.every((day) => day.circuits.every((circuit) => !("bridge" in circuit))));
   assert.ok(
-    days.every((day) => day.circuits.every((circuit) => catalogById.get(circuit.bridge.exerciseId).total_body_activator)),
-    "every activator slot should contain a checked total-body activator",
+    days.every((day) =>
+      day.circuits.every(
+        (circuit) =>
+          circuit.optionalActivator &&
+          catalogById.get(circuit.optionalActivator.exerciseId)?.total_body_activator,
+      ),
+    ),
+    "each circuit should have one eligible optional activator stored outside its round exercises",
+  );
+  assert.ok(
+    days.every((day) =>
+      day.circuits.every(
+        (circuit) => ![circuit.first, circuit.second, ...circuit.extras].some(
+          (assignment) => assignment.exerciseId === circuit.optionalActivator.exerciseId,
+        ),
+      ),
+    ),
+  );
+  assert.ok(days.every((day) => day.timer.durationMs === 45 * 60 * 1000 && day.timer.elapsedMs === 0 && day.timer.startedAt === null));
+  assert.ok(
+    assignments.every(
+      (assignment) =>
+        assignment.setupScore === expectedDefaultSetup(catalogById.get(assignment.exerciseId)),
+    ),
+    "generated assignments should default setup to 5 without equipment and 4 with equipment",
   );
   assert.deepEqual(
     [...new Set(days.flatMap((day) => day.circuits.map((circuit) => 2 + circuit.extras.length)))].sort(),
@@ -187,10 +242,7 @@ for (let attempt = 0; attempt < 50; attempt += 1) {
   const chosenCount = Object.values(state.exerciseState).reduce((sum, item) => sum + item.chosenCount, 0);
   assert.equal(chosenCount, assignments.length, "each generated exercise should be counted once");
 
-  assert.deepEqual(
-    state.week.days.friday.circuits.map((circuit) => circuit.bridge.exerciseId),
-    ["pt-exercise-1", "pt-exercise-2", "pt-exercise-3"],
-  );
+  assert.ok([1, 2, 3].every((number) => catalogById.get(`pt-exercise-${number}`).always_locked === false));
   assert.ok(
     state.week.days.wednesday.circuits.some(
       (circuit) =>
@@ -202,13 +254,21 @@ for (let attempt = 0; attempt < 50; attempt += 1) {
 
 const interactionApp = launchApp();
 const workoutHtml = interactionApp.__elements.get("workout-view").innerHTML;
+assert.ok(html.includes("Not connected · basement-45-workouts.json"));
+assert.equal(interactionApp.__elements.get("timer-display").textContent, "45:00");
+assert.ok(html.includes('data-action="adjust-workout-timer"'));
+clickAction(interactionApp, "toggle-workout-timer");
+assert.equal(interactionApp.Basement45.getState().week.days.monday.timer.startedAt, null);
 assert.equal((workoutHtml.match(/data-action="complete-round"/g) || []).length, 9);
-assert.equal((workoutHtml.match(/data-action="complete-bridge"/g) || []).length, 3);
-assert.equal((workoutHtml.match(/Total Body activator/g) || []).length, 3);
+assert.equal((workoutHtml.match(/data-action="toggle-optional-activator-pane"/g) || []).length, 3);
+assert.equal((workoutHtml.match(/data-action="complete-optional-activator"/g) || []).length, 0);
+assert.equal((workoutHtml.match(/data-action="complete-bridge"/g) || []).length, 0);
+assert.equal((workoutHtml.match(/Total Body activator/g) || []).length, 0);
 assert.ok(!workoutHtml.includes("Between rounds"));
 assert.equal((workoutHtml.match(/data-action="daily-check"/g) || []).length, 3);
 assert.equal((workoutHtml.match(/data-action="core-check"/g) || []).length, 1);
-assert.equal((workoutHtml.match(/data-action="cardio-check"/g) || []).length, 1);
+assert.equal((workoutHtml.match(/data-action="cardio-check"/g) || []).length, 0);
+assert.ok(!workoutHtml.includes("20 minutes cardio"));
 assert.ok((workoutHtml.match(/data-action="random-replace"/g) || []).length > 0);
 assert.ok((workoutHtml.match(/class="exercise-note"/g) || []).length > 0);
 assert.ok((workoutHtml.match(/class="equipment-needed"/g) || []).length > 0);
@@ -216,19 +276,74 @@ assert.ok((workoutHtml.match(/data-action="set-preference"/g) || []).length > 0)
 assert.ok((workoutHtml.match(/data-action="toggle-hide-workout"/g) || []).length > 0);
 assert.ok((workoutHtml.match(/data-action="edit-workout-exercise"/g) || []).length > 0);
 assert.ok((workoutHtml.match(/data-action="toggle-favorite-circuit"/g) || []).length === 3);
-assert.ok((workoutHtml.match(/class="recommendation-score"/g) || []).length > 0);
+assert.ok((workoutHtml.match(/class="exercise-score-row"/g) || []).length > 0);
+assert.equal((workoutHtml.match(/class="circuit-total-score"/g) || []).length, 3);
+assert.ok((workoutHtml.match(/data-assignment-setting="setupScore"/g) || []).length > 0);
+assert.ok((workoutHtml.match(/data-exercise-setting="effectivenessScore"/g) || []).length > 0);
+assert.equal(
+  (workoutHtml.match(/class="exercise-divider"/g) || []).length,
+  (workoutHtml.match(/class="exercise-item/g) || []).length - 3,
+  "each circuit should render an HR only between its exercises",
+);
+assert.ok((workoutHtml.match(/class="load-progress-mark /g) || []).length > 0);
+assert.ok(!workoutHtml.includes("transition-divider"));
+assert.ok(!html.includes('name="difficultyScore"'));
+assert.ok(!html.includes('name="setupDifficulty"'));
 assert.ok(!workoutHtml.includes(">Neutral<"));
 assert.ok(
-  workoutHtml.indexOf('class="bridge-wrap activator-wrap ') < workoutHtml.indexOf('class="round-checks"') &&
-    workoutHtml.indexOf('class="round-checks"') < workoutHtml.indexOf('class="exercise-cycle"'),
-  "the total-body activator and sticky round controls should come before the cycle exercises",
+  workoutHtml.indexOf('class="round-checks"') < workoutHtml.indexOf('class="exercise-cycle"'),
+  "the sticky round controls should come before the cycle exercises",
 );
 assert.ok(!workoutHtml.includes("circuit-sticky-progress"));
 assert.match(styles, /\.sidebar\s*{[^}]*position:\s*sticky/s);
+assert.match(styles, /\.circuit-grid\s*{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/s);
 assert.match(styles, /\.round-checks\s*{[^}]*position:\s*sticky/s);
 assert.match(styles, /\.pre-routine:not\(\.is-complete\)\s*{[^}]*position:\s*sticky/s);
-assert.match(styles, /\.activator-wrap\.is-pending\s*{[^}]*position:\s*sticky/s);
+assert.match(styles, /\.round-checks\s*{[^}]*background:\s*rgb\(215 222 217/s);
+assert.match(styles, /\.round-check\.is-overdue:not\(:has\(input:checked\)\)/);
+assert.match(styles, /\.compact-field\.has-recommended-weight/);
+assert.match(styles, /\.exercise-score-row\s*{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/s);
+assert.match(styles, /\.exercise-total-score\s*{[^}]*background:\s*#e8f3ee/s);
 assert.match(styles, /\.replace-option\s*{[^}]*min-height:\s*76px/s);
+
+clickAction(interactionApp, "toggle-optional-activator-pane", { day: "monday", circuit: "0" });
+const expandedActivatorHtml = interactionApp.__elements.get("workout-view").innerHTML;
+assert.equal((expandedActivatorHtml.match(/class="optional-activator-content"/g) || []).length, 1);
+assert.equal((expandedActivatorHtml.match(/class="exercise-item activator-item/g) || []).length, 1);
+assert.equal((expandedActivatorHtml.match(/data-action="complete-optional-activator"/g) || []).length, 1);
+assert.ok(expandedActivatorHtml.includes("Independent of circuit score"));
+changeAction(interactionApp, "complete-optional-activator", { day: "monday", circuit: "0" }, true);
+assert.equal(interactionApp.Basement45.getState().week.days.monday.circuits[0].optionalActivatorCompleted, true);
+assert.equal(interactionApp.Basement45.getState().week.days.monday.circuits[0].roundsCompleted.every(Boolean), false);
+assert.ok(interactionApp.__elements.get("workout-view").innerHTML.includes("optional-activator-panel is-complete is-expanded"));
+
+changeAssignmentSetup(
+  interactionApp,
+  { day: "monday", circuit: "0", position: "first" },
+  "4",
+);
+const scoredCircuit = interactionApp.Basement45.getState().week.days.monday.circuits[0];
+assert.equal(scoredCircuit.first.setupScore, 4);
+const scoredExerciseId = scoredCircuit.first.exerciseId;
+const priorEffectiveness = interactionApp.Basement45.exercises.find(
+  (exercise) => exercise.id === scoredExerciseId,
+).effectiveness_score;
+const updatedEffectiveness = priorEffectiveness === 5 ? 4 : 5;
+changeExerciseEffectiveness(interactionApp, scoredExerciseId, String(updatedEffectiveness));
+assert.equal(
+  interactionApp.Basement45.exercises.find((exercise) => exercise.id === scoredExerciseId).effectiveness_score,
+  updatedEffectiveness,
+  "effectiveness should be editable directly on a workout card",
+);
+assert.equal(interactionApp.Basement45.getState().exerciseEdits[scoredExerciseId].effectivenessScore, updatedEffectiveness);
+const expectedCircuitScore = [scoredCircuit.first, scoredCircuit.second, ...scoredCircuit.extras].reduce(
+  (total, assignment) =>
+    total +
+    interactionApp.Basement45.exercises.find((exercise) => exercise.id === assignment.exerciseId).effectiveness_score +
+    (assignment.setupScore || 0),
+  0,
+);
+assert.ok(interactionApp.__elements.get("workout-view").innerHTML.includes(`Total score ${expectedCircuitScore}`));
 
 const favoriteOriginalIds = [
   interactionApp.Basement45.getState().week.days.monday.circuits[0].first.exerciseId,
@@ -236,15 +351,28 @@ const favoriteOriginalIds = [
   ...interactionApp.Basement45.getState().week.days.monday.circuits[0].extras.map(
     (assignment) => assignment.exerciseId,
   ),
-  interactionApp.Basement45.getState().week.days.monday.circuits[0].bridge.exerciseId,
 ];
 clickAction(interactionApp, "toggle-favorite-circuit", { day: "monday", circuit: "0" });
 const favoriteId = interactionApp.Basement45.getState().favoriteCircuits[0].id;
 assert.ok(favoriteId);
 assert.equal(interactionApp.Basement45.getState().favoriteCircuits[0].name, "Test favorite circuit");
-clickAction(interactionApp, "random-replace", { day: "monday", circuit: "0", position: "first" });
+assert.equal(interactionApp.Basement45.getState().favoriteCircuits[0].assignments[0].setupScore, 4);
+clickAction(interactionApp, "delete-circuit-exercise", { day: "monday", circuit: "0", position: "extra-0" });
+assert.ok(
+  [
+    interactionApp.Basement45.getState().week.days.monday.circuits[0].first,
+    interactionApp.Basement45.getState().week.days.monday.circuits[0].second,
+    ...interactionApp.Basement45.getState().week.days.monday.circuits[0].extras,
+  ].every(
+    (assignment) =>
+      assignment.setupScore ===
+      expectedDefaultSetup(interactionApp.Basement45.exercises.find((exercise) => exercise.id === assignment.exerciseId)),
+  ),
+  "changing circuit composition should restore contextual setup defaults",
+);
 clickAction(interactionApp, "open-favorite-circuits", { day: "monday", circuit: "0" });
 assert.ok(interactionApp.__elements.get("favorite-results").innerHTML.includes("Use circuit"));
+assert.ok(interactionApp.__elements.get("favorite-results").innerHTML.includes(`Total score ${expectedCircuitScore}`));
 clickAction(interactionApp, "apply-favorite-circuit", { favoriteId });
 const favoriteRestoredCircuit = interactionApp.Basement45.getState().week.days.monday.circuits[0];
 assert.deepEqual(
@@ -252,22 +380,20 @@ assert.deepEqual(
     favoriteRestoredCircuit.first.exerciseId,
     favoriteRestoredCircuit.second.exerciseId,
     ...favoriteRestoredCircuit.extras.map((assignment) => assignment.exerciseId),
-    favoriteRestoredCircuit.bridge.exerciseId,
   ],
   favoriteOriginalIds,
 );
+assert.equal(favoriteRestoredCircuit.first.setupScore, 4, "favorites should restore per-circuit setup scores");
 assert.deepEqual(Array.from(interactionApp.Basement45.validateWeek()), []);
 changeAction(interactionApp, "complete-round", { day: "monday", circuit: "0", round: "0" }, true);
-changeAction(interactionApp, "complete-bridge", { day: "monday", circuit: "0" }, true);
 changeAction(interactionApp, "daily-check", { day: "monday", item: "stretch" }, true);
 changeAction(interactionApp, "core-check", { day: "monday" }, true);
 assert.equal(interactionApp.Basement45.getState().week.days.monday.circuits[0].roundsCompleted[0], true);
-assert.equal(interactionApp.Basement45.getState().week.days.monday.circuits[0].bridgeCompleted, true);
 assert.equal(interactionApp.Basement45.getState().week.days.monday.preChecklist.stretch, true);
 assert.equal(interactionApp.Basement45.getState().week.days.monday.coreCompleted, true);
 assert.ok(
-  !interactionApp.__elements.get("workout-view").innerHTML.includes("core-routine is-complete"),
-  "the finisher should wait for cardio before changing color",
+  interactionApp.__elements.get("workout-view").innerHTML.includes("core-routine is-complete"),
+  "the finisher should complete as soon as its core checkbox is checked",
 );
 changeAction(interactionApp, "daily-check", { day: "monday", item: "pushups" }, true);
 changeAction(interactionApp, "daily-check", { day: "monday", item: "pullups" }, true);
@@ -275,15 +401,40 @@ assert.ok(
   interactionApp.__elements.get("workout-view").innerHTML.includes("pre-routine is-complete"),
   "the Before Circuits pane should immediately complete after its final checkbox",
 );
-changeAction(interactionApp, "cardio-check", { day: "monday" }, true);
-assert.equal(interactionApp.Basement45.getState().week.days.monday.cardioCompleted, true);
-assert.ok(interactionApp.__elements.get("workout-view").innerHTML.includes("core-routine is-complete"));
+clickAction(interactionApp, "toggle-workout-timer");
+assert.ok(interactionApp.Basement45.getState().week.days.monday.timer.startedAt);
+clickAction(interactionApp, "toggle-workout-timer");
+assert.equal(interactionApp.Basement45.getState().week.days.monday.timer.startedAt, null);
+clickAction(interactionApp, "adjust-workout-timer", { minutes: "5" });
+assert.equal(interactionApp.Basement45.getState().week.days.monday.timer.durationMs, 50 * 60 * 1000);
+clickAction(interactionApp, "toggle-workout-timer");
+clickAction(interactionApp, "adjust-workout-timer", { minutes: "5" });
+assert.equal(
+  interactionApp.Basement45.getState().week.days.monday.timer.durationMs,
+  50 * 60 * 1000,
+  "a running timer should have to be paused before adjustment",
+);
+clickAction(interactionApp, "toggle-workout-timer");
+clickAction(interactionApp, "reset-workout-timer");
+assert.deepEqual(
+  interactionApp.Basement45.getState().week.days.monday.timer,
+  { durationMs: 50 * 60 * 1000, elapsedMs: 0, startedAt: null },
+  "reset should preserve the selected duration",
+);
+assert.equal(interactionApp.__elements.get("timer-display").textContent, "50:00");
 changeAction(interactionApp, "complete-round", { day: "monday", circuit: "0", round: "1" }, true);
 changeAction(interactionApp, "complete-round", { day: "monday", circuit: "0", round: "2" }, true);
 assert.ok(
   interactionApp.__elements.get("workout-view").innerHTML.includes('class="circuit-card is-complete"'),
-  "a circuit should receive the completed-pane class once all rounds and its between-rounds movement are done",
+  "a circuit should receive the completed-pane class once all three rounds are done",
 );
+for (const assignment of [
+  interactionApp.Basement45.getState().week.days.monday.circuits[0].first,
+  interactionApp.Basement45.getState().week.days.monday.circuits[0].second,
+  ...interactionApp.Basement45.getState().week.days.monday.circuits[0].extras,
+]) {
+  assert.equal(interactionApp.Basement45.getState().exerciseState[assignment.exerciseId].loadProgressCount, 1);
+}
 
 const noteExerciseId = interactionApp.Basement45.getState().week.days.monday.circuits[0].first.exerciseId;
 clickAction(interactionApp, "edit-workout-exercise", { exerciseId: noteExerciseId });
@@ -291,11 +442,14 @@ assert.ok(interactionApp.__elements.get("exercise-dialog-title").textContent.sta
 clickAction(interactionApp, "close-exercise-dialog");
 inputSetting(interactionApp, { setting: "notes", exerciseId: noteExerciseId }, "Keep the tempo controlled");
 inputSetting(interactionApp, { setting: "measureType", exerciseId: noteExerciseId }, "seconds");
+inputSetting(interactionApp, { setting: "weight", exerciseId: noteExerciseId }, "25");
 assert.equal(interactionApp.Basement45.getState().exerciseState[noteExerciseId].notes, "Keep the tempo controlled");
 assert.equal(interactionApp.Basement45.getState().exerciseState[noteExerciseId].measureType, "seconds");
+assert.equal(interactionApp.Basement45.getState().exerciseState[noteExerciseId].weight, "25");
 clickAction(interactionApp, "set-preference", { exerciseId: noteExerciseId, value: "1" });
 assert.equal(interactionApp.Basement45.getState().exerciseState[noteExerciseId].preference, 1);
 assert.ok(interactionApp.__elements.get("workout-view").innerHTML.includes('class="feedback-button active"'));
+assert.ok(interactionApp.__elements.get("workout-view").innerHTML.includes("has-recommended-weight"));
 clickAction(interactionApp, "toggle-hide-workout", { exerciseId: noteExerciseId });
 assert.ok(interactionApp.Basement45.getState().hiddenExerciseIds.includes(noteExerciseId));
 assert.ok(interactionApp.__elements.get("workout-view").innerHTML.includes("exercise-item is-hidden"));
@@ -361,7 +515,7 @@ for (const dayId of ["monday", "tuesday", "wednesday", "thursday", "friday"]) {
 assert.equal(randomChanged, true, "the random eligible replacement action should change an exercise");
 assert.deepEqual(Array.from(interactionApp.Basement45.validateWeek()), []);
 
-clickAction(interactionApp, "replace", { day: "monday", circuit: "0", position: "bridge" });
+clickAction(interactionApp, "replace", { day: "tuesday", circuit: "1", position: "first" });
 interactionApp.document._listeners.change[0]({
   target: {
     id: "show-all-replacements",
@@ -372,23 +526,19 @@ interactionApp.document._listeners.change[0]({
     },
   },
 });
-const activatorReplacementHtml = interactionApp.__elements.get("replace-results").innerHTML;
-assert.ok(activatorReplacementHtml.includes('data-action="hide-replacement"'));
-const activatorReplacementIds = [...activatorReplacementHtml.matchAll(/data-exercise-id="([^"]+)"/g)].map(
+const hideableReplacementHtml = interactionApp.__elements.get("replace-results").innerHTML;
+assert.ok(hideableReplacementHtml.includes('data-action="hide-replacement"'));
+const hideableReplacementIds = [...hideableReplacementHtml.matchAll(/data-exercise-id="([^"]+)"/g)].map(
   (match) => match[1],
 );
-assert.ok(activatorReplacementIds.length > 0);
-assert.ok(
-  activatorReplacementIds.every((exerciseId) => exerciseLookup.get(exerciseId).total_body_activator),
-  "even Show all must keep the activator slot limited to checked exercises",
-);
-const hiddenReplacementId = activatorReplacementIds[0];
+assert.ok(hideableReplacementIds.length > 0);
+const hiddenReplacementId = hideableReplacementIds[0];
 clickAction(interactionApp, "hide-replacement", { exerciseId: hiddenReplacementId });
 assert.ok(interactionApp.Basement45.getState().hiddenExerciseIds.includes(hiddenReplacementId));
 assert.ok(!interactionApp.__elements.get("replace-results").innerHTML.includes(`data-exercise-id="${hiddenReplacementId}"`));
 clickAction(interactionApp, "toggle-hide-library", { exerciseId: hiddenReplacementId });
 assert.ok(!interactionApp.Basement45.getState().hiddenExerciseIds.includes(hiddenReplacementId));
-clickAction(interactionApp, "choose-replacement", { exerciseId: activatorReplacementIds[0] });
+clickAction(interactionApp, "choose-replacement", { exerciseId: hideableReplacementIds[0] });
 assert.deepEqual(Array.from(interactionApp.Basement45.validateWeek()), []);
 
 const deleteCircuitBefore = interactionApp.Basement45.getState().week.days.monday.circuits[0];
@@ -471,8 +621,6 @@ customForm._formData = new Map([
   ["instructionUrl", ""],
   ["totalBodyActivator", "on"],
   ["bothSides", "on"],
-  ["difficultyScore", "1"],
-  ["setupDifficulty", "1"],
   ["effectivenessScore", "5"],
 ]);
 customForm._listeners.submit[0]({ preventDefault() {}, currentTarget: customForm });
@@ -624,7 +772,6 @@ const nextWeekIds = Object.values(interactionApp.Basement45.getState().week.days
     circuit.first.exerciseId,
     circuit.second.exerciseId,
     ...circuit.extras.map((assignment) => assignment.exerciseId),
-    circuit.bridge.exerciseId,
   ]),
 );
 assert.ok(!nextWeekIds.includes(hiddenFromNextWeek), "hidden exercises must not be recommended");
@@ -650,6 +797,7 @@ const directFileHandle = {
 interactionApp.showSaveFilePicker = async () => directFileHandle;
 await interactionApp.__elements.get("save-button")._listeners.click[0]();
 assert.equal(JSON.parse(directFileContents).app, "Basement 45");
+assert.ok(interactionApp.__elements.get("file-status").textContent.includes("workouts.json"));
 assert.equal(
   JSON.parse(directFileContents).exerciseLibrary.find((exercise) => exercise.id === noteExerciseId)
     .recommendation_preference,
@@ -667,10 +815,14 @@ for (let sequence = 0; sequence < 10; sequence += 1) {
     assert.ok(
       Object.values(current.week.days).every((day) =>
         day.circuits.every(
-          (circuit) => circuit.roundsCompleted.every((round) => !round) && !circuit.bridgeCompleted,
+          (circuit) =>
+            circuit.roundsCompleted.every((round) => !round) &&
+            !circuit.optionalActivatorCompleted &&
+            Boolean(circuit.optionalActivator) &&
+            !circuit.completionCredited,
         ),
       ),
-      "a new week should have blank round and bridge checkmarks",
+      "a new week should have blank round checkmarks",
     );
     assert.deepEqual(Array.from(multiWeekApp.Basement45.validateWeek()), []);
   }
@@ -681,6 +833,57 @@ const reloadedApp = launchApp(JSON.stringify(roundTripState));
 assert.deepEqual(Array.from(reloadedApp.Basement45.validateWeek()), []);
 assert.equal(reloadedApp.Basement45.getState().weekNumber, 15, "local JSON state should survive a reload");
 
+const overdueState = JSON.parse(JSON.stringify(roundTripState));
+overdueState.week.days.monday.preChecklist = { stretch: true, pushups: true, pullups: true };
+overdueState.week.days.monday.timer = { durationMs: 45 * 60 * 1000, elapsedMs: 5 * 60 * 1000, startedAt: null };
+const overdueApp = launchApp(JSON.stringify(overdueState));
+assert.equal(overdueApp.__elements.get("timer-toggle").textContent, "Resume");
+assert.equal(
+  (overdueApp.__elements.get("workout-view").innerHTML.match(/class="round-check is-overdue"/g) || []).length,
+  1,
+  "only the first unchecked round should be overdue at the five-minute deadline",
+);
+
+const scaledDeadlineState = JSON.parse(JSON.stringify(overdueState));
+scaledDeadlineState.week.days.monday.timer = {
+  durationMs: 90 * 60 * 1000,
+  elapsedMs: 5 * 60 * 1000,
+  startedAt: null,
+};
+const scaledDeadlineApp = launchApp(JSON.stringify(scaledDeadlineState));
+assert.equal(
+  (scaledDeadlineApp.__elements.get("workout-view").innerHTML.match(/class="round-check is-overdue"/g) || []).length,
+  0,
+  "round deadlines should scale when more workout time is added",
+);
+
+const timerApp = launchApp();
+for (const item of ["stretch", "pushups", "pullups"]) {
+  changeAction(timerApp, "daily-check", { day: "monday", item }, true);
+}
+clickAction(timerApp, "toggle-workout-timer");
+assert.ok(timerApp.Basement45.getState().week.days.monday.timer.startedAt);
+for (let circuit = 0; circuit < 3; circuit += 1) {
+  for (let round = 0; round < 3; round += 1) {
+    changeAction(timerApp, "complete-round", { day: "monday", circuit: String(circuit), round: String(round) }, true);
+  }
+}
+assert.equal(timerApp.Basement45.getState().week.days.monday.timer.startedAt, null);
+assert.ok(timerApp.__elements.get("workout-view").innerHTML.includes("3 of 3 circuits complete"));
+
+const loadProgressState = timerApp.Basement45.getState();
+const progressedExerciseId = loadProgressState.week.days.monday.circuits[0].first.exerciseId;
+loadProgressState.exerciseState[progressedExerciseId].weight = "25";
+loadProgressState.exerciseState[progressedExerciseId].loadProgressCount = 4;
+const loadProgressApp = launchApp(JSON.stringify(loadProgressState));
+assert.ok(loadProgressApp.__elements.get("workout-view").innerHTML.includes('data-action="increase-load"'));
+assert.equal((loadProgressApp.__elements.get("workout-view").innerHTML.match(/load-progress-mark is-complete/g) || []).length >= 4, true);
+loadProgressApp.prompt = () => "30";
+clickAction(loadProgressApp, "increase-load", { exerciseId: progressedExerciseId });
+assert.equal(loadProgressApp.Basement45.getState().exerciseState[progressedExerciseId].weight, "30");
+assert.equal(loadProgressApp.Basement45.getState().exerciseState[progressedExerciseId].loadProgressCount, 0);
+assert.ok(!loadProgressApp.__elements.get("workout-view").innerHTML.includes('data-action="increase-load"'));
+
 const legacyState = JSON.parse(JSON.stringify(roundTripState));
 legacyState.version = 1;
 for (const day of Object.values(legacyState.week.days)) {
@@ -689,7 +892,8 @@ for (const day of Object.values(legacyState.week.days)) {
     circuit.preferredExerciseCount = undefined;
     circuit.completed = false;
     circuit.roundsCompleted = undefined;
-    circuit.bridgeCompleted = undefined;
+    circuit.optionalActivatorCompleted = undefined;
+    circuit.completionCredited = undefined;
   }
 }
 legacyState.week.days.monday.circuits[0].completed = true;
@@ -697,7 +901,7 @@ const migratedApp = launchApp(JSON.stringify(legacyState));
 assert.deepEqual(Array.from(migratedApp.Basement45.validateWeek()), []);
 const migratedCircuit = migratedApp.Basement45.getState().week.days.monday.circuits[0];
 assert.deepEqual(migratedCircuit.roundsCompleted, [true, true, true]);
-assert.equal(migratedCircuit.bridgeCompleted, true);
+assert.equal("bridge" in migratedCircuit, false);
 
 const fiveDayState = JSON.parse(JSON.stringify(roundTripState));
 fiveDayState.version = 3;
@@ -707,6 +911,7 @@ delete fiveDayState.daySettings.saturday;
 delete fiveDayState.daySettings.sunday;
 const weekendMigratedApp = launchApp(JSON.stringify(fiveDayState));
 assert.deepEqual(Array.from(weekendMigratedApp.Basement45.validateWeek()), []);
+assert.equal(weekendMigratedApp.Basement45.getState().weekNumber, fiveDayState.weekNumber);
 assert.equal(weekendMigratedApp.Basement45.getState().week.days.saturday.circuits.length, 3);
 assert.equal(weekendMigratedApp.Basement45.getState().week.days.sunday.circuits.length, 3);
 assert.equal(weekendMigratedApp.Basement45.getState().daySettings.saturday.enabled, false);
@@ -714,24 +919,47 @@ assert.equal(weekendMigratedApp.Basement45.getState().daySettings.sunday.enabled
 
 const preActivatorState = JSON.parse(JSON.stringify(roundTripState));
 preActivatorState.version = 5;
-preActivatorState.week.days.monday.circuits[0].bridge.exerciseId = "flat-dumbbell-bench-press";
+preActivatorState.week.days.monday.circuits[0].bridge = {
+  exerciseId: "flat-dumbbell-bench-press",
+  slotLabel: "Between rounds",
+};
+preActivatorState.week.days.monday.circuits[0].bridgeCompleted = true;
 const activatorMigratedApp = launchApp(JSON.stringify(preActivatorState));
-const migratedActivatorId = activatorMigratedApp.Basement45.getState().week.days.monday.circuits[0].bridge.exerciseId;
-assert.equal(
-  activatorMigratedApp.Basement45.exercises.find((exercise) => exercise.id === migratedActivatorId).total_body_activator,
-  true,
+assert.equal("bridge" in activatorMigratedApp.Basement45.getState().week.days.monday.circuits[0], false);
+assert.equal("bridgeCompleted" in activatorMigratedApp.Basement45.getState().week.days.monday.circuits[0], false);
+assert.ok(
+  activatorMigratedApp.Basement45.exercises.find(
+    (exercise) =>
+      exercise.id === activatorMigratedApp.Basement45.getState().week.days.monday.circuits[0].optionalActivator.exerciseId,
+  ).total_body_activator,
 );
 assert.deepEqual(Array.from(activatorMigratedApp.Basement45.validateWeek()), []);
 
 assert.equal(exampleSave.schemaVersion, 7, "the provided example should document its original schema version");
 const exampleApp = launchApp(JSON.stringify(exampleSave.appState));
 assert.deepEqual(Array.from(exampleApp.Basement45.validateWeek()), []);
-assert.equal(exampleApp.Basement45.getState().version, 8);
+assert.equal(exampleApp.Basement45.getState().version, 13);
 assert.ok(exampleApp.Basement45.exercises.some((exercise) => exercise.id === "egyptian-raise"));
+assert.ok(
+  Object.values(exampleApp.Basement45.getState().week.days).every(
+    (day) =>
+      !("cardioCompleted" in day) &&
+      day.circuits.every(
+        (circuit) =>
+          typeof circuit.optionalActivatorCompleted === "boolean" &&
+          Boolean(circuit.optionalActivator) &&
+          typeof circuit.completionCredited === "boolean" &&
+          [circuit.first, circuit.second, ...circuit.extras].every(
+            (assignment) => assignment.setupScore === 4 || assignment.setupScore === 5,
+          ),
+      ),
+  ),
+  "older saves should migrate away from cardio and initialize per-circuit setup defaults",
+);
 assert.ok(
   Object.values(exampleApp.Basement45.getState().week.days).every((day) =>
     day.circuits.every((circuit) =>
-      [circuit.first, circuit.second, ...circuit.extras, circuit.bridge].every((assignment) =>
+      [circuit.first, circuit.second, ...circuit.extras].every((assignment) =>
         exampleApp.Basement45.exercises.some((exercise) => exercise.id === assignment.exerciseId),
       ),
     ),
@@ -777,7 +1005,7 @@ await portableApp.__elements.get("load-input")._listeners.change[0]({
 assert.ok(portableApp.Basement45.exercises.some((exercise) => exercise.id === "portable-missing-exercise"));
 
 console.log(
-  "Smoke test passed randomized starts, 140 generated weeks, example/portable JSON migration, favorites, exercise scoring, equipment varieties, recommendation feedback, activator eligibility, direct-file save, editing, settings, and v1-v8 persistence.",
+  "Smoke test passed randomized starts, 140 generated weeks, example/portable JSON migration, favorites with circuit setup scores, effectiveness scoring, expandable optional activators, load progression, equipment varieties, recommendation feedback, adjustable workout timing, direct-file save, editing, settings, and v1-v13 persistence.",
 );
 }
 

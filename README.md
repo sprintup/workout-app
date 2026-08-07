@@ -6,19 +6,29 @@ At the top of the app:
 
 - **Save file** (`Ctrl+S` / `Cmd+S`) connects a JSON file using Chrome or Edge's File System Access API. After the first file choice, changes autosave directly back to that file. Browser-local autosave remains active when no file is connected.
 - **Open JSON** restores an existing workout file and connects it for subsequent autosaves. Browsers without direct-file support can still open JSON with the standard file chooser.
-- **New week** archives the current selections, keeps locked exercises and saved loads/reps, generates a varied validated plan, and clears all round and total-body-activator checkmarks.
+- **New week** archives the current selections, keeps locked exercises and saved loads/reps, generates a varied validated plan, and clears all round, optional-activator, and workout-timer state.
 
-Each circuit starts with its **Total Body activator**, followed by a separate sticky row of checkboxes for rounds 1–3, then two to four in-round exercises: **Focused** has 2, **Standard** has 3, and **Challenge** has 4. The warm-up stays visible until completed. An unfinished activator sticks above the round row; once checked, the activator scrolls away while the round row remains. Use `−` to remove the last optional exercise or `+` to automatically add the highest-ranked compatible exercise to that circuit. The day sidebar also stays visible while the workout scrolls.
+Each circuit starts with a non-blocking **Optional total-body activator** checkbox for use when time remains, followed by a sticky row of checkboxes for rounds 1–3 and two to four exercises: **Focused** has 2, **Standard** has 3, and **Challenge** has 4. The optional activator does not affect circuit completion or the timer. Use `−` to remove the last optional exercise or `+` to automatically add the highest-ranked compatible exercise. The day sidebar stays visible while the workout scrolls.
+
+The sidebar includes a per-day workout timer. It remains disabled until the warm-up is complete, can be paused and resumed, and can be adjusted in five-minute steps while paused. Each of the nine round deadlines scales evenly with the selected duration, and an unchecked round turns red when its deadline passes. The timer stops after round nine, so warm-up and finisher time are excluded. Reset starts that day's selected time budget over.
+
+Each circuit also has a collapsed optional total-body activator. Expanding it reveals one independently selectable exercise with its own completion checkbox, equipment, load, notes, and controls. It is not included in the circuit's exercise count, score, rounds, favorites, or completion state.
 
 Use the star in a circuit heading to name and save its exact exercise combination as a favorite. The adjacent favorites button substitutes a saved favorite into the same day and circuit position when none of its exercises conflict with the rest of the current week.
 
-The replacement picker's **Setup score** estimates how much equipment or position change is needed between adjacent exercises: `0` is no setup change, `1` is a grip/body-position change, and `2` is one quick equipment adjustment. Eligible results appear as soon as the picker opens and can be narrowed with fuzzy search.
+The replacement picker still uses equipment and position compatibility to keep its default choices practical, and eligible results can be narrowed with fuzzy search. This automatic eligibility filter is separate from the score shown on workout cards.
 
-Eligibility remains the default, but **Show all library exercises** in the replacement picker allows an explicit manual override. In that mode, any unused, visible library exercise can be selected even when it is outside the slot's target or has a higher setup score; the circuit labels that transition as manual. Total Body activator slots remain restricted to exercises with the activator checkbox enabled.
+Eligibility remains the default, but **Show all library exercises** in the replacement picker allows an explicit manual override. In that mode, any unused, visible library exercise can be selected even when it is outside the slot's target or requires a less convenient transition.
 
-The Exercise Library supports user-added exercises plus a built-in equipment expansion for the functional-trainer attachments, bands, kettlebell, physio ball, back-extension machine, pull-up bar, and bench. Each exercise has an editable primary setup, one-per-line equipment varieties, a **Both sides** setting, and adjustable 1–5 ratings for difficulty, setup cost, and effectiveness. Those ratings produce a visible 0–100 recommendation score weighted 50% toward effectiveness, 25% toward setup ease, and 25% toward technique ease. The score modestly influences recommendations without overriding eligibility or safety rules.
+The Exercise Library supports user-added exercises plus a built-in equipment expansion for the functional-trainer attachments, bands, kettlebell, physio ball, back-extension machine, pull-up bar, and bench. Each exercise has an editable primary setup, one-per-line equipment varieties, a **Both sides** setting, and a 1–5 effectiveness rating. Difficulty and global setup scores are not part of the user-facing scoring model.
 
-Workout cards show required equipment, both-sides status, recommendation score, thumbs-up/down controls, and a pencil button for editing the exercise directly. Built-in and user-added exercises can be hidden directly from a workout, the swap picker, or the library; hidden exercises can be restored with **Show hidden**. Equipment-expansion movements are treated as built-in and receive a demonstration search link by default. The four fixed shoulder/PT placeholders remain editable but cannot be hidden or deleted.
+Workout cards show required equipment, both-sides status, thumbs-up/down controls, and a pencil button for editing the exercise directly. Effectiveness, setup, and exercise score appear as three evenly spaced informational pills. Each assignment has a manual setup-ease score from 0–5; its exercise score is effectiveness plus setup, and the circuit header shows the sum of every exercise score. Setup scores are saved with the circuit and restored by named favorites. Adding, removing, replacing, or reordering an exercise clears that circuit's setup scores because its context changed.
+
+Four small checks beside each load track completed workouts at that load. Completing all three rounds credits every exercise in the circuit once. After four credited workouts, an **Increase load** button appears for the next session; choosing a higher load resets the checks. Manually editing the load also resets them. A populated load field is highlighted so recommended or saved weights are easy to spot. Built-in and user-added exercises can be hidden directly from a workout, the swap picker, or the library; hidden exercises can be restored with **Show hidden**. Equipment-expansion movements are treated as built-in and receive a demonstration search link by default. The shoulder placeholder remains fixed; PT Exercises 1–3 are unlocked library entries.
+
+The finisher contains only the core-complete checkbox; the previous 20-minute cardio item has been removed.
+
+The header shows the connected JSON filename and the most specific path the browser exposes. Standard browser security normally hides a local file's absolute parent path, so a browser may display only the filename even though autosave is connected.
 
 Every exercise can be edited, annotated with a workout note, measured in repetitions or seconds, randomly replaced with an eligible option, reordered within a circuit, or removed when the circuit has more than two movements. The Settings page controls which weekdays appear and lets you edit each day's target and description. Versioned JSON loads migrate automatically; exported library records can also recover exercises that are missing from a newer bundled catalog.
 
@@ -120,47 +130,24 @@ Do not automatically replace this split with push/pull/legs, upper/lower, or ano
 
 ## Standard Workout Structure
 
-Each workout should normally contain three supersets.
+Each workout should normally contain three circuits.
 
-Each superset contains:
+Each circuit contains two to four exercises selected for compatible movement roles and quick equipment transitions.
 
-1. Superset Exercise 1
-2. Complement Exercise 2
-3. Total Body activator
-
-Repeat each group for three rounds.
+Repeat each circuit for three rounds. The separate total-body activator slot has been removed to keep the main workout within 45 minutes.
 
 Example:
 
 ```text
-Superset Exercise 1: Incline neutral-grip dumbbell press
-Complement Exercise 2: One-arm dumbbell row
-Total Body activator: Bear crawl
+Circuit Exercise 1: Incline neutral-grip dumbbell press
+Circuit Exercise 2: One-arm dumbbell row
 ```
-
-### Total Body Activators
-
-A Total Body activator is an integrated movement that connects upper body, lower body, and core work. Every exercise has an editable `Total-body activator` checkbox, and only checked exercises may fill this slot.
-
-Typical activators include:
-
-- Bear crawls
-- Mountain climbers
-- Cleans
-- Loaded carries and marches
-- Integrated cable rotations
-- Lunge, squat, or hinge combinations involving the upper body
-- The three fixed user-defined PT movements
-
-The application should still permit actual rest after the activator when needed for good technique.
 
 ## Repetition and Set Defaults
 
 - Default prescription: 3 rounds of 10 repetitions
 - Unilateral exercises: usually 10 repetitions per side
-- More demanding total-body exercises: usually 5 to 8 controlled repetitions per side or 6 to 8 total repetitions
 - Rotator-cuff exercises: usually 10 to 15 light, controlled repetitions
-- Isometric activators: approximately 20 to 45 seconds
 - The user may override repetitions and weights at any time
 
 Avoid displaying redundant set notation. If the workout already states that a superset is repeated for three rounds, do not also label each individual exercise as `3 x 10` unless required by the interface.
@@ -250,8 +237,6 @@ Superset 2: Total-body push + total-body pull
 Superset 3: Isolated push + isolated pull
 ```
 
-Monday activators should use exercises checked as total-body movements.
-
 Do not allow Monday to become heavily push-dominant or pull-dominant.
 
 ### Tuesday: Legs
@@ -264,7 +249,6 @@ Do not allow Monday to become heavily push-dominant or pull-dominant.
 - Barbell box squats may be used when appropriate.
 - Include a balance of squat, hinge, unilateral, hip, and stability patterns.
 - Physio-ball exercises are available.
-- Use a checked total-body movement for the activator slot.
 
 Avoid relying on leg extensions or machine leg curls because those attachments are unavailable. Physio-ball or sliding hamstring curls are acceptable substitutes.
 
@@ -277,7 +261,7 @@ Avoid relying on leg extensions or machine leg curls because those attachments a
 - Overhead dumbbell presses must be seated.
 - Favor neutral grips and controlled ranges of motion.
 - Avoid excessive pressing volume because the previous dumbbell routine caused shoulder pain.
-- Shoulder-health movements remain main-round options when appropriate; the activator stays total-body.
+- Shoulder-health movements remain main-round options when appropriate.
 
 Possible shoulder-health movements include:
 
@@ -297,7 +281,6 @@ These movements are options, not medical treatment.
 - Do not recommend FT2 cable chest presses.
 - Standing cable chest fly variations are allowed and preferred cable-based chest movements.
 - Overhead triceps extensions must be seated.
-- The activator stays total-body rather than serving as an extra isolation movement.
 - Favor neutral-grip dumbbell pressing when appropriate.
 - Avoid duplicating Monday's exact pressing exercises.
 
@@ -313,13 +296,7 @@ Pull-day recommendations may use:
 - Dumbbell or cable curls
 - FT2 curl bar
 
-The following Total Body activators are fixed and must not be replaced:
-
-- PT Exercise 1
-- PT Exercise 2
-- PT Exercise 3
-
-The application must treat these as locked user-defined exercises even though their exact names are not yet stored.
+PT Exercises 1, 2, and 3 remain user-defined library entries. They are unlocked and may be edited, hidden, deleted, or selected manually like other library exercises.
 
 ## Pain and Safety Constraints
 
@@ -425,7 +402,6 @@ supersets:
     exercise_2:
       role: Pull
       exercise_id: one-arm-dumbbell-row
-    bridge_exercise_id: dumbbell-shrug
     rounds: 3
 ```
 
@@ -438,8 +414,8 @@ Before returning a workout, validate all of the following:
 3. No Smith-machine or leg-extension/curl-machine exercise is present.
 4. No exact exercise is repeated elsewhere in the weekly plan.
 5. Each day contains three supersets unless the user overrides the format.
-6. Each superset contains two main exercises and one bridge exercise.
-7. The estimated workout duration is approximately 45 minutes.
+6. Each circuit contains two to four exercises and three tracked rounds.
+7. The nine round deadlines scale evenly within an adjustable workout timer; warm-up and finisher time are excluded.
 8. Superset transition costs are acceptable.
 9. Monday contains three push and three pull movements.
 10. Monday contains compound, total-body, and isolation categories for both push and pull.
@@ -447,7 +423,7 @@ Before returning a workout, validate all of the following:
 12. Wednesday contains shoulder-health work and the shoulder placeholder.
 13. Thursday contains no FT2 pressing exercise.
 14. Thursday may contain standing cable flyes.
-15. Friday preserves PT Exercises 1, 2, and 3.
+15. PT Exercises 1, 2, and 3 remain unlocked library entries.
 16. All overhead pressing and overhead triceps extensions are seated.
 17. Shoulder-sensitive and back-sensitive exercises have appropriate cautions or alternatives.
 
@@ -461,7 +437,6 @@ Default user-facing output should show only:
 - Superset number
 - Exercise 1
 - Complement exercise 2
-- Bridge exercise
 - Repetitions
 - Suggested or user-entered weight
 - Completion checkboxes, when tracking is enabled
@@ -476,17 +451,14 @@ Monday - Arms and Upper Body
 Superset 1 - Compound
 Push: Incline neutral-grip dumbbell press
 Pull: One-arm dumbbell row
-Total Body activator: Kettlebell suitcase march
 
 Superset 2 - Total Body
 Push: [recommended integrated push]
 Pull: Dumbbell clean
-Total Body activator: Cable anti-rotation reverse lunge
 
 Superset 3 - Isolation
 Push: Dumbbell skull crusher
 Pull: Incline dumbbell curl
-Total Body activator: Bear crawl
 ```
 
 ## Future User-Configurable Settings
