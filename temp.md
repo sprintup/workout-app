@@ -1,6 +1,8 @@
-- [x] the exercise cards should show the equipment needed
-- [x] the total body activations should come first in the cycle
-- [x] you should be able to thumbs up or down an exercise to increase the weight it will get when being recommended
-- [x] I should be able to hide an exercise from both the exercise card and swap modal
-- [x] instead of being at the bottom, the round checkboxes should be toward the top of the circuit, just under the total body activator and should be sticky on scroll.
-- [x] The day sidebar should be sticky
+- [ ] the total body activator should be sticky unless checked. Same with warm up
+- [ ] I also have a physio ball
+- [ ] Remove the 'Neutral' thing from the exercise cards. Add a 'both sides' if it's a both sides exercise. also add a checkbox in that exercise to mark it as both sides. -[ ] ability to indivdually adjust number of exercises per cirucuit
+- [ ] a score for each exercise that combines difficulty with setup cost with effectiveness that are adjustable. Should recommend partially based on score
+- [ ] unchecked boxes should stick out a bit more
+- [ ] why are there custom movements that I didn't make? no demo? I don't know how to do it.
+- [ ] the fuzzy search should display by default. The elements seem to be populating in the swap tool, but not displaying.
+- [ ] ability to favorite a circuit with button to substitute with a favorite cirucit
