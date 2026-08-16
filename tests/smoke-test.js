@@ -156,6 +156,28 @@ function changeExerciseEffectiveness(app, exerciseId, value) {
   app.document._listeners.change[0]({ target });
 }
 
+function changeDayTarget(app, day, target) {
+  app.document._listeners.change[0]({
+    target: {
+      value: target,
+      dataset: { daySetting: "target", day },
+      closest() {
+        return null;
+      },
+    },
+  });
+}
+
+function selectView(app, view) {
+  const target = {
+    dataset: { view },
+    closest(selector) {
+      return selector === "[data-view]" ? this : null;
+    },
+  };
+  app.document._listeners.click[0]({ target });
+}
+
 function expectedDefaultSetup(exercise) {
   const equipmentLabel = String(exercise.equipment_label || "").toLowerCase();
   const onlyBodyWeight =
@@ -199,6 +221,10 @@ for (let attempt = 0; attempt < 50; attempt += 1) {
   assert.ok(days.every((day) => day.circuits.length === 3));
   assert.equal(state.daySettings.saturday.enabled, false);
   assert.equal(state.daySettings.sunday.enabled, false);
+  assert.deepEqual(
+    Array.from(Object.values(state.daySettings), (settings) => settings.target),
+    ["arms_upper", "legs", "shoulders_rotator", "push", "pull", "total_body", "total_body"],
+  );
 
   const assignments = days.flatMap((day) =>
     day.circuits.flatMap((circuit) => [circuit.first, circuit.second, ...circuit.extras]),
@@ -724,14 +750,38 @@ assert.equal(
   "Flat dumbbell bench press — edited",
 );
 
-interactionApp.document._listeners.input[0]({
-  target: {
-    id: "",
-    dataset: { daySetting: "focus", day: "monday" },
-    value: "Upper strength practice",
-  },
-});
-assert.equal(interactionApp.Basement45.getState().daySettings.monday.focus, "Upper strength practice");
+selectView(interactionApp, "settings");
+const settingsHtml = interactionApp.__elements.get("settings-view").innerHTML;
+for (const label of ["Arms &amp; upper", "Legs", "Shoulder &amp; Rotator cuff", "Push", "Pull", "Total Body"]) {
+  assert.ok(settingsHtml.includes(`>${label}</option>`), `settings should include the ${label} target`);
+}
+const mondayIdsBeforeTargetChange = interactionApp.Basement45.getState().week.days.monday.circuits.flatMap(
+  (circuit) => [circuit.first.exerciseId, circuit.second.exerciseId, ...circuit.extras.map((assignment) => assignment.exerciseId)],
+);
+changeDayTarget(interactionApp, "monday", "total_body");
+const targetedState = interactionApp.Basement45.getState();
+assert.equal(targetedState.daySettings.monday.target, "total_body");
+assert.equal(targetedState.week.days.monday.target, "total_body");
+const targetedMondayAssignments = targetedState.week.days.monday.circuits.flatMap(
+  (circuit) => [circuit.first, circuit.second, ...circuit.extras],
+);
+assert.notDeepEqual(
+  targetedMondayAssignments.map((assignment) => assignment.exerciseId),
+  mondayIdsBeforeTargetChange,
+  "changing a target should immediately rebuild that day",
+);
+assert.ok(
+  targetedMondayAssignments.every((assignment) => {
+    const exercise = interactionApp.Basement45.exercises.find((item) => item.id === assignment.exerciseId);
+    return (
+      exercise.total_body_activator ||
+      exercise.movement_role === "total_body" ||
+      (exercise.movement_role === "compound" && exercise.force_type !== "other")
+    );
+  }),
+  "a Total Body day should only contain exercises from the Total Body qualification pool",
+);
+assert.deepEqual(Array.from(interactionApp.Basement45.validateWeek()), []);
 interactionApp.document._listeners.change[0]({
   target: {
     checked: false,
@@ -754,6 +804,10 @@ interactionApp.document._listeners.change[0]({
   },
 });
 assert.ok(interactionApp.__elements.get("day-tabs").innerHTML.includes('data-view="saturday"'));
+changeDayTarget(interactionApp, "saturday", "legs");
+assert.equal(interactionApp.Basement45.getState().daySettings.saturday.target, "legs");
+assert.equal(interactionApp.Basement45.getState().week.days.saturday.target, "legs");
+assert.deepEqual(Array.from(interactionApp.Basement45.validateWeek()), []);
 interactionApp.document._listeners.change[0]({
   target: {
     checked: false,
@@ -938,7 +992,11 @@ assert.deepEqual(Array.from(activatorMigratedApp.Basement45.validateWeek()), [])
 assert.equal(exampleSave.schemaVersion, 7, "the provided example should document its original schema version");
 const exampleApp = launchApp(JSON.stringify(exampleSave.appState));
 assert.deepEqual(Array.from(exampleApp.Basement45.validateWeek()), []);
-assert.equal(exampleApp.Basement45.getState().version, 13);
+assert.equal(exampleApp.Basement45.getState().version, 14);
+assert.deepEqual(
+  Array.from(Object.values(exampleApp.Basement45.getState().daySettings), (settings) => settings.target),
+  ["arms_upper", "legs", "shoulders_rotator", "push", "pull", "total_body", "total_body"],
+);
 assert.ok(exampleApp.Basement45.exercises.some((exercise) => exercise.id === "egyptian-raise"));
 assert.ok(
   Object.values(exampleApp.Basement45.getState().week.days).every(
@@ -1005,7 +1063,7 @@ await portableApp.__elements.get("load-input")._listeners.change[0]({
 assert.ok(portableApp.Basement45.exercises.some((exercise) => exercise.id === "portable-missing-exercise"));
 
 console.log(
-  "Smoke test passed randomized starts, 140 generated weeks, example/portable JSON migration, favorites with circuit setup scores, effectiveness scoring, expandable optional activators, load progression, equipment varieties, recommendation feedback, adjustable workout timing, direct-file save, editing, settings, and v1-v13 persistence.",
+  "Smoke test passed randomized starts, 140 generated weeks, target-driven generation, example/portable JSON migration, favorites with circuit setup scores, effectiveness scoring, expandable optional activators, load progression, equipment varieties, recommendation feedback, adjustable workout timing, direct-file save, editing, settings, and v1-v14 persistence.",
 );
 }
 

@@ -14,6 +14,8 @@ The sidebar includes a per-day workout timer. It remains disabled until the warm
 
 Each circuit also has a collapsed optional total-body activator. Expanding it reveals one independently selectable exercise with its own completion checkbox, equipment, load, notes, and controls. It is not included in the circuit's exercise count, score, rounds, favorites, or completion state.
 
+Workout settings let each weekday be activated independently and assigned one of six generation targets: Arms & upper, Legs, Shoulder & Rotator cuff, Push, Pull, or Total Body. Changing a target rebuilds only that day and resets that day's progress after confirmation when needed. New weeks retain the selected targets and generate every circuit from the corresponding qualification pools.
+
 Use the star in a circuit heading to name and save its exact exercise combination as a favorite. The adjacent favorites button substitutes a saved favorite into the same day and circuit position when none of its exercises conflict with the rest of the current week.
 
 The replacement picker still uses equipment and position compatibility to keep its default choices practical, and eligible results can be narrowed with fuzzy search. This automatic eligibility filter is separate from the score shown on workout cards.

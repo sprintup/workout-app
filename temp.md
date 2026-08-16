@@ -15,3 +15,4 @@
 - [x] Put a horizontal rule between exercises in each circuit.
 - [x] Expand the optional total-body activator into a separate one-exercise pane outside the circuit.
 - [x] Tighten the editable effectiveness pill so it stays within its score column.
+- [x] Add per-day target dropdowns, including Total Body, and generate only qualifying exercises for each target.

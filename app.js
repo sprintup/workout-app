@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = 13;
+  const APP_VERSION = 14;
   const STORAGE_KEY = "basement45-state-v1";
   const ACTIVATOR_LABEL = "Total Body activator";
   const DEFAULT_WORKOUT_DURATION_MS = 45 * 60 * 1000;
@@ -38,12 +38,45 @@
       '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 7.5-2"/></svg>',
   };
 
+  const WORKOUT_TARGETS = [
+    { id: "arms_upper", label: "Arms & upper", templateKey: "monday" },
+    { id: "legs", label: "Legs", templateKey: "tuesday" },
+    { id: "shoulders_rotator", label: "Shoulder & Rotator cuff", templateKey: "wednesday" },
+    { id: "push", label: "Push", templateKey: "thursday" },
+    { id: "pull", label: "Pull", templateKey: "friday" },
+    { id: "total_body", label: "Total Body", templateKey: "total_body" },
+  ];
+  const WORKOUT_TARGET_BY_ID = new Map(WORKOUT_TARGETS.map((target) => [target.id, target]));
+
+  function normalizeWorkoutTarget(value, fallback = "total_body") {
+    const normalized = String(value || "")
+      .toLowerCase()
+      .replace(/&/g, "and")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+    const aliases = {
+      arms_upper: ["arms upper", "arms and upper", "arms upper body", "arms and upper body", "upper strength practice"],
+      legs: ["legs"],
+      shoulders_rotator: ["shoulder rotator cuff", "shoulders rotator cuff", "shoulder and rotator cuff", "shoulders and rotator cuff"],
+      push: ["push"],
+      pull: ["pull"],
+      total_body: ["total body", "optional workout", "optional recovery", "full body"],
+    };
+    if (WORKOUT_TARGET_BY_ID.has(String(value))) return String(value);
+    return Object.entries(aliases).find(([, names]) => names.includes(normalized))?.[0] || fallback;
+  }
+
+  function workoutTarget(targetId) {
+    return WORKOUT_TARGET_BY_ID.get(normalizeWorkoutTarget(targetId)) || WORKOUT_TARGET_BY_ID.get("total_body");
+  }
+
   const DAY_CONFIG = [
     {
       id: "monday",
       short: "MON",
       name: "Monday",
-      focus: "Arms & upper body",
+      focus: "Arms & upper",
+      defaultTarget: "arms_upper",
       guidance:
         "Balanced by design: one compound, one integrated, and one isolation pairing — each with one push and one pull.",
     },
@@ -52,6 +85,7 @@
       short: "TUE",
       name: "Tuesday",
       focus: "Legs",
+      defaultTarget: "legs",
       guidance:
         "Use controlled depth and conservative loading. The first squat round can be a lighter ramp-up; no separate warm-up block is needed.",
     },
@@ -59,7 +93,8 @@
       id: "wednesday",
       short: "WED",
       name: "Wednesday",
-      focus: "Shoulders & rotator cuff",
+      focus: "Shoulder & Rotator cuff",
+      defaultTarget: "shoulders_rotator",
       guidance:
         "Keep pressing neutral-grip and seated. Use light, controlled ranges for cuff work and replace anything that causes painful catching.",
     },
@@ -68,6 +103,7 @@
       short: "THU",
       name: "Thursday",
       focus: "Push",
+      defaultTarget: "push",
       guidance:
         "Chest and shoulder presses stay with dumbbells. Cable flyes use a comfortable range; overhead triceps work stays seated.",
     },
@@ -76,6 +112,7 @@
       short: "FRI",
       name: "Friday",
       focus: "Pull",
+      defaultTarget: "pull",
       guidance:
         "Keep hinges crisp and conservative. PT exercises remain available in the library and can be edited, hidden, or removed whenever needed.",
     },
@@ -83,7 +120,8 @@
       id: "saturday",
       short: "SAT",
       name: "Saturday",
-      focus: "Optional workout",
+      focus: "Total Body",
+      defaultTarget: "total_body",
       guidance:
         "An optional flexible session. Choose any compatible exercises from the library and adjust the circuit difficulty to fit your week.",
       defaultEnabled: false,
@@ -92,7 +130,8 @@
       id: "sunday",
       short: "SUN",
       name: "Sunday",
-      focus: "Optional recovery",
+      focus: "Total Body",
+      defaultTarget: "total_body",
       guidance:
         "An optional lighter session for mobility, core, balance, or any movements you want to practice.",
       defaultEnabled: false,
@@ -905,6 +944,24 @@
     bridge: { label: "Between rounds", names: recoveryNames },
   }));
 
+  const totalBodyRoundNames = namesMatching(
+    (exercise) =>
+      exercise.total_body_activator ||
+      exercise.movement_role === "total_body" ||
+      (exercise.movement_role === "compound" && exercise.force_type !== "other"),
+  );
+  const totalBodyNamePools = Array.from({ length: 6 }, (_, pool) =>
+    totalBodyRoundNames.filter((_, index) => index % 6 === pool),
+  );
+  SLOTS.total_body = ["Strength + movement", "Integrated total body", "Power + control"].map(
+    (category, index) => ({
+      category,
+      first: { label: "Total body", names: totalBodyNamePools[index * 2] },
+      second: { label: "Total body", names: totalBodyNamePools[index * 2 + 1] },
+      bridge: { label: "Between rounds", names: recoveryNames },
+    }),
+  );
+
   for (const circuits of Object.values(SLOTS)) {
     for (const circuit of circuits) circuit.bridge.label = ACTIVATOR_LABEL;
   }
@@ -1104,14 +1161,63 @@
     ],
     saturday: [0, 1, 2].map(() => ({ defaultCount: 2, names: flexibleExerciseNames })),
     sunday: [0, 1, 2].map(() => ({ defaultCount: 2, names: flexibleExerciseNames })),
+    total_body: [
+      { defaultCount: 3, names: totalBodyRoundNames },
+      { defaultCount: 3, names: totalBodyRoundNames },
+      { defaultCount: 3, names: totalBodyRoundNames },
+    ],
   };
 
-  for (const day of DAY_CONFIG) {
-    SLOTS[day.id].forEach((circuit, index) => {
-      const scaling = CIRCUIT_SCALING[day.id][index];
+  for (const [templateKey, circuits] of Object.entries(SLOTS)) {
+    circuits.forEach((circuit, index) => {
+      const scaling = CIRCUIT_SCALING[templateKey][index];
       circuit.defaultCount = scaling.defaultCount;
       circuit.extra = { label: "Round exercise", names: scaling.names };
     });
+  }
+
+  function targetIdForDay(dayId) {
+    const fallback = DAY_CONFIG.find((day) => day.id === dayId)?.defaultTarget || "total_body";
+    return normalizeWorkoutTarget(state?.daySettings?.[dayId]?.target, fallback);
+  }
+
+  function circuitDefinitionsForTarget(targetId, used = new Set()) {
+    const target = workoutTarget(targetId);
+    const definitions = SLOTS[target.templateKey];
+    const placeholderId = idFor("Shoulder Exercise Placeholder");
+    if (target.id === "shoulders_rotator" && used.has(placeholderId)) {
+      return definitions.map((definition, index) =>
+        index === 2
+          ? {
+              ...definition,
+              first: {
+                label: "Shoulder movement",
+                names: namesMatching(
+                  (exercise) =>
+                    exercise.primary_body_part === "Shoulders and Rotator Cuff" &&
+                    !exercise.always_locked,
+                ),
+              },
+            }
+          : definition,
+      );
+    }
+    return definitions;
+  }
+
+  function circuitDefinitionsForDay(dayId, used = null) {
+    let qualificationUsed = used;
+    if (!qualificationUsed) {
+      qualificationUsed = new Set();
+      const dayData = state?.week?.days?.[dayId];
+      if (
+        targetIdForDay(dayId) === "shoulders_rotator" &&
+        dayData?.circuits?.[2]?.first?.exerciseId !== idFor("Shoulder Exercise Placeholder")
+      ) {
+        qualificationUsed.add(idFor("Shoulder Exercise Placeholder"));
+      }
+    }
+    return circuitDefinitionsForTarget(targetIdForDay(dayId), qualificationUsed);
   }
 
   const ui = {
@@ -1175,7 +1281,7 @@
       daySettings: Object.fromEntries(
         DAY_CONFIG.map((day) => [
           day.id,
-          { enabled: day.defaultEnabled !== false, focus: day.focus, description: day.guidance },
+          { enabled: day.defaultEnabled !== false, target: day.defaultTarget, description: day.guidance },
         ]),
       ),
       history: [],
@@ -1344,7 +1450,7 @@
       !isDeleted(previous.exerciseId) &&
       !isHidden(previous.exerciseId) &&
       exerciseById.has(previous.exerciseId) &&
-      (previous.manualOverride || matchesSlot(exerciseById.get(previous.exerciseId), slot))
+      matchesSlot(exerciseById.get(previous.exerciseId), slot)
     ) {
       if (!used.has(previous.exerciseId)) return { ...previous };
     }
@@ -1497,6 +1603,58 @@
     };
   }
 
+  function generateDayCircuits(day, targetId, used, oldDay = null) {
+    return circuitDefinitionsForTarget(targetId, used).map((definition, index) => {
+      const oldCircuit = oldDay?.circuits?.[index];
+      const pair = choosePair(definition.first, definition.second, used, oldCircuit);
+      pair.first.slotKey ||= "first";
+      pair.second.slotKey ||= "second";
+      used.add(pair.first.exerciseId);
+      used.add(pair.second.exerciseId);
+      const oldExtras = oldCircuit
+        ? mainAssignments(oldCircuit).filter((assignment) => assignment.slotKey === "extra")
+        : [];
+      const lockedExtraCount = oldExtras.filter((assignment) => assignment.locked).length;
+      const desiredCount = Math.min(
+        4,
+        Math.max(2, Number(oldCircuit?.preferredExerciseCount) || definition.defaultCount, 2 + lockedExtraCount),
+      );
+      const extras = [];
+      let previousExercise = exerciseById.get(pair.second.exerciseId);
+      const circuitExercises = [exerciseById.get(pair.first.exerciseId), previousExercise];
+      for (let extraIndex = 0; extraIndex < desiredCount - 2; extraIndex += 1) {
+        let extra;
+        try {
+          extra = chooseExtra(
+            definition.extra,
+            used,
+            previousExercise,
+            circuitExercises,
+            oldExtras[extraIndex],
+          );
+        } catch (error) {
+          throw new Error(`${day.name} circuit ${index + 1}: ${error.message}`);
+        }
+        extras.push(extra);
+        used.add(extra.exerciseId);
+        previousExercise = exerciseById.get(extra.exerciseId);
+        circuitExercises.push(previousExercise);
+      }
+      return {
+        number: index + 1,
+        category: definition.category,
+        first: pair.first,
+        second: pair.second,
+        extras,
+        rounds: 3,
+        preferredExerciseCount: desiredCount,
+        roundsCompleted: [false, false, false],
+        optionalActivatorCompleted: false,
+        completionCredited: false,
+      };
+    });
+  }
+
   function generateWeek(previousWeek) {
     const reservedActivatorIds = new Set(
       DAY_CONFIG.flatMap((day) =>
@@ -1516,59 +1674,13 @@
     const days = {};
 
     for (const day of DAY_CONFIG) {
-      const circuits = SLOTS[day.id].map((definition, index) => {
-        const oldCircuit = previousWeek?.days?.[day.id]?.circuits?.[index];
-        const pair = choosePair(definition.first, definition.second, used, oldCircuit);
-        pair.first.slotKey ||= "first";
-        pair.second.slotKey ||= "second";
-        used.add(pair.first.exerciseId);
-        used.add(pair.second.exerciseId);
-        const oldExtras = oldCircuit
-          ? mainAssignments(oldCircuit).filter((assignment) => assignment.slotKey === "extra")
-          : [];
-        const lockedExtraCount = oldExtras.filter((assignment) => assignment.locked).length;
-        const desiredCount = Math.min(
-          4,
-          Math.max(2, Number(oldCircuit?.preferredExerciseCount) || definition.defaultCount, 2 + lockedExtraCount),
-        );
-        const extras = [];
-        let previousExercise = exerciseById.get(pair.second.exerciseId);
-        const circuitExercises = [exerciseById.get(pair.first.exerciseId), previousExercise];
-        for (let extraIndex = 0; extraIndex < desiredCount - 2; extraIndex += 1) {
-          let extra;
-          try {
-            extra = chooseExtra(
-              definition.extra,
-              used,
-              previousExercise,
-              circuitExercises,
-              oldExtras[extraIndex],
-            );
-          } catch (error) {
-            throw new Error(`${day.name} circuit ${index + 1}: ${error.message}`);
-          }
-          extras.push(extra);
-          used.add(extra.exerciseId);
-          previousExercise = exerciseById.get(extra.exerciseId);
-          circuitExercises.push(previousExercise);
-        }
-        return {
-          number: index + 1,
-          category: definition.category,
-          first: pair.first,
-          second: pair.second,
-          extras,
-          rounds: 3,
-          preferredExerciseCount: desiredCount,
-          roundsCompleted: [false, false, false],
-          optionalActivatorCompleted: false,
-          completionCredited: false,
-        };
-      });
+      const targetId = targetIdForDay(day.id);
+      const circuits = generateDayCircuits(day, targetId, used, previousWeek?.days?.[day.id]);
 
       days[day.id] = {
         day: day.name,
-        focus: day.focus,
+        target: targetId,
+        focus: workoutTarget(targetId).label,
         circuits,
         preChecklist: { stretch: false, pushups: false, pullups: false },
         coreCompleted: false,
@@ -1595,7 +1707,45 @@
     for (const exerciseId of roundExerciseIds) stateFor(exerciseId).chosenCount += 1;
   }
 
-  function createMissingWorkoutDay(day, week, excludedIds = new Set()) {
+  function regenerateWorkoutDay(dayId, targetId) {
+    const day = DAY_CONFIG.find((item) => item.id === dayId);
+    const previousDay = state.week.days[dayId];
+    if (!day || !previousDay) return;
+    const previousIds = previousDay.circuits.flatMap((circuit) => mainAssignments(circuit).map((assignment) => assignment.exerciseId));
+    const used = new Set(
+      allAssignments()
+        .filter((assignment) => assignment.dayId !== dayId)
+        .map((assignment) => assignment.exerciseId),
+    );
+    const circuits = generateDayCircuits(day, targetId, used, previousDay);
+    for (let index = 0; index < circuits.length; index += 1) {
+      const optionalActivator = chooseOptionalActivator(used, previousDay.circuits[index]);
+      circuits[index].optionalActivator = optionalActivator;
+      used.add(optionalActivator.exerciseId);
+    }
+    const nextIds = circuits.flatMap((circuit) => mainAssignments(circuit).map((assignment) => assignment.exerciseId));
+    state.week.days[dayId] = {
+      ...previousDay,
+      day: day.name,
+      target: normalizeWorkoutTarget(targetId, day.defaultTarget),
+      focus: workoutTarget(targetId).label,
+      circuits,
+      preChecklist: { stretch: false, pushups: false, pullups: false },
+      coreCompleted: false,
+      timer: { durationMs: timerDuration(previousDay), elapsedMs: 0, startedAt: null },
+    };
+    previousIds.filter((id) => !nextIds.includes(id)).forEach((id) => {
+      stateFor(id).skippedCount += 1;
+    });
+    nextIds.filter((id) => !previousIds.includes(id)).forEach((id) => {
+      stateFor(id).chosenCount += 1;
+    });
+    for (const key of [...ui.expandedActivators]) {
+      if (key.startsWith(`${dayId}-`)) ui.expandedActivators.delete(key);
+    }
+  }
+
+  function createMissingWorkoutDay(day, week, excludedIds = new Set(), targetId = day.defaultTarget) {
     const used = new Set();
     for (const dayData of Object.values(week.days || {})) {
       for (const circuit of dayData?.circuits || []) {
@@ -1616,7 +1766,7 @@
             candidates.findIndex((candidate) => candidate?.id === exercise.id) === index,
         );
 
-    const circuits = SLOTS[day.id].map((definition, index) => {
+    const circuits = circuitDefinitionsForTarget(targetId, used).map((definition, index) => {
       const pairs = [];
       for (const first of candidatesForMissingSlot(definition.first)) {
         for (const second of candidatesForMissingSlot(definition.second)) {
@@ -1670,7 +1820,8 @@
 
     return {
       day: day.name,
-      focus: day.focus,
+      target: normalizeWorkoutTarget(targetId, day.defaultTarget),
+      focus: workoutTarget(targetId).label,
       circuits,
       preChecklist: { stretch: false, pushups: false, pullups: false },
       coreCompleted: false,
@@ -1856,7 +2007,7 @@
           day.id,
           {
             enabled: typeof loaded.enabled === "boolean" ? loaded.enabled : day.defaultEnabled !== false,
-            focus: String(loaded.focus || day.focus).slice(0, 100),
+            target: normalizeWorkoutTarget(loaded.target || loaded.focus || day.defaultTarget, day.defaultTarget),
             description: String(loaded.description || day.guidance).slice(0, 600),
           },
         ];
@@ -1893,11 +2044,18 @@
     const excludedIds = new Set([...normalized.hiddenExerciseIds, ...normalized.deletedExerciseIds]);
     for (const day of DAY_CONFIG) {
       if (!normalized.week.days[day.id]) {
-        normalized.week.days[day.id] = createMissingWorkoutDay(day, normalized.week, excludedIds);
+        normalized.week.days[day.id] = createMissingWorkoutDay(
+          day,
+          normalized.week,
+          excludedIds,
+          normalized.daySettings[day.id].target,
+        );
       }
     }
     for (const day of DAY_CONFIG) {
       const dayData = normalized.week.days[day.id];
+      dayData.target = normalized.daySettings[day.id].target;
+      dayData.focus = workoutTarget(dayData.target).label;
       dayData.preChecklist = {
         stretch: Boolean(dayData.preChecklist?.stretch),
         pushups: Boolean(dayData.preChecklist?.pushups),
@@ -1944,6 +2102,25 @@
         delete circuit.completed;
         delete circuit.bridge;
         delete circuit.bridgeCompleted;
+      }
+      if ((Number(candidate.version) || 1) < 14) {
+        const legacyQualificationUsed = new Set();
+        if (
+          dayData.target === "shoulders_rotator" &&
+          dayData.circuits[2]?.first?.exerciseId !== idFor("Shoulder Exercise Placeholder")
+        ) {
+          legacyQualificationUsed.add(idFor("Shoulder Exercise Placeholder"));
+        }
+        const targetDefinitions = circuitDefinitionsForTarget(dayData.target, legacyQualificationUsed);
+        dayData.circuits.forEach((circuit, circuitIndex) => {
+          const definition = targetDefinitions[circuitIndex];
+          mainAssignments(circuit).forEach((assignment, assignmentIndex) => {
+            const fallbackKey = assignmentIndex === 0 ? "first" : assignmentIndex === 1 ? "second" : "extra";
+            const slot = definition[assignment.slotKey || fallbackKey] || definition.extra;
+            const exercise = exerciseById.get(assignment.exerciseId);
+            if (exercise && !matchesSlot(exercise, slot)) assignment.manualOverride = true;
+          });
+        });
       }
     }
     migrateTotalBodyActivators(normalized.week, excludedIds);
@@ -2295,39 +2472,61 @@
           }
         }
       }
+
+      const targetId = normalizeWorkoutTarget(dayData.target, day.defaultTarget);
+      const qualificationUsed = new Set();
+      if (
+        targetId === "shoulders_rotator" &&
+        dayData.circuits[2]?.first?.exerciseId !== idFor("Shoulder Exercise Placeholder")
+      ) {
+        qualificationUsed.add(idFor("Shoulder Exercise Placeholder"));
+      }
+      const definitions = circuitDefinitionsForTarget(targetId, qualificationUsed);
+      dayData.circuits.forEach((circuit, circuitIndex) => {
+        const definition = definitions[circuitIndex];
+        const qualifiedAssignments = mainAssignments(circuit).map((assignment, assignmentIndex) => {
+          const fallbackKey = assignmentIndex === 0 ? "first" : assignmentIndex === 1 ? "second" : "extra";
+          return [assignment, definition[assignment.slotKey || fallbackKey] || definition.extra];
+        });
+        for (const [assignment, slot] of qualifiedAssignments) {
+          const exercise = exerciseById.get(assignment.exerciseId);
+          if (exercise && !assignment.manualOverride && !matchesSlot(exercise, slot)) {
+            issues.push(`${day.name} circuit ${circuit.number} contains an exercise outside its ${workoutTarget(targetId).label} target.`);
+          }
+        }
+      });
     }
 
     if (ids.length !== new Set(ids).size) issues.push("An exercise is repeated within the weekly plan.");
 
-    const monday = week.days.monday?.circuits || [];
-    if (monday.filter((circuit) => mainAssignments(circuit).some((assignment) => assignment.slotLabel === "Push")).length !== 3) {
-      issues.push("Monday must contain three push movements.");
-    }
-    if (monday.filter((circuit) => mainAssignments(circuit).some((assignment) => assignment.slotLabel === "Pull")).length !== 3) {
-      issues.push("Monday must contain three pull movements.");
-    }
-
-    const wednesdayIds = new Set(
-      (week.days.wednesday?.circuits || []).flatMap((circuit) => [
-        circuit.first.exerciseId,
-        circuit.second.exerciseId,
-        ...(circuit.extras || []).map((assignment) => assignment.exerciseId),
-      ]),
+    const shoulderTargetDays = DAY_CONFIG.filter(
+      (day) => normalizeWorkoutTarget(week.days[day.id]?.target, day.defaultTarget) === "shoulders_rotator",
     );
-    if (!wednesdayIds.has(idFor("Shoulder Exercise Placeholder"))) {
-      issues.push("Wednesday must preserve the shoulder exercise placeholder.");
+    if (
+      shoulderTargetDays.length &&
+      !shoulderTargetDays.some((day) =>
+        week.days[day.id].circuits.some((circuit) =>
+          mainAssignments(circuit).some((assignment) => assignment.exerciseId === idFor("Shoulder Exercise Placeholder")),
+        ),
+      )
+    ) {
+      issues.push("A Shoulder & Rotator cuff day must preserve the shoulder exercise placeholder.");
     }
 
-    for (const circuit of week.days.thursday?.circuits || []) {
-      for (const assignment of mainAssignments(circuit)) {
-        const exercise = exerciseById.get(assignment.exerciseId);
-        if (
-          !assignment.manualOverride &&
-          exercise?.equipment.includes("FT2") &&
-          exercise.name.toLowerCase().includes("press") &&
-          !exercise.name.toLowerCase().includes("pushdown")
-        ) {
-          issues.push("Thursday contains an FT2 pressing exercise.");
+    for (const day of DAY_CONFIG.filter(
+      (item) => normalizeWorkoutTarget(week.days[item.id]?.target, item.defaultTarget) === "push",
+    )) {
+      for (const circuit of week.days[day.id].circuits || []) {
+        for (const assignment of mainAssignments(circuit)) {
+          const exercise = exerciseById.get(assignment.exerciseId);
+          if (
+            !assignment.manualOverride &&
+            exercise?.equipment.includes("FT2") &&
+            exercise.name.toLowerCase().includes("press") &&
+            !exercise.name.toLowerCase().includes("pushdown")
+          ) {
+            issues.push(`${day.name} contains an FT2 pressing exercise in its Push target.`);
+          }
         }
       }
     }
@@ -2501,7 +2700,7 @@
 
   function displayDay(day) {
     const settings = state.daySettings[day.id];
-    return { ...day, focus: settings.focus, guidance: settings.description };
+    return { ...day, focus: workoutTarget(settings.target).label, guidance: settings.description };
   }
 
   function enabledDays() {
@@ -2948,7 +3147,7 @@
           <div>
             <span class="eyebrow">Personalize the split</span>
             <h1>Workout <span>settings</span></h1>
-            <p class="view-subtitle">Choose the days shown in your plan and edit each day's target and coaching description. Exercise eligibility continues to use that day's underlying safety rules.</p>
+            <p class="view-subtitle">Activate the days you want and choose a workout target for each one. Changing a target immediately rebuilds that day with qualifying exercises.</p>
           </div>
         </header>
         <div class="settings-grid">
@@ -2959,7 +3158,9 @@
                 <div><span class="day-short">${day.short}</span><strong>${day.name}</strong></div>
                 <label class="day-enabled"><input type="checkbox" data-day-enabled="${day.id}" ${settings.enabled ? "checked" : ""} /> Include this day</label>
               </header>
-              <label class="form-field"><span>Training target</span><input data-day-setting="focus" data-day="${day.id}" maxlength="100" value="${escapeHtml(settings.focus)}" /></label>
+              <label class="form-field"><span>Training target</span><select data-day-setting="target" data-day="${day.id}">
+                ${WORKOUT_TARGETS.map((target) => `<option value="${target.id}" ${settings.target === target.id ? "selected" : ""}>${escapeHtml(target.label)}</option>`).join("")}
+              </select></label>
               <label class="form-field"><span>Description</span><textarea data-day-setting="description" data-day="${day.id}" maxlength="600" rows="4">${escapeHtml(settings.description)}</textarea></label>
             </article>`;
           }).join("")}
@@ -3002,7 +3203,7 @@
 
   function slotFor(context) {
     if (context.position === "optionalActivator") return optionalActivatorSlot();
-    const definition = SLOTS[context.dayId][context.circuitIndex];
+    const definition = circuitDefinitionsForDay(context.dayId)[context.circuitIndex];
     if (context.position === "extra-new") return definition.extra;
     const assignment = assignmentFor(context);
     return definition[assignment?.slotKey || (context.position?.startsWith("extra") ? "extra" : context.position)];
@@ -3872,6 +4073,43 @@
       }
       return;
     }
+    if (event.target.dataset?.daySetting === "target" && event.target.dataset.day) {
+      const dayId = event.target.dataset.day;
+      const settings = state.daySettings[dayId];
+      const nextTarget = normalizeWorkoutTarget(event.target.value, settings.target);
+      if (nextTarget === settings.target) return;
+      const dayData = state.week.days[dayId];
+      const hasProgress =
+        Object.values(dayData.preChecklist).some(Boolean) ||
+        dayData.coreCompleted ||
+        timerElapsed(dayData) > 0 ||
+        dayData.circuits.some(
+          (circuit) => circuit.roundsCompleted.some(Boolean) || circuit.optionalActivatorCompleted,
+        );
+      if (
+        hasProgress &&
+        !window.confirm(`Changing ${dayData.day}'s target will replace its exercises and clear that day's progress. Continue?`)
+      ) {
+        renderSettings();
+        return;
+      }
+      const backup = JSON.parse(JSON.stringify(state));
+      settings.target = nextTarget;
+      try {
+        regenerateWorkoutDay(dayId, nextTarget);
+        const issues = validateWeek(state.week);
+        if (issues.length) throw new Error(issues[0]);
+        persist();
+        render();
+        showToast(`${dayData.day} is now a ${workoutTarget(nextTarget).label} workout.`);
+      } catch (error) {
+        state = backup;
+        rebuildExerciseCatalog(state.customExercises, state.exerciseEdits);
+        render();
+        showToast(`That target could not be generated: ${error.message}`, "error");
+      }
+      return;
+    }
     if (event.target.dataset?.setting === "measureType" && event.target.dataset.exerciseId) {
       stateFor(event.target.dataset.exerciseId).measureType = event.target.value;
       persist();
@@ -3983,9 +4221,9 @@
 
     if (event.target.dataset.daySetting) {
       const key = event.target.dataset.daySetting;
-      state.daySettings[event.target.dataset.day][key] = event.target.value.slice(0, key === "description" ? 600 : 100);
+      if (key !== "description") return;
+      state.daySettings[event.target.dataset.day][key] = event.target.value.slice(0, 600);
       persist();
-      renderTabs();
       return;
     }
 
