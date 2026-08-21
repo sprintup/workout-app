@@ -10,19 +10,21 @@ At the top of the app:
 
 Each circuit starts with a non-blocking **Optional total-body activator** checkbox for use when time remains, followed by a sticky row of checkboxes for rounds 1–3 and two to four exercises: **Focused** has 2, **Standard** has 3, and **Challenge** has 4. The optional activator does not affect circuit completion or the timer. Use `−` to remove the last optional exercise or `+` to automatically add the highest-ranked compatible exercise. The day sidebar stays visible while the workout scrolls.
 
-The sidebar includes a per-day workout timer. It remains disabled until the warm-up is complete, can be paused and resumed, and can be adjusted in five-minute steps while paused. Each of the nine round deadlines scales evenly with the selected duration, and an unchecked round turns red when its deadline passes. The timer stops after round nine, so warm-up and finisher time are excluded. Reset starts that day's selected time budget over.
+The sidebar includes a per-day workout timer. It remains disabled until the warm-up is complete, starts automatically when the final warm-up checkbox is checked, can be paused and resumed, and can be adjusted in five-minute steps while paused. Each of the nine round deadlines scales evenly with the selected duration, and an unchecked round turns red when its deadline passes. The timer stops after round nine, so warm-up and finisher time are excluded. Reset starts that day's selected time budget over.
 
 Each circuit also has a collapsed optional total-body activator. Expanding it reveals one independently selectable exercise with its own completion checkbox, equipment, load, notes, and controls. It is not included in the circuit's exercise count, score, rounds, favorites, or completion state.
 
-Workout settings let each weekday be activated independently and assigned one of six generation targets: Arms & upper, Legs, Shoulder & Rotator cuff, Push, Pull, or Total Body. Changing a target rebuilds only that day and resets that day's progress after confirmation when needed. New weeks retain the selected targets and generate every circuit from the corresponding qualification pools.
+Workout settings let each weekday be activated independently, assigned one of seven generation targets, and optionally limited to selected body parts: Arms & upper, Legs, Shoulder & Rotator cuff, Push, Pull, Total Body, or Total Body - No Equipment. The no-equipment target restricts both circuit exercises and optional activators to movements requiring no weights, benches, bands, cable attachments, or machines. Applying a target or body-part selection rebuilds only that day and resets that day's progress after confirmation when needed. New weeks retain these settings and generate every circuit from the corresponding qualification pools.
 
 Use the star in a circuit heading to name and save its exact exercise combination as a favorite. The adjacent favorites button substitutes a saved favorite into the same day and circuit position when none of its exercises conflict with the rest of the current week.
 
-The replacement picker still uses equipment and position compatibility to keep its default choices practical, and eligible results can be narrowed with fuzzy search. This automatic eligibility filter is separate from the score shown on workout cards.
+The replacement picker automatically shows every unused exercise that works at least one of the day's target muscles. The eligibility panel lists those muscles, while fuzzy search plus body-part and equipment filters can narrow the results. Equipment aliases are grouped, so **FT**, **FT2**, **Functional trainer**, and cable-based setups all match the same FT filter. Each result lists its worked muscles and required equipment. **Add exercise** opens the library form and returns to the same swap after saving. Random replacement works through unseen eligible exercises before widening its search beyond the target-muscle pool. This automatic eligibility filter is separate from the score shown on workout cards.
 
-Eligibility remains the default, but **Show all library exercises** in the replacement picker allows an explicit manual override. In that mode, any unused, visible library exercise can be selected even when it is outside the slot's target or requires a less convenient transition.
+Eligibility remains the default, but **Show all library exercises** removes the day-muscle restriction. Search, body-part, and equipment filters still apply when selected.
 
-The Exercise Library supports user-added exercises plus a built-in equipment expansion for the functional-trainer attachments, bands, kettlebell, physio ball, back-extension machine, pull-up bar, and bench. Each exercise has an editable primary setup, one-per-line equipment varieties, a **Both sides** setting, and a 1–5 effectiveness rating. Difficulty and global setup scores are not part of the user-facing scoring model.
+Every exercise now has a checkbox selection of all body parts in its detail form. Reps/time, load, and whether the load is total or used by each hand or side are also edited in the detail form and remain available on workout cards; the library rows stay compact.
+
+The Exercise Library supports user-added exercises plus a built-in equipment expansion for the functional-trainer attachments, bands, kettlebell, physio ball, back-extension machine, pull-up bar, and bench. **Edit equipment** maintains a master equipment list in the saved JSON; names are compared case-insensitively and common aliases such as FT, FT2, Functional trainer, cable, dumbbell(s), and band(s) are deduplicated. Exercise details select required equipment from this shared list instead of accepting separate free-form variety names. Each exercise also has an editable primary setup, a **Both sides** setting, and a 1–5 effectiveness rating. Difficulty and global setup scores are not part of the user-facing scoring model. The exercise results use their own vertical scroll area so the library header, filters, and counts remain visible while browsing.
 
 Workout cards show required equipment, both-sides status, thumbs-up/down controls, and a pencil button for editing the exercise directly. Effectiveness, setup, and exercise score appear as three evenly spaced informational pills. Each assignment has a manual setup-ease score from 0–5; its exercise score is effectiveness plus setup, and the circuit header shows the sum of every exercise score. Setup scores are saved with the circuit and restored by named favorites. Adding, removing, replacing, or reordering an exercise clears that circuit's setup scores because its context changed.
 
@@ -279,11 +281,10 @@ These movements are options, not medical treatment.
 
 ### Thursday: Push
 
-- All chest and shoulder presses should use dumbbells rather than the FT2.
-- Do not recommend FT2 cable chest presses.
-- Standing cable chest fly variations are allowed and preferred cable-based chest movements.
+- Chest, shoulder, and triceps exercises may use dumbbells, body weight, or the FT.
+- FT cable presses, flyes, raises, and triceps movements qualify when they target a Push muscle.
 - Overhead triceps extensions must be seated.
-- Favor neutral-grip dumbbell pressing when appropriate.
+- Favor neutral-grip pressing when appropriate.
 - Avoid duplicating Monday's exact pressing exercises.
 
 ### Friday: Pull
@@ -423,8 +424,8 @@ Before returning a workout, validate all of the following:
 10. Monday contains compound, total-body, and isolation categories for both push and pull.
 11. Tuesday does not display a separate warm-up block.
 12. Wednesday contains shoulder-health work and the shoulder placeholder.
-13. Thursday contains no FT2 pressing exercise.
-14. Thursday may contain standing cable flyes.
+13. Replacement eligibility works from each day's target muscles across all selected equipment.
+14. Thursday may contain qualifying FT presses, flyes, raises, and triceps movements.
 15. PT Exercises 1, 2, and 3 remain unlocked library entries.
 16. All overhead pressing and overhead triceps extensions are seated.
 17. Shoulder-sensitive and back-sensitive exercises have appropriate cautions or alternatives.

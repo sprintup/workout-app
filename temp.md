@@ -1,18 +1,1 @@
-- [x] the friday pt exercises should be unlockable
-- [x] I should see the path and filename in the header
-- [x] if a weight is put in to an exercise, it should be a different color so I know there is a recommended weight
-- [x] the background color of the pane of the round buttons should be darker
-- [x] there should be a timer in the left pane next to the progress bar. Overall the workouts are taking too long. It should be a maximum of 15 mins per circuit. So that is 5 mins per round. Since there are 9 rounds, each should have 5 mins and you should make them red if they are not complete in that alloted time. So the first one should be completed with more than 40 mins left, or it will turn red. So on for the second round by 35 mins left and third round by 30 mins left, etc all the way down to the 9th round with 5 mins left. Warm up and cool down is not part of the time. To save time overall, just remove the total body activations.
-- [x] remove the 20 minutes of cardio from the finisher
-- [x] move setup scoring onto each workout card and save it with circuit favorites
-- [x] remove the transition score shown between workout cards and remove difficulty from exercise scoring
-- [x] show effectiveness plus manual setup on each card and their summed total in the circuit header
-- [x] make effectiveness, setup, and exercise score three evenly spaced informational pills
-- [x] add a non-blocking optional total-body activator checkbox above each circuit's rounds
-- [x] track four completed workouts beside each load and show an increase-load action for the fifth
-- [x] Allow the workout timer to be paused, resumed, and adjusted in five-minute steps.
-- [x] Make effectiveness editable on workout cards and default setup to 5 without equipment or 4 with equipment.
-- [x] Put a horizontal rule between exercises in each circuit.
-- [x] Expand the optional total-body activator into a separate one-exercise pane outside the circuit.
-- [x] Tighten the editable effectiveness pill so it stays within its score column.
-- [x] Add per-day target dropdowns, including Total Body, and generate only qualifying exercises for each target.
+- [ ] We're going to go more meta and introduce the concept of 'cycles'. We're going to detatch the particular day of the week from the target for that day. So in settings, instead of it being Monday, Tuesday, Wednesday, etc. there will be Day 1, Day 2, Day 3 (called cycles) that will hold the circuits. Then The left side bar, which should list every day of the week still, will round robin the cycles. This is so that I can rest when I'm tired, not when it's scheduled. So the end result will be that I can set up my split in settings (add and remove cycles that have training targets) and they will automatically be applied to the days in the side bar and if I want a rest day, I can push the sequence of cycles forward in the week. You can also update "Five days. Three circuits. Done." to something more appropriate in the title, so it's not bound to 5 days, since I might want to try a 3 day cycle of push, pull, legs (or extend it to a 16 day cycle of hitting every muscle individually). 

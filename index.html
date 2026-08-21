@@ -29,15 +29,29 @@
           </svg>
           Open JSON
         </button>
-        <input id="load-input" type="file" accept="application/json,.json" hidden />
+        <input
+          id="load-input"
+          type="file"
+          accept="application/json,.json"
+          hidden
+        />
         <button class="button button-quiet" id="save-button" type="button">
           <svg aria-hidden="true" viewBox="0 0 24 24">
             <path d="M6 3h10l3 3v15H5V3h1Zm2 0v6h8V3M8 21v-7h8v7" />
           </svg>
           Save file
         </button>
-        <span id="file-status" class="file-status" title="No JSON file is connected">Not connected · basement-45-workouts.json</span>
-        <button class="button button-primary" id="new-week-button" type="button">
+        <span
+          id="file-status"
+          class="file-status"
+          title="No JSON file is connected"
+          >Not connected · basement-45-workouts.json</span
+        >
+        <button
+          class="button button-primary"
+          id="new-week-button"
+          type="button"
+        >
           New week
           <svg aria-hidden="true" viewBox="0 0 24 24">
             <path d="m9 18 6-6-6-6" />
@@ -58,13 +72,47 @@
             <div class="progress-track" aria-hidden="true">
               <span id="week-progress-bar"></span>
             </div>
-            <div id="workout-timer" class="workout-timer" aria-label="45-minute workout timer">
+            <div
+              id="workout-timer"
+              class="workout-timer"
+              aria-label="45-minute workout timer"
+            >
               <span id="timer-display" class="timer-display">45:00</span>
-              <button id="timer-toggle" type="button" data-action="toggle-workout-timer">Start</button>
-              <button id="timer-reset" type="button" data-action="reset-workout-timer" aria-label="Reset workout timer" title="Reset timer">↺</button>
+              <button
+                id="timer-toggle"
+                type="button"
+                data-action="toggle-workout-timer"
+              >
+                Start
+              </button>
+              <button
+                id="timer-reset"
+                type="button"
+                data-action="reset-workout-timer"
+                aria-label="Reset workout timer"
+                title="Reset timer"
+              >
+                ↺
+              </button>
               <div class="timer-adjustments" aria-label="Adjust workout time">
-                <button id="timer-minus" type="button" data-action="adjust-workout-timer" data-minutes="-5" aria-label="Remove five minutes">−5 min</button>
-                <button id="timer-plus" type="button" data-action="adjust-workout-timer" data-minutes="5" aria-label="Add five minutes">+5 min</button>
+                <button
+                  id="timer-minus"
+                  type="button"
+                  data-action="adjust-workout-timer"
+                  data-minutes="-5"
+                  aria-label="Remove five minutes"
+                >
+                  −5 min
+                </button>
+                <button
+                  id="timer-plus"
+                  type="button"
+                  data-action="adjust-workout-timer"
+                  data-minutes="5"
+                  aria-label="Add five minutes"
+                >
+                  +5 min
+                </button>
               </div>
             </div>
           </div>
@@ -78,7 +126,10 @@
             <path d="M12 3 3.5 7v5c0 5 3.6 8 8.5 9 4.9-1 8.5-4 8.5-9V7L12 3Z" />
             <path d="m9 12 2 2 4-4" />
           </svg>
-          <p><strong>Train the good reps.</strong> Stop for sharp, worsening, or persistent pain.</p>
+          <p>
+            <strong>Train the good reps.</strong> Stop for sharp, worsening, or
+            persistent pain.
+          </p>
         </div>
       </aside>
 
@@ -97,7 +148,11 @@
             <h2 id="replace-title">Choose a replacement</h2>
             <p id="replace-description"></p>
           </div>
-          <button class="icon-button" value="cancel" aria-label="Close replacement picker">
+          <button
+            class="icon-button"
+            value="cancel"
+            aria-label="Close replacement picker"
+          >
             <svg aria-hidden="true" viewBox="0 0 24 24">
               <path d="m6 6 12 12M18 6 6 18" />
             </svg>
@@ -110,15 +165,45 @@
               <path d="m16 16 5 5" />
             </svg>
             <span class="sr-only">Fuzzy search exercise replacements</span>
-            <input id="replace-search" type="search" placeholder="Search name, muscle, or equipment" autocomplete="off" />
+            <input
+              id="replace-search"
+              type="search"
+              placeholder="Search name, muscle, or equipment"
+              autocomplete="off"
+            />
           </label>
           <span id="replace-count" class="result-count"></span>
         </div>
+        <div class="replacement-filters" aria-label="Replacement filters">
+          <label class="select-field"
+            ><span>Body part</span
+            ><select id="replace-body-part">
+              <option value="all">All body parts</option>
+            </select></label
+          >
+          <label class="select-field"
+            ><span>Equipment</span
+            ><select id="replace-equipment">
+              <option value="all">All equipment</option>
+            </select></label
+          >
+          <button
+            class="button button-primary replacement-add-button"
+            type="button"
+            data-action="add-exercise-from-replacement"
+          >
+            + Add exercise
+          </button>
+        </div>
         <div class="cost-explainer">
-          <strong>Automatic eligibility</strong>
-          <span>Compatible movement</span>
-          <span>Quick transition</span>
-          <small id="replacement-scope-note">Eligible exercises with easy transitions are shown. Enter the manual setup score on the workout card after choosing.</small>
+          <div class="automatic-eligibility-targets">
+            <strong>Automatic eligibility</strong>
+            <span>Target muscles for this day</span>
+            <div
+              id="replacement-target-muscles"
+              class="replacement-target-muscles"
+            ></div>
+          </div>
           <label class="replacement-scope">
             <input id="show-all-replacements" type="checkbox" />
             Show all library exercises
@@ -134,10 +219,19 @@
           <div>
             <span class="eyebrow">Saved circuits</span>
             <h2 id="favorite-title">Use a favorite circuit</h2>
-            <p>Favorites are kept for the same day and circuit position so the training split remains valid.</p>
+            <p>
+              Favorites are kept for the same day and circuit position so the
+              training split remains valid.
+            </p>
           </div>
-          <button class="icon-button" value="cancel" aria-label="Close favorite circuit picker">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></svg>
+          <button
+            class="icon-button"
+            value="cancel"
+            aria-label="Close favorite circuit picker"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="m6 6 12 12M18 6 6 18" />
+            </svg>
           </button>
         </header>
         <div id="favorite-results" class="favorite-results"></div>
@@ -150,29 +244,68 @@
           <div>
             <span class="eyebrow">Exercise library</span>
             <h2 id="exercise-dialog-title">Add an exercise</h2>
-            <p id="exercise-dialog-description">Its category and movement fields determine where it can safely appear.</p>
+            <p id="exercise-dialog-description">
+              Its category and movement fields determine where it can safely
+              appear.
+            </p>
           </div>
-          <button class="icon-button" type="button" data-action="close-exercise-dialog" aria-label="Close add exercise form">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></svg>
+          <button
+            class="icon-button"
+            type="button"
+            data-action="close-exercise-dialog"
+            aria-label="Close add exercise form"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="m6 6 12 12M18 6 6 18" />
+            </svg>
           </button>
         </header>
         <div class="exercise-form-body">
           <label class="form-field form-field-wide">
             <span>Name</span>
-            <input name="name" required maxlength="100" placeholder="e.g. Supported cable row" />
+            <input
+              name="name"
+              required
+              maxlength="100"
+              placeholder="e.g. Supported cable row"
+            />
           </label>
           <label class="form-field">
-            <span>Body-part category</span>
+            <span
+              >Primary library category
+              <small>used for organization</small></span
+            >
             <select id="custom-category" name="category" required></select>
           </label>
+          <fieldset class="body-part-picker form-field-wide">
+            <legend>
+              Body parts worked
+              <small>select every area this exercise targets</small>
+            </legend>
+            <div
+              id="exercise-body-part-options"
+              class="exercise-body-part-options"
+            ></div>
+          </fieldset>
           <label class="form-field">
             <span>Primary setup</span>
-            <input name="equipment" required maxlength="120" placeholder="e.g. FT2 + one handle" />
+            <input
+              name="equipment"
+              required
+              maxlength="120"
+              placeholder="e.g. FT2 + one handle"
+            />
           </label>
-          <label class="form-field form-field-wide">
-            <span>Equipment varieties <small>one per line</small></span>
-            <textarea name="equipmentVarieties" maxlength="1000" rows="4" placeholder="Functional trainer&#10;D-handles&#10;Bench"></textarea>
-          </label>
+          <fieldset class="body-part-picker form-field-wide">
+            <legend>
+              Required equipment
+              <small>choose every item needed from your master list</small>
+            </legend>
+            <div
+              id="exercise-equipment-options"
+              class="exercise-body-part-options"
+            ></div>
+          </fieldset>
           <label class="form-field">
             <span>Movement pattern</span>
             <select name="movementPattern">
@@ -211,35 +344,157 @@
             </select>
           </label>
           <label class="form-field">
-            <span>Default reps</span>
-            <input name="defaultReps" maxlength="40" value="10" placeholder="10 or 30 sec" />
+            <span>Measurement</span>
+            <select name="measureType">
+              <option value="reps">Reps</option>
+              <option value="seconds">Seconds</option>
+            </select>
+          </label>
+          <label class="form-field">
+            <span>Reps or time</span>
+            <input
+              name="defaultReps"
+              maxlength="40"
+              value="10"
+              placeholder="10 or 30 sec"
+            />
+          </label>
+          <label class="form-field">
+            <span>Load <small>optional</small></span>
+            <input
+              name="defaultLoad"
+              maxlength="40"
+              inputmode="decimal"
+              placeholder="e.g. 25"
+            />
+          </label>
+          <label class="form-field">
+            <span>Load basis</span>
+            <select name="loadBasis">
+              <option value="total">Total</option>
+              <option value="each">Each hand / side</option>
+            </select>
           </label>
           <fieldset class="score-fields form-field-wide">
             <legend>Exercise score</legend>
             <label class="form-field">
               <span>Effectiveness <small>1 low · 5 high</small></span>
-              <input name="effectivenessScore" type="number" min="1" max="5" step="1" value="3" required />
+              <input
+                name="effectivenessScore"
+                type="number"
+                min="1"
+                max="5"
+                step="1"
+                value="3"
+                required
+              />
             </label>
-            <small class="score-help">Effectiveness belongs to the exercise. Setup is scored separately on each workout card because it depends on the other exercises in that circuit.</small>
+            <small class="score-help"
+              >Effectiveness belongs to the exercise. Setup is scored separately
+              on each workout card because it depends on the other exercises in
+              that circuit.</small
+            >
           </fieldset>
           <label class="form-field form-field-wide">
             <span>Demo or instruction URL <small>optional</small></span>
-            <input name="instructionUrl" type="url" maxlength="500" placeholder="https://…" />
+            <input
+              name="instructionUrl"
+              type="url"
+              maxlength="500"
+              placeholder="https://…"
+            />
           </label>
           <label class="form-field form-field-wide">
             <span>Notes <small>optional</small></span>
-            <textarea name="notes" maxlength="1000" rows="3" placeholder="Technique cues, substitutions, or reminders"></textarea>
+            <textarea
+              name="notes"
+              maxlength="1000"
+              rows="3"
+              placeholder="Technique cues, substitutions, or reminders"
+            ></textarea>
           </label>
           <div class="form-checks form-field-wide">
-            <label><input type="checkbox" name="totalBodyActivator" /> Total-body activator</label>
-            <label><input type="checkbox" name="bothSides" /> Perform on both sides</label>
-            <label><input type="checkbox" name="shoulderCaution" /> Shoulder-aware</label>
-            <label><input type="checkbox" name="backCaution" /> Back-aware</label>
+            <label
+              ><input type="checkbox" name="totalBodyActivator" /> Total-body
+              activator</label
+            >
+            <label
+              ><input type="checkbox" name="bothSides" /> Perform on both
+              sides</label
+            >
+            <label
+              ><input type="checkbox" name="shoulderCaution" />
+              Shoulder-aware</label
+            >
+            <label
+              ><input type="checkbox" name="backCaution" /> Back-aware</label
+            >
           </div>
         </div>
         <footer class="dialog-footer">
-          <button class="button button-quiet" type="button" data-action="close-exercise-dialog">Cancel</button>
-          <button class="button button-primary" id="exercise-form-submit" type="submit">Add to library</button>
+          <button
+            class="button button-quiet"
+            type="button"
+            data-action="close-exercise-dialog"
+          >
+            Cancel
+          </button>
+          <button
+            class="button button-primary"
+            id="exercise-form-submit"
+            type="submit"
+          >
+            Add to library
+          </button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="equipment-dialog" class="replace-dialog equipment-dialog">
+      <form id="equipment-form" class="dialog-shell">
+        <header class="dialog-header">
+          <div>
+            <span class="eyebrow">Exercise library</span>
+            <h2>Edit equipment</h2>
+            <p>
+              Keep one master list for exercise editing and equipment filters.
+              Names and common aliases are checked for duplicates.
+            </p>
+          </div>
+          <button
+            class="icon-button"
+            type="button"
+            data-action="close-equipment-dialog"
+            aria-label="Close equipment manager"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="m6 6 12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </header>
+        <div class="equipment-dialog-body">
+          <label class="form-field">
+            <span>Equipment name</span>
+            <div class="equipment-add-row">
+              <input
+                name="equipmentName"
+                required
+                maxlength="80"
+                placeholder="e.g. Landmine attachment"
+              />
+              <button class="button button-primary" type="submit">Add</button>
+            </div>
+          </label>
+          <div id="equipment-catalog-list"></div>
+        </div>
+        <footer class="dialog-footer">
+          <button
+            class="button button-quiet"
+            type="button"
+            data-action="close-equipment-dialog"
+          >
+            Done
+          </button>
         </footer>
       </form>
     </dialog>
@@ -247,7 +502,9 @@
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
     <noscript>
-      <p class="noscript">This local workout planner needs JavaScript enabled.</p>
+      <p class="noscript">
+        This local workout planner needs JavaScript enabled.
+      </p>
     </noscript>
 
     <script src="exercise-data.js"></script>
