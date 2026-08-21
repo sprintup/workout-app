@@ -169,10 +169,11 @@ function changeExerciseEffectiveness(app, exerciseId, value) {
 }
 
 function changeDayTarget(app, day, target) {
+  const cycleId = app.Basement45.getState().week.days[day].cycleId;
   app.document._listeners.change[0]({
     target: {
       value: target,
-      dataset: { daySetting: "target", day },
+      dataset: { cycleSetting: "target", cycleId },
       closest() {
         return null;
       },
@@ -288,12 +289,16 @@ async function main() {
     const days = Object.values(state.week.days);
     assert.equal(days.length, 7);
     assert.ok(days.every((day) => day.circuits.length === 3));
-    assert.equal(state.daySettings.saturday.enabled, false);
-    assert.equal(state.daySettings.sunday.enabled, false);
+    assert.equal(state.cycles.length, 5);
+    assert.equal(state.weekStartCycleId, state.cycles[0].id);
+    assert.equal(state.nextCycleId, state.cycles[2].id);
     assert.ok(
-      Object.values(state.daySettings).every(
-        (settings) =>
-          Array.isArray(settings.bodyParts) && settings.bodyParts.length === 0,
+      Object.values(state.week.days).every((day) => day.rest === false),
+    );
+    assert.ok(
+      state.cycles.every(
+        (cycle) =>
+          Array.isArray(cycle.bodyParts) && cycle.bodyParts.length === 0,
       ),
     );
     assert.ok(
@@ -302,18 +307,19 @@ async function main() {
       ),
     );
     assert.deepEqual(
-      Array.from(
-        Object.values(state.daySettings),
-        (settings) => settings.target,
-      ),
+      Array.from(state.cycles, (cycle) => cycle.target),
+      ["arms_upper", "legs", "shoulders_rotator", "push", "pull"],
+    );
+    assert.deepEqual(
+      Array.from(Object.values(state.week.days), (day) => day.cycleId),
       [
-        "arms_upper",
-        "legs",
-        "shoulders_rotator",
-        "push",
-        "pull",
-        "total_body",
-        "total_body",
+        state.cycles[0].id,
+        state.cycles[1].id,
+        state.cycles[2].id,
+        state.cycles[3].id,
+        state.cycles[4].id,
+        state.cycles[0].id,
+        state.cycles[1].id,
       ],
     );
 
@@ -325,9 +331,14 @@ async function main() {
       ]),
     );
     assert.ok(assignments.length >= 42 && assignments.length <= 84);
+    const strictlyUniqueAssignments = assignments.filter(
+      (assignment) => !assignment.cycleLock && !assignment.rotationRepeat,
+    );
     assert.equal(
-      new Set(assignments.map((assignment) => assignment.exerciseId)).size,
-      assignments.length,
+      new Set(
+        strictlyUniqueAssignments.map((assignment) => assignment.exerciseId),
+      ).size,
+      strictlyUniqueAssignments.length,
     );
     assert.ok(
       days.every((day) =>
@@ -409,14 +420,100 @@ async function main() {
     );
   }
 
+  const cycleLockApp = launchApp();
+  const cycleLockState = cycleLockApp.Basement45.getState();
+  assert.equal(
+    cycleLockState.week.days.monday.cycleId,
+    cycleLockState.week.days.saturday.cycleId,
+  );
+  const lockedExerciseId =
+    cycleLockState.week.days.monday.circuits[0].first.exerciseId;
+  assert.notEqual(
+    lockedExerciseId,
+    cycleLockState.week.days.saturday.circuits[0].first.exerciseId,
+    "unlocked positions should be freshly generated for repeated cycle occurrences",
+  );
+  clickAction(cycleLockApp, "toggle-lock", {
+    day: "monday",
+    circuit: "0",
+    position: "first",
+  });
+  const afterCycleLock = cycleLockApp.Basement45.getState();
+  assert.equal(
+    afterCycleLock.week.days.saturday.circuits[0].first.exerciseId,
+    lockedExerciseId,
+    "locking an exercise should propagate it to a later occurrence of that cycle",
+  );
+  assert.ok(
+    afterCycleLock.cycles[0].lockedAssignments.some(
+      (lock) =>
+        lock.circuitIndex === 0 &&
+        lock.position === "first" &&
+        lock.assignment.exerciseId === lockedExerciseId,
+    ),
+  );
+  const expectedNextCycleId = afterCycleLock.nextCycleId;
+  cycleLockApp.__elements.get("new-week-button")._listeners.click[0]();
+  const continuedCycleState = cycleLockApp.Basement45.getState();
+  assert.equal(continuedCycleState.weekStartCycleId, expectedNextCycleId);
+  const nextLockedOccurrence = Object.values(
+    continuedCycleState.week.days,
+  ).find((day) => day.cycleId === afterCycleLock.cycles[0].id);
+  assert.equal(
+    nextLockedOccurrence.circuits[0].first.exerciseId,
+    lockedExerciseId,
+    "cycle locks should continue across calendar-week boundaries",
+  );
+
+  const cycleSettingsApp = launchApp();
+  const firstCycleId = cycleSettingsApp.Basement45.getState().cycles[0].id;
+  inputSetting(
+    cycleSettingsApp,
+    { cycleSetting: "name", cycleId: firstCycleId },
+    "Upper strength",
+  );
+  assert.equal(
+    cycleSettingsApp.Basement45.getState().cycles[0].name,
+    "Upper strength",
+  );
+  assert.ok(
+    cycleSettingsApp.__elements
+      .get("day-tabs")
+      .innerHTML.includes("Upper strength"),
+  );
+  clickAction(cycleSettingsApp, "add-cycle");
+  let managedCycles = cycleSettingsApp.Basement45.getState().cycles;
+  assert.equal(managedCycles.length, 6);
+  const addedCycleId = managedCycles[5].id;
+  clickAction(cycleSettingsApp, "move-cycle", {
+    cycleId: addedCycleId,
+    direction: "-1",
+  });
+  managedCycles = cycleSettingsApp.Basement45.getState().cycles;
+  assert.equal(managedCycles[4].id, addedCycleId);
+  clickAction(cycleSettingsApp, "delete-cycle", { cycleId: addedCycleId });
+  assert.equal(cycleSettingsApp.Basement45.getState().cycles.length, 5);
+
   const interactionApp = launchApp();
   const workoutHtml = interactionApp.__elements.get("workout-view").innerHTML;
+  assert.ok(html.includes("Your rotation. Your rest days. Keep moving."));
+  assert.ok(!html.includes("Five days. Three circuits. Done."));
   assert.ok(html.includes("Not connected · basement-45-workouts.json"));
   assert.equal(
     interactionApp.__elements.get("timer-display").textContent,
     "45:00",
   );
   assert.ok(html.includes('data-action="adjust-workout-timer"'));
+  assert.ok(
+    workoutHtml.includes('data-action="toggle-rest-day" data-day="monday"'),
+    "the active training day should expose its rest control in the workout header",
+  );
+  assert.ok(
+    !interactionApp.__elements
+      .get("day-tabs")
+      .innerHTML.includes('data-action="toggle-rest-day"'),
+    "rest controls should not appear in the sidebar",
+  );
   clickAction(interactionApp, "toggle-workout-timer");
   assert.equal(
     interactionApp.Basement45.getState().week.days.monday.timer.startedAt,
@@ -573,8 +670,8 @@ async function main() {
     wednesday: ["Shoulders", "Rotator cuff"],
     thursday: ["Chest", "Shoulders", "Triceps"],
     friday: ["Back", "Lats", "Biceps", "Forearms", "Grip", "Traps"],
-    saturday: allMuscles,
-    sunday: allMuscles,
+    saturday: allMuscles.slice(0, 10),
+    sunday: ["Quadriceps", "Hamstrings", "Glutes", "Hips", "Calves"],
   };
   for (const [dayId, targetMuscles] of Object.entries(targetMusclesByDay)) {
     clickAction(equipmentEligibilityApp, "replace", {
@@ -1665,6 +1762,11 @@ async function main() {
 
   selectView(interactionApp, "settings");
   const settingsHtml = interactionApp.__elements.get("settings-view").innerHTML;
+  assert.equal((settingsHtml.match(/data-cycle-card=/g) || []).length, 5);
+  assert.ok(settingsHtml.includes('data-action="add-cycle"'));
+  assert.ok(settingsHtml.includes('data-action="move-cycle"'));
+  assert.ok(settingsHtml.includes('data-action="delete-cycle"'));
+  assert.ok(!settingsHtml.includes("Include this day"));
   for (const label of [
     "Arms &amp; upper",
     "Legs",
@@ -1689,7 +1791,13 @@ async function main() {
     );
   changeDayTarget(interactionApp, "monday", "total_body");
   const targetedState = interactionApp.Basement45.getState();
-  assert.equal(targetedState.daySettings.monday.target, "total_body");
+  assert.equal(
+    targetedState.cycles.find(
+      (cycle) => cycle.id === targetedState.week.days.monday.cycleId,
+    ).target,
+    "total_body",
+    interactionApp.__elements.get("toast").textContent,
+  );
   assert.equal(targetedState.week.days.monday.target, "total_body");
   const targetedMondayAssignments =
     targetedState.week.days.monday.circuits.flatMap((circuit) => [
@@ -1722,7 +1830,9 @@ async function main() {
   changeDayTarget(noEquipmentApp, "saturday", "total_body_no_equipment");
   const noEquipmentState = noEquipmentApp.Basement45.getState();
   assert.equal(
-    noEquipmentState.daySettings.saturday.target,
+    noEquipmentState.cycles.find(
+      (cycle) => cycle.id === noEquipmentState.week.days.saturday.cycleId,
+    ).target,
     "total_body_no_equipment",
     noEquipmentApp.__elements.get("toast").textContent,
   );
@@ -1760,12 +1870,17 @@ async function main() {
   const settingsCardStub = {
     querySelectorAll() {
       return selectedSaturdayBodyParts.map((part) => ({
-        dataset: { dayBodyPart: part },
+        dataset: { cycleBodyPart: part },
       }));
     },
   };
+  const saturdayCycleId =
+    noEquipmentApp.Basement45.getState().week.days.saturday.cycleId;
   const applyBodyPartsButton = {
-    dataset: { action: "apply-day-body-parts", day: "saturday" },
+    dataset: {
+      action: "apply-cycle-body-parts",
+      cycleId: saturdayCycleId,
+    },
     closest(selector) {
       if (selector === "[data-action]") return this;
       if (selector === ".settings-card") return settingsCardStub;
@@ -1775,7 +1890,10 @@ async function main() {
   noEquipmentApp.document._listeners.click[0]({ target: applyBodyPartsButton });
   const bodyPartState = noEquipmentApp.Basement45.getState();
   assert.deepEqual(
-    Array.from(bodyPartState.daySettings.saturday.bodyParts),
+    Array.from(
+      bodyPartState.cycles.find((cycle) => cycle.id === saturdayCycleId)
+        .bodyParts,
+    ),
     selectedSaturdayBodyParts,
   );
   assert.ok(
@@ -1792,36 +1910,75 @@ async function main() {
     "day body-part settings should constrain every generated round exercise",
   );
   assert.deepEqual(Array.from(noEquipmentApp.Basement45.validateWeek()), []);
-  interactionApp.document._listeners.change[0]({
-    target: {
-      checked: false,
-      dataset: { dayEnabled: "tuesday" },
-      closest() {
-        return null;
-      },
-    },
-  });
+  const scheduleBeforeRest = interactionApp.Basement45.getState();
+  clickAction(interactionApp, "toggle-rest-day", { day: "tuesday" });
+  const restedSchedule = interactionApp.Basement45.getState();
+  assert.equal(restedSchedule.week.days.tuesday.rest, true);
+  assert.equal(restedSchedule.week.days.tuesday.circuits.length, 0);
   assert.equal(
-    interactionApp.Basement45.getState().daySettings.tuesday.enabled,
-    false,
+    restedSchedule.week.days.wednesday.cycleId,
+    scheduleBeforeRest.week.days.tuesday.cycleId,
+    "a rest day should defer the pending cycle to the next calendar day",
+  );
+  assert.ok(
+    interactionApp.__elements
+      .get("day-tabs")
+      .innerHTML.includes('data-view="tuesday"'),
+    "rest days should remain visible in the sidebar",
+  );
+  selectView(interactionApp, "tuesday");
+  const restDayHtml = interactionApp.__elements.get("workout-view").innerHTML;
+  assert.ok(
+    restDayHtml.includes("Train today instead"),
+    "a rest day should expose its Train control at the top of the day",
   );
   assert.equal(
-    interactionApp.Basement45.getState().daySettings.saturday.enabled,
-    false,
+    (restDayHtml.match(/data-action="toggle-rest-day"/g) || []).length,
+    1,
+    "the rest-day toggle should not be repeated inside the recovery pane",
   );
+  clickAction(interactionApp, "toggle-rest-day", { day: "tuesday" });
+  const restoredSchedule = interactionApp.Basement45.getState();
+  assert.equal(restoredSchedule.week.days.tuesday.rest, false);
   assert.equal(
-    interactionApp.Basement45.getState().daySettings.sunday.enabled,
-    false,
+    [
+      "monday",
+      "tuesday",
+      "wednesday",
+      "thursday",
+      "friday",
+      "saturday",
+      "sunday",
+    ]
+      .map((dayId) => restoredSchedule.week.days[dayId].cycleId)
+      .join("|"),
+    [
+      "monday",
+      "tuesday",
+      "wednesday",
+      "thursday",
+      "friday",
+      "saturday",
+      "sunday",
+    ]
+      .map((dayId) => scheduleBeforeRest.week.days[dayId].cycleId)
+      .join("|"),
+    "removing a rest day should shift the cycle sequence back",
   );
-  interactionApp.document._listeners.change[0]({
-    target: {
-      checked: true,
-      dataset: { dayEnabled: "saturday" },
-      closest() {
-        return null;
-      },
-    },
-  });
+  const guardedRestApp = launchApp();
+  changeAction(
+    guardedRestApp,
+    "complete-round",
+    { day: "monday", circuit: "0", round: "0" },
+    true,
+  );
+  guardedRestApp.confirm = () => false;
+  clickAction(guardedRestApp, "toggle-rest-day", { day: "monday" });
+  assert.equal(
+    guardedRestApp.Basement45.getState().week.days.monday.rest,
+    false,
+    "declining the progress warning should leave the cycle schedule unchanged",
+  );
   assert.ok(
     interactionApp.__elements
       .get("day-tabs")
@@ -1829,23 +1986,19 @@ async function main() {
   );
   changeDayTarget(interactionApp, "saturday", "legs");
   assert.equal(
-    interactionApp.Basement45.getState().daySettings.saturday.target,
+    interactionApp.Basement45.getState().cycles.find(
+      (cycle) =>
+        cycle.id ===
+        interactionApp.Basement45.getState().week.days.saturday.cycleId,
+    ).target,
     "legs",
+    interactionApp.__elements.get("toast").textContent,
   );
   assert.equal(
     interactionApp.Basement45.getState().week.days.saturday.target,
     "legs",
   );
   assert.deepEqual(Array.from(interactionApp.Basement45.validateWeek()), []);
-  interactionApp.document._listeners.change[0]({
-    target: {
-      checked: false,
-      dataset: { dayEnabled: "saturday" },
-      closest() {
-        return null;
-      },
-    },
-  });
 
   const hiddenFromNextWeek =
     interactionApp.Basement45.getState().week.days.friday.circuits[2].first
@@ -1905,6 +2058,8 @@ async function main() {
   for (let sequence = 0; sequence < 10; sequence += 1) {
     const multiWeekApp = launchApp();
     for (let week = 2; week <= 15; week += 1) {
+      const expectedWeekStartCycleId =
+        multiWeekApp.Basement45.getState().nextCycleId;
       const newWeekButton = multiWeekApp.__elements.get("new-week-button");
       newWeekButton._listeners.click[0]();
       const current = multiWeekApp.Basement45.getState();
@@ -1913,6 +2068,8 @@ async function main() {
         week,
         multiWeekApp.__elements.get("toast").textContent,
       );
+      assert.equal(current.weekStartCycleId, expectedWeekStartCycleId);
+      assert.deepEqual(Array.from(current.week.restDayIds), []);
       assert.ok(
         Object.values(current.week.days).every((day) =>
           day.circuits.every(
@@ -2045,151 +2202,41 @@ async function main() {
       .innerHTML.includes('data-action="increase-load"'),
   );
 
+  assert.equal(exampleSave.schemaVersion, 7);
   const legacyState = JSON.parse(JSON.stringify(roundTripState));
-  legacyState.version = 1;
-  for (const day of Object.values(legacyState.week.days)) {
-    for (const circuit of day.circuits) {
-      circuit.extras = undefined;
-      circuit.preferredExerciseCount = undefined;
-      circuit.completed = false;
-      circuit.roundsCompleted = undefined;
-      circuit.optionalActivatorCompleted = undefined;
-      circuit.completionCredited = undefined;
-    }
-  }
-  legacyState.week.days.monday.circuits[0].completed = true;
-  const migratedApp = launchApp(JSON.stringify(legacyState));
-  assert.deepEqual(Array.from(migratedApp.Basement45.validateWeek()), []);
-  const migratedCircuit =
-    migratedApp.Basement45.getState().week.days.monday.circuits[0];
-  assert.deepEqual(migratedCircuit.roundsCompleted, [true, true, true]);
-  assert.equal("bridge" in migratedCircuit, false);
-
-  const fiveDayState = JSON.parse(JSON.stringify(roundTripState));
-  fiveDayState.version = 3;
-  delete fiveDayState.week.days.saturday;
-  delete fiveDayState.week.days.sunday;
-  delete fiveDayState.daySettings.saturday;
-  delete fiveDayState.daySettings.sunday;
-  const weekendMigratedApp = launchApp(JSON.stringify(fiveDayState));
+  legacyState.version = 17;
+  const freshFromLegacyApp = launchApp(JSON.stringify(legacyState));
+  assert.equal(freshFromLegacyApp.Basement45.getState().version, 18);
+  assert.equal(freshFromLegacyApp.Basement45.getState().weekNumber, 1);
+  assert.equal(freshFromLegacyApp.Basement45.getState().cycles.length, 5);
   assert.deepEqual(
-    Array.from(weekendMigratedApp.Basement45.validateWeek()),
-    [],
-  );
-  assert.equal(
-    weekendMigratedApp.Basement45.getState().weekNumber,
-    fiveDayState.weekNumber,
-  );
-  assert.equal(
-    weekendMigratedApp.Basement45.getState().week.days.saturday.circuits.length,
-    3,
-  );
-  assert.equal(
-    weekendMigratedApp.Basement45.getState().week.days.sunday.circuits.length,
-    3,
-  );
-  assert.equal(
-    weekendMigratedApp.Basement45.getState().daySettings.saturday.enabled,
-    false,
-  );
-  assert.equal(
-    weekendMigratedApp.Basement45.getState().daySettings.sunday.enabled,
-    false,
-  );
-
-  const preActivatorState = JSON.parse(JSON.stringify(roundTripState));
-  preActivatorState.version = 5;
-  preActivatorState.week.days.monday.circuits[0].bridge = {
-    exerciseId: "flat-dumbbell-bench-press",
-    slotLabel: "Between rounds",
-  };
-  preActivatorState.week.days.monday.circuits[0].bridgeCompleted = true;
-  const activatorMigratedApp = launchApp(JSON.stringify(preActivatorState));
-  assert.equal(
-    "bridge" in
-      activatorMigratedApp.Basement45.getState().week.days.monday.circuits[0],
-    false,
-  );
-  assert.equal(
-    "bridgeCompleted" in
-      activatorMigratedApp.Basement45.getState().week.days.monday.circuits[0],
-    false,
-  );
-  assert.ok(
-    activatorMigratedApp.Basement45.exercises.find(
-      (exercise) =>
-        exercise.id ===
-        activatorMigratedApp.Basement45.getState().week.days.monday.circuits[0]
-          .optionalActivator.exerciseId,
-    ).total_body_activator,
-  );
-  assert.deepEqual(
-    Array.from(activatorMigratedApp.Basement45.validateWeek()),
+    Array.from(freshFromLegacyApp.Basement45.validateWeek()),
     [],
   );
 
+  const rejectedLegacyFileApp = launchApp();
+  const beforeRejectedLoad = rejectedLegacyFileApp.Basement45.getState();
+  await rejectedLegacyFileApp.__elements
+    .get("load-input")
+    ._listeners.change[0]({
+      target: {
+        files: [
+          {
+            name: "legacy-v7.json",
+            async text() {
+              return JSON.stringify(exampleSave);
+            },
+          },
+        ],
+      },
+    });
   assert.equal(
-    exampleSave.schemaVersion,
-    7,
-    "the provided example should document its original schema version",
+    rejectedLegacyFileApp.__elements.get("toast").textContent,
+    "This cycle-based version requires a fresh v18 workout file.",
   );
-  const exampleApp = launchApp(JSON.stringify(exampleSave.appState));
-  assert.deepEqual(Array.from(exampleApp.Basement45.validateWeek()), []);
-  assert.equal(exampleApp.Basement45.getState().version, 17);
-  assert.deepEqual(
-    Array.from(
-      Object.values(exampleApp.Basement45.getState().daySettings),
-      (settings) => settings.target,
-    ),
-    [
-      "arms_upper",
-      "legs",
-      "shoulders_rotator",
-      "push",
-      "pull",
-      "total_body",
-      "total_body",
-    ],
-  );
-  assert.ok(
-    exampleApp.Basement45.exercises.some(
-      (exercise) => exercise.id === "egyptian-raise",
-    ),
-  );
-  assert.ok(
-    exampleApp.Basement45.exercises
-      .find((exercise) => exercise.id === "egyptian-raise")
-      .equipment_varieties.includes("Functional trainer"),
-    "legacy FT equipment labels should migrate into the functional-trainer family",
-  );
-  assert.ok(
-    Object.values(exampleApp.Basement45.getState().week.days).every(
-      (day) =>
-        !("cardioCompleted" in day) &&
-        day.circuits.every(
-          (circuit) =>
-            typeof circuit.optionalActivatorCompleted === "boolean" &&
-            Boolean(circuit.optionalActivator) &&
-            typeof circuit.completionCredited === "boolean" &&
-            [circuit.first, circuit.second, ...circuit.extras].every(
-              (assignment) =>
-                assignment.setupScore === 4 || assignment.setupScore === 5,
-            ),
-        ),
-    ),
-    "older saves should migrate away from cardio and initialize per-circuit setup defaults",
-  );
-  assert.ok(
-    Object.values(exampleApp.Basement45.getState().week.days).every((day) =>
-      day.circuits.every((circuit) =>
-        [circuit.first, circuit.second, ...circuit.extras].every((assignment) =>
-          exampleApp.Basement45.exercises.some(
-            (exercise) => exercise.id === assignment.exerciseId,
-          ),
-        ),
-      ),
-    ),
-    "every exercise referenced by the example save should resolve in the current catalog",
+  assert.equal(
+    rejectedLegacyFileApp.Basement45.getState().weekStartedAt,
+    beforeRejectedLoad.weekStartedAt,
   );
 
   const portableApp = launchApp();
@@ -2202,7 +2249,7 @@ async function main() {
           async text() {
             return JSON.stringify({
               app: "Basement 45",
-              schemaVersion: 7,
+              schemaVersion: 18,
               appState: portableState,
               exerciseLibrary: [
                 {
@@ -2234,7 +2281,7 @@ async function main() {
   );
 
   console.log(
-    "Smoke test passed randomized starts, 140 generated weeks, target/body-part generation, replacement filters and fuzzy search, example/portable JSON migration, favorites with circuit setup scores, effectiveness scoring, expandable optional activators, load basis and progression, master equipment, equipment varieties, recommendation feedback, automatic/adjustable workout timing, direct-file save, editing, settings, and v1-v17 persistence.",
+    "Smoke test passed randomized starts, 140 continuous cycle weeks, rest-day shifting, cross-week continuation, cycle locks and management, target/body-part generation, replacement filters and fuzzy search, fresh-v18 and portable JSON handling, favorites with circuit setup scores, effectiveness scoring, expandable optional activators, load basis and progression, master equipment, equipment varieties, recommendation feedback, automatic/adjustable workout timing, direct-file save, editing, and settings.",
   );
 }
 

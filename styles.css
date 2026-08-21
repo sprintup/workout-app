@@ -390,6 +390,15 @@ svg {
   gap: 0.35rem;
 }
 
+.day-tab.is-rest:not(.active) {
+  opacity: 0.68;
+}
+
+.day-tab.is-rest .tab-status {
+  border-color: #c9c5b8;
+  color: var(--ink-soft);
+}
+
 .day-tab {
   display: grid;
   grid-template-columns: 35px minmax(0, 1fr) 20px;
@@ -466,6 +475,10 @@ svg {
 
 .day-tab.active .tab-status {
   border-color: rgb(255 255 255 / 30%);
+}
+
+.day-tab.active.is-rest .tab-status {
+  color: rgb(255 255 255 / 72%);
 }
 
 .tab-status.complete {
@@ -550,6 +563,13 @@ svg {
   display: flex;
   flex: 0 0 auto;
   gap: 0.55rem;
+}
+
+.workout-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.65rem;
 }
 
 .session-chip {
@@ -2189,6 +2209,106 @@ svg {
   gap: 0.85rem;
 }
 
+.cycle-sequence-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid #c9dcd2;
+  border-radius: 10px;
+  color: var(--ink-soft);
+  background: var(--mint-light);
+  font-size: 0.72rem;
+}
+
+.cycle-sequence-summary strong {
+  flex: 0 0 auto;
+  color: var(--forest);
+}
+
+.cycle-sequence-summary span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cycle-number {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--forest);
+  background: var(--mint-light);
+  font-size: 0.85rem;
+  font-weight: 900;
+}
+
+.cycle-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.cycle-card-actions button {
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink-soft);
+  background: var(--white);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.cycle-card-actions button.delete {
+  color: var(--danger);
+}
+
+.cycle-card-actions button:disabled {
+  opacity: 0.38;
+}
+
+.rest-day-view {
+  min-height: 65vh;
+}
+
+.rest-day-panel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 1rem;
+  padding: clamp(1.2rem, 3vw, 2rem);
+  border: 1px solid #c9dcd2;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, #edf6f1, #fffaf3);
+  box-shadow: var(--shadow-sm);
+}
+
+.rest-day-mark {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--forest-2);
+  background: var(--white);
+  font-size: 1.4rem;
+  font-weight: 900;
+}
+
+.rest-day-panel strong {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.25rem;
+}
+
+.rest-day-panel p {
+  margin: 0.3rem 0 0;
+  color: var(--ink-soft);
+}
+
 .settings-card {
   display: grid;
   gap: 0.85rem;
@@ -2705,9 +2825,29 @@ svg {
   }
 
   .view-header,
-  .library-header-actions {
+  .library-header-actions,
+  .workout-header-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .cycle-sequence-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .cycle-sequence-summary span {
+    overflow: visible;
+    white-space: normal;
+  }
+
+  .cycle-settings-card > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .rest-day-panel {
+    grid-template-columns: auto minmax(0, 1fr);
   }
 
   .view-subtitle {

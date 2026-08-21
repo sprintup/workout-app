@@ -6,7 +6,7 @@ At the top of the app:
 
 - **Save file** (`Ctrl+S` / `Cmd+S`) connects a JSON file using Chrome or Edge's File System Access API. After the first file choice, changes autosave directly back to that file. Browser-local autosave remains active when no file is connected.
 - **Open JSON** restores an existing workout file and connects it for subsequent autosaves. Browsers without direct-file support can still open JSON with the standard file chooser.
-- **New week** archives the current selections, keeps locked exercises and saved loads/reps, generates a varied validated plan, and clears all round, optional-activator, and workout-timer state.
+- **New week** archives the current seven calendar days, starts with the next pending cycle, keeps cycle-locked exercises and saved loads/reps, generates fresh unlocked selections, and clears all round, optional-activator, and workout-timer state.
 
 Each circuit starts with a non-blocking **Optional total-body activator** checkbox for use when time remains, followed by a sticky row of checkboxes for rounds 1–3 and two to four exercises: **Focused** has 2, **Standard** has 3, and **Challenge** has 4. The optional activator does not affect circuit completion or the timer. Use `−` to remove the last optional exercise or `+` to automatically add the highest-ranked compatible exercise. The day sidebar stays visible while the workout scrolls.
 
@@ -14,9 +14,11 @@ The sidebar includes a per-day workout timer. It remains disabled until the warm
 
 Each circuit also has a collapsed optional total-body activator. Expanding it reveals one independently selectable exercise with its own completion checkbox, equipment, load, notes, and controls. It is not included in the circuit's exercise count, score, rounds, favorites, or completion state.
 
-Workout settings let each weekday be activated independently, assigned one of seven generation targets, and optionally limited to selected body parts: Arms & upper, Legs, Shoulder & Rotator cuff, Push, Pull, Total Body, or Total Body - No Equipment. The no-equipment target restricts both circuit exercises and optional activators to movements requiring no weights, benches, bands, cable attachments, or machines. Applying a target or body-part selection rebuilds only that day and resets that day's progress after confirmation when needed. New weeks retain these settings and generate every circuit from the corresponding qualification pools.
+Workout settings define a continuous rotation of 1–16 named cycles instead of binding targets to weekdays. Each cycle has one of seven generation targets and can optionally be limited to selected body parts: Arms & upper, Legs, Shoulder & Rotator cuff, Push, Pull, Total Body, or Total Body - No Equipment. Cycles can be added, removed, named, and reordered. The seven weekday slots consume the rotation in order; marking any weekday as rest defers its pending cycle and shifts every later assignment forward. Removing the rest day shifts the sequence back. The rotation continues across week boundaries.
 
-Use the star in a circuit heading to name and save its exact exercise combination as a favorite. The adjacent favorites button substitutes a saved favorite into the same day and circuit position when none of its exercises conflict with the rest of the current week.
+Every occurrence receives newly generated unlocked exercises. Locking an exercise stores that position on its cycle, immediately updates later unstarted occurrences of that cycle, and carries it into future weeks. Target, body-part, rest-day, removal, and reorder changes ask for confirmation before clearing affected progress. The no-equipment target restricts both circuit exercises and optional activators to movements requiring no weights, benches, bands, cable attachments, or machines.
+
+Use the star in a circuit heading to name and save its exact exercise combination as a favorite. The adjacent favorites button substitutes a saved favorite into the same cycle and circuit position when none of its exercises conflict with the rest of the current week.
 
 The replacement picker automatically shows every unused exercise that works at least one of the day's target muscles. The eligibility panel lists those muscles, while fuzzy search plus body-part and equipment filters can narrow the results. Equipment aliases are grouped, so **FT**, **FT2**, **Functional trainer**, and cable-based setups all match the same FT filter. Each result lists its worked muscles and required equipment. **Add exercise** opens the library form and returns to the same swap after saving. Random replacement works through unseen eligible exercises before widening its search beyond the target-muscle pool. This automatic eligibility filter is separate from the score shown on workout cards.
 
@@ -34,7 +36,7 @@ The finisher contains only the core-complete checkbox; the previous 20-minute ca
 
 The header shows the connected JSON filename and the most specific path the browser exposes. Standard browser security normally hides a local file's absolute parent path, so a browser may display only the filename even though autosave is connected.
 
-Every exercise can be edited, annotated with a workout note, measured in repetitions or seconds, randomly replaced with an eligible option, reordered within a circuit, or removed when the circuit has more than two movements. The Settings page controls which weekdays appear and lets you edit each day's target and description. Versioned JSON loads migrate automatically; exported library records can also recover exercises that are missing from a newer bundled catalog.
+Every exercise can be edited, annotated with a workout note, measured in repetitions or seconds, randomly replaced with an eligible option, reordered within a circuit, or removed when the circuit has more than two movements. The Settings page manages cycle order, names, targets, body parts, and descriptions. Schema v18 intentionally starts a fresh cycle-based data file rather than migrating the former weekday-bound schema; subsequent v18 saves reload normally and portable library records can recover missing custom exercises.
 
 The exercise library is generated from `basement_gym_exercise_library.xlsx`. If the workbook changes, run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\export-exercise-data.ps1` to refresh `exercise-data.js`.
 
@@ -42,7 +44,7 @@ The exercise library is generated from `basement_gym_exercise_library.xlsx`. If 
 
 ## Purpose
 
-Build an application that recommends simple, practical exercise selections for a five-day strength-training split in a basement gym.
+Build an application that recommends simple, practical exercise selections for a flexible 1–16-cycle strength-training rotation in a basement gym.
 
 The application should prioritize:
 
@@ -120,17 +122,17 @@ The gym is in a basement with a low ceiling.
 - Avoid recommendations that require long walking distances, large open areas, or frequent relocation of equipment.
 - Carries may be recommended only when enough safe floor space is available.
 
-## Weekly Split
+## Default Cycle Rotation
 
-Use the following default five-day split:
+Use the following default five-cycle rotation:
 
-1. Monday: Arms and upper body
-2. Tuesday: Legs
-3. Wednesday: Shoulders and rotator cuff
-4. Thursday: Push
-5. Friday: Pull
+1. Cycle 1: Arms and upper body
+2. Cycle 2: Legs
+3. Cycle 3: Shoulders and rotator cuff
+4. Cycle 4: Push
+5. Cycle 5: Pull
 
-Do not automatically replace this split with push/pull/legs, upper/lower, or another standardized split. The current split is intentional.
+Calendar weekdays round-robin through these cycles. Users may rename, reorder, add, or remove cycles and may build alternatives such as push/pull/legs without changing the calendar-day model.
 
 ## Standard Workout Structure
 
@@ -394,7 +396,8 @@ notes: string | null
 A recommended day should be representable as:
 
 ```yaml
-day: Monday
+calendar_day: Monday
+cycle: Cycle 1
 focus: Arms and Upper Body
 supersets:
   - number: 1
@@ -415,8 +418,8 @@ Before returning a workout, validate all of the following:
 1. The recommendation uses only available equipment.
 2. No standing overhead press is present.
 3. No Smith-machine or leg-extension/curl-machine exercise is present.
-4. No exact exercise is repeated elsewhere in the weekly plan.
-5. Each day contains three supersets unless the user overrides the format.
+4. Unlocked exercises should vary across cycle occurrences when the qualification pool permits; cycle-locked exercises may repeat intentionally.
+5. Each training day contains three supersets unless the user overrides the format; rest days contain none.
 6. Each circuit contains two to four exercises and three tracked rounds.
 7. The nine round deadlines scale evenly within an adjustable workout timer; warm-up and finisher time are excluded.
 8. Superset transition costs are acceptable.
