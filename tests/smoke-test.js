@@ -181,6 +181,15 @@ function changeDayTarget(app, day, target) {
   });
 }
 
+function changeDayCycle(app, day, cycleId) {
+  app.document._listeners.change[0]({
+    target: {
+      value: cycleId,
+      dataset: { dayCycleSelect: "true", day },
+    },
+  });
+}
+
 function selectView(app, view) {
   const target = {
     dataset: { view },
@@ -289,9 +298,10 @@ async function main() {
     const days = Object.values(state.week.days);
     assert.equal(days.length, 7);
     assert.ok(days.every((day) => day.circuits.length === 3));
-    assert.equal(state.cycles.length, 5);
+    assert.equal(state.cycles.length, 4);
     assert.equal(state.weekStartCycleId, state.cycles[0].id);
-    assert.equal(state.nextCycleId, state.cycles[2].id);
+    assert.equal(state.nextCycleId, state.cycles[3].id);
+    assert.deepEqual({ ...state.week.cycleOverrides }, {});
     assert.ok(
       Object.values(state.week.days).every((day) => day.rest === false),
     );
@@ -308,7 +318,7 @@ async function main() {
     );
     assert.deepEqual(
       Array.from(state.cycles, (cycle) => cycle.target),
-      ["arms_upper", "legs", "shoulders_rotator", "push", "pull"],
+      ["legs", "shoulders_rotator", "push", "pull"],
     );
     assert.deepEqual(
       Array.from(Object.values(state.week.days), (day) => day.cycleId),
@@ -317,9 +327,9 @@ async function main() {
         state.cycles[1].id,
         state.cycles[2].id,
         state.cycles[3].id,
-        state.cycles[4].id,
         state.cycles[0].id,
         state.cycles[1].id,
+        state.cycles[2].id,
       ],
     );
 
@@ -412,7 +422,7 @@ async function main() {
       ),
     );
     assert.ok(
-      state.week.days.wednesday.circuits.some(
+      state.week.days.tuesday.circuits.some(
         (circuit) =>
           circuit.first.exerciseId === "shoulder-exercise-placeholder" ||
           circuit.second.exerciseId === "shoulder-exercise-placeholder",
@@ -424,13 +434,13 @@ async function main() {
   const cycleLockState = cycleLockApp.Basement45.getState();
   assert.equal(
     cycleLockState.week.days.monday.cycleId,
-    cycleLockState.week.days.saturday.cycleId,
+    cycleLockState.week.days.friday.cycleId,
   );
   const lockedExerciseId =
     cycleLockState.week.days.monday.circuits[0].first.exerciseId;
   assert.notEqual(
     lockedExerciseId,
-    cycleLockState.week.days.saturday.circuits[0].first.exerciseId,
+    cycleLockState.week.days.friday.circuits[0].first.exerciseId,
     "unlocked positions should be freshly generated for repeated cycle occurrences",
   );
   clickAction(cycleLockApp, "toggle-lock", {
@@ -440,7 +450,7 @@ async function main() {
   });
   const afterCycleLock = cycleLockApp.Basement45.getState();
   assert.equal(
-    afterCycleLock.week.days.saturday.circuits[0].first.exerciseId,
+    afterCycleLock.week.days.friday.circuits[0].first.exerciseId,
     lockedExerciseId,
     "locking an exercise should propagate it to a later occurrence of that cycle",
   );
@@ -465,6 +475,79 @@ async function main() {
     "cycle locks should continue across calendar-week boundaries",
   );
 
+  const cycleSelectorApp = launchApp();
+  let cycleSelectorState = cycleSelectorApp.Basement45.getState();
+  const selectableCycles = cycleSelectorState.cycles;
+  const initialWorkoutHtml =
+    cycleSelectorApp.__elements.get("workout-view").innerHTML;
+  assert.ok(initialWorkoutHtml.includes('data-day-cycle-select="true"'));
+  const initialCycleSelectorHtml = initialWorkoutHtml.match(
+    /<label class="day-cycle-selector">[\s\S]*?<\/label>/,
+  )[0];
+  assert.equal(
+    (initialCycleSelectorHtml.match(/<option value=/g) || []).length,
+    selectableCycles.length,
+    "the workout selector should list every training cycle",
+  );
+  assert.ok(
+    initialCycleSelectorHtml.includes(
+      `<option value="${selectableCycles[0].id}" selected>`,
+    ),
+    "the scheduled cycle should be selected by default",
+  );
+  changeDayCycle(cycleSelectorApp, "monday", selectableCycles[2].id);
+  cycleSelectorState = cycleSelectorApp.Basement45.getState();
+  assert.equal(
+    cycleSelectorState.week.days.monday.cycleId,
+    selectableCycles[2].id,
+  );
+  assert.equal(
+    cycleSelectorState.week.days.tuesday.cycleId,
+    selectableCycles[3].id,
+  );
+  assert.equal(
+    cycleSelectorState.week.days.wednesday.cycleId,
+    selectableCycles[0].id,
+  );
+  assert.equal(
+    cycleSelectorState.week.cycleOverrides.monday,
+    selectableCycles[2].id,
+    "a selected day cycle should be saved as the sequence anchor",
+  );
+
+  clickAction(cycleSelectorApp, "add-rest-cycle");
+  cycleSelectorState = cycleSelectorApp.Basement45.getState();
+  const selectorRestCycle = cycleSelectorState.cycles.at(-1);
+  changeDayCycle(cycleSelectorApp, "monday", selectableCycles[3].id);
+  cycleSelectorState = cycleSelectorApp.Basement45.getState();
+  assert.equal(
+    cycleSelectorState.week.days.monday.cycleId,
+    selectableCycles[3].id,
+  );
+  assert.equal(cycleSelectorState.week.days.tuesday.restSource, "rotation");
+  assert.equal(
+    cycleSelectorState.week.days.tuesday.cycleId,
+    selectorRestCycle.id,
+  );
+  assert.equal(
+    cycleSelectorState.week.days.wednesday.cycleId,
+    selectableCycles[0].id,
+  );
+  const reloadedCycleSelectorApp = launchApp(
+    JSON.stringify(cycleSelectorState),
+  );
+  const reloadedCycleSelectorState =
+    reloadedCycleSelectorApp.Basement45.getState();
+  assert.equal(
+    reloadedCycleSelectorState.week.days.monday.cycleId,
+    selectableCycles[3].id,
+  );
+  assert.equal(
+    reloadedCycleSelectorState.week.days.tuesday.restSource,
+    "rotation",
+    "the day selector should continue into a scheduled rest after reload",
+  );
+
   const cycleSettingsApp = launchApp();
   const firstCycleId = cycleSettingsApp.Basement45.getState().cycles[0].id;
   inputSetting(
@@ -483,16 +566,252 @@ async function main() {
   );
   clickAction(cycleSettingsApp, "add-cycle");
   let managedCycles = cycleSettingsApp.Basement45.getState().cycles;
-  assert.equal(managedCycles.length, 6);
-  const addedCycleId = managedCycles[5].id;
+  assert.equal(managedCycles.length, 5);
+  const addedCycleId = managedCycles[4].id;
   clickAction(cycleSettingsApp, "move-cycle", {
     cycleId: addedCycleId,
     direction: "-1",
   });
   managedCycles = cycleSettingsApp.Basement45.getState().cycles;
-  assert.equal(managedCycles[4].id, addedCycleId);
+  assert.equal(managedCycles[3].id, addedCycleId);
   clickAction(cycleSettingsApp, "delete-cycle", { cycleId: addedCycleId });
-  assert.equal(cycleSettingsApp.Basement45.getState().cycles.length, 5);
+  assert.equal(cycleSettingsApp.Basement45.getState().cycles.length, 4);
+
+  clickAction(cycleSettingsApp, "add-rest-cycle");
+  let rotationRestState = cycleSettingsApp.Basement45.getState();
+  assert.equal(rotationRestState.cycles.length, 5);
+  const rotationRestCycle = rotationRestState.cycles[4];
+  assert.equal(rotationRestCycle.kind, "rest");
+  assert.equal(rotationRestState.week.days.friday.rest, true);
+  assert.equal(rotationRestState.week.days.friday.restSource, "rotation");
+  assert.equal(
+    rotationRestState.week.days.friday.cycleId,
+    rotationRestCycle.id,
+  );
+  assert.deepEqual(
+    [...rotationRestState.week.restDayIds],
+    [],
+    "a rotation rest entry must not become a calendar rest override",
+  );
+  selectView(cycleSettingsApp, "friday");
+  const rotationRestHtml =
+    cycleSettingsApp.__elements.get("workout-view").innerHTML;
+  assert.ok(rotationRestHtml.includes("Scheduled recovery"));
+  assert.ok(rotationRestHtml.includes('data-view="settings"'));
+  assert.equal(
+    rotationRestHtml.includes('data-action="toggle-rest-day"'),
+    false,
+  );
+
+  const reloadedRotationRestApp = launchApp(JSON.stringify(rotationRestState));
+  const reloadedRotationRestState =
+    reloadedRotationRestApp.Basement45.getState();
+  assert.equal(
+    reloadedRotationRestState.week.days.friday.restSource,
+    "rotation",
+  );
+  assert.equal(
+    reloadedRotationRestState.week.days.friday.cycleId,
+    rotationRestCycle.id,
+    "scheduled rest entries should retain their rotation position after reload",
+  );
+  assert.deepEqual([...reloadedRotationRestState.week.restDayIds], []);
+
+  clickAction(cycleSettingsApp, "toggle-rest-day", { day: "thursday" });
+  rotationRestState = cycleSettingsApp.Basement45.getState();
+  assert.equal(rotationRestState.week.days.thursday.restSource, "calendar");
+  assert.equal(rotationRestState.week.days.friday.rest, false);
+  assert.equal(rotationRestState.week.days.saturday.restSource, "rotation");
+  assert.deepEqual([...rotationRestState.week.restDayIds], ["thursday"]);
+  clickAction(cycleSettingsApp, "toggle-rest-day", { day: "thursday" });
+  rotationRestState = cycleSettingsApp.Basement45.getState();
+  assert.equal(rotationRestState.week.days.friday.restSource, "rotation");
+  assert.deepEqual([...rotationRestState.week.restDayIds], []);
+
+  clickAction(cycleSettingsApp, "move-cycle", {
+    cycleId: rotationRestCycle.id,
+    direction: "-1",
+  });
+  rotationRestState = cycleSettingsApp.Basement45.getState();
+  assert.equal(rotationRestState.cycles[3].id, rotationRestCycle.id);
+  assert.equal(rotationRestState.week.days.thursday.restSource, "rotation");
+  clickAction(cycleSettingsApp, "delete-cycle", {
+    cycleId: rotationRestCycle.id,
+  });
+  assert.equal(cycleSettingsApp.Basement45.getState().cycles.length, 4);
+  assert.equal(
+    Object.values(cycleSettingsApp.Basement45.getState().week.days).some(
+      (day) => day.restSource === "rotation",
+    ),
+    false,
+  );
+
+  selectView(cycleSettingsApp, "settings");
+  let cycleSettingsHtml =
+    cycleSettingsApp.__elements.get("settings-view").innerHTML;
+  assert.equal(
+    (cycleSettingsHtml.match(/data-warmup-setting="label"/g) || []).length,
+    3,
+    "settings should list the three default warm-up exercises",
+  );
+  clickAction(cycleSettingsApp, "toggle-body-part-coverage");
+  cycleSettingsHtml =
+    cycleSettingsApp.__elements.get("settings-view").innerHTML;
+  assert.ok(
+    cycleSettingsHtml.includes(
+      'data-body-part-coverage="Shoulders"><span>Shoulders</span><strong>2</strong>',
+    ),
+    "body-part coverage should count every cycle that targets shoulders",
+  );
+  assert.ok(
+    cycleSettingsHtml.includes(
+      'data-body-part-coverage="Core"><span>Core</span><strong>0</strong>',
+    ),
+    "the shared Core cool-down should not be counted as a cycle target",
+  );
+  assert.equal(
+    (cycleSettingsHtml.match(/class="settings-section-divider"/g) || []).length,
+    2,
+  );
+  assert.ok(
+    cycleSettingsHtml.indexOf("warmup-settings-panel") <
+      cycleSettingsHtml.indexOf("cycle-section-heading") &&
+      cycleSettingsHtml.indexOf("cycle-section-heading") <
+        cycleSettingsHtml.indexOf("cycle-sequence-summary") &&
+      cycleSettingsHtml.indexOf("cycle-sequence-summary") <
+        cycleSettingsHtml.indexOf("cycle-settings-grid") &&
+      cycleSettingsHtml.indexOf('data-action="add-cycle"') >
+        cycleSettingsHtml.indexOf("warmup-settings-panel") &&
+      cycleSettingsHtml.indexOf("cycle-settings-grid") <
+        cycleSettingsHtml.indexOf("cooldown-settings-panel"),
+    "warm-up settings should precede cycles and cool-down settings should follow them",
+  );
+  assert.ok(cycleSettingsHtml.includes('data-action="add-rest-cycle"'));
+  clickAction(cycleSettingsApp, "add-warmup-exercise");
+  let warmups = cycleSettingsApp.Basement45.getState().warmupExercises;
+  assert.equal(warmups.length, 4);
+  const addedWarmupId = warmups[3].id;
+  inputSetting(
+    cycleSettingsApp,
+    { warmupSetting: "label", warmupId: addedWarmupId },
+    "Band shoulder warm-up",
+  );
+  warmups = cycleSettingsApp.Basement45.getState().warmupExercises;
+  assert.equal(warmups[3].label, "Band shoulder warm-up");
+  clickAction(cycleSettingsApp, "move-warmup-exercise", {
+    warmupId: addedWarmupId,
+    direction: "-1",
+  });
+  assert.equal(
+    cycleSettingsApp.Basement45.getState().warmupExercises[2].id,
+    addedWarmupId,
+    "warm-up exercises should be reorderable without changing their IDs",
+  );
+  selectView(cycleSettingsApp, "monday");
+  const customWarmupWorkoutHtml =
+    cycleSettingsApp.__elements.get("workout-view").innerHTML;
+  assert.ok(customWarmupWorkoutHtml.includes("Band shoulder warm-up"));
+  assert.equal(
+    (customWarmupWorkoutHtml.match(/data-action="daily-check"/g) || []).length,
+    4,
+  );
+  selectView(cycleSettingsApp, "settings");
+  clickAction(cycleSettingsApp, "delete-warmup-exercise", {
+    warmupId: addedWarmupId,
+  });
+  assert.equal(
+    cycleSettingsApp.Basement45.getState().warmupExercises.length,
+    3,
+  );
+  assert.equal(
+    Object.hasOwn(
+      cycleSettingsApp.Basement45.getState().week.days.monday.preChecklist,
+      addedWarmupId,
+    ),
+    false,
+    "deleting a warm-up should remove its completion state from workout days",
+  );
+
+  let cooldowns = cycleSettingsApp.Basement45.getState().cooldownExercises;
+  assert.deepEqual(
+    Array.from(cooldowns, (exercise) => exercise.label),
+    ["5 core"],
+    "5 core should be the only default cool-down exercise",
+  );
+  clickAction(cycleSettingsApp, "add-cooldown-exercise");
+  clickAction(cycleSettingsApp, "add-cooldown-exercise");
+  cooldowns = cycleSettingsApp.Basement45.getState().cooldownExercises;
+  assert.equal(cooldowns.length, 3);
+  assert.equal(cooldowns[0].id, "core");
+  const firstCooldownId = cooldowns[1].id;
+  const secondCooldownId = cooldowns[2].id;
+  inputSetting(
+    cycleSettingsApp,
+    { cooldownSetting: "label", cooldownId: firstCooldownId },
+    "Hip flexor stretch",
+  );
+  inputSetting(
+    cycleSettingsApp,
+    { cooldownSetting: "label", cooldownId: secondCooldownId },
+    "Slow breathing",
+  );
+  clickAction(cycleSettingsApp, "move-cooldown-exercise", {
+    cooldownId: secondCooldownId,
+    direction: "-1",
+  });
+  cooldowns = cycleSettingsApp.Basement45.getState().cooldownExercises;
+  assert.deepEqual(
+    Array.from(cooldowns, (exercise) => exercise.id),
+    ["core", secondCooldownId, firstCooldownId],
+    "cool-down exercises should be reorderable",
+  );
+  selectView(cycleSettingsApp, "monday");
+  const cooldownWorkoutHtml =
+    cycleSettingsApp.__elements.get("workout-view").innerHTML;
+  assert.equal(
+    (cooldownWorkoutHtml.match(/data-action="cooldown-check"/g) || []).length,
+    3,
+  );
+  assert.ok(
+    cooldownWorkoutHtml.indexOf("Slow breathing") <
+      cooldownWorkoutHtml.indexOf("Hip flexor stretch"),
+    "the workout should use the configured cool-down order",
+  );
+  changeAction(
+    cycleSettingsApp,
+    "cooldown-check",
+    { day: "monday", item: "core" },
+    true,
+  );
+  changeAction(
+    cycleSettingsApp,
+    "cooldown-check",
+    { day: "monday", item: secondCooldownId },
+    true,
+  );
+  changeAction(
+    cycleSettingsApp,
+    "cooldown-check",
+    { day: "monday", item: firstCooldownId },
+    true,
+  );
+  assert.ok(
+    cycleSettingsApp.__elements
+      .get("workout-view")
+      .innerHTML.includes("cooldown-routine is-complete"),
+    "the cool-down pane should complete when every configured item is checked",
+  );
+  selectView(cycleSettingsApp, "settings");
+  clickAction(cycleSettingsApp, "delete-cooldown-exercise", {
+    cooldownId: firstCooldownId,
+  });
+  assert.equal(
+    Object.hasOwn(
+      cycleSettingsApp.Basement45.getState().week.days.monday.cooldownChecklist,
+      firstCooldownId,
+    ),
+    false,
+  );
 
   const interactionApp = launchApp();
   const workoutHtml = interactionApp.__elements.get("workout-view").innerHTML;
@@ -545,12 +864,18 @@ async function main() {
   );
   assert.equal(
     (workoutHtml.match(/data-action="core-check"/g) || []).length,
-    1,
+    0,
   );
   assert.equal(
     (workoutHtml.match(/data-action="cardio-check"/g) || []).length,
     0,
   );
+  assert.equal(
+    (workoutHtml.match(/data-action="cooldown-check"/g) || []).length,
+    1,
+    "5 core should be the default cool-down checklist item",
+  );
+  assert.ok(workoutHtml.includes("5 core"));
   assert.ok(!workoutHtml.includes("20 minutes cardio"));
   assert.ok(
     (workoutHtml.match(/data-action="random-replace"/g) || []).length > 0,
@@ -645,33 +970,14 @@ async function main() {
   assert.match(styles, /\.library-list\s*{[^}]*overflow-y:\s*auto/s);
 
   const equipmentEligibilityApp = launchApp();
-  const allMuscles = [
-    "Chest",
-    "Back",
-    "Lats",
-    "Shoulders",
-    "Rotator cuff",
-    "Biceps",
-    "Triceps",
-    "Forearms",
-    "Grip",
-    "Traps",
-    "Quadriceps",
-    "Hamstrings",
-    "Glutes",
-    "Hips",
-    "Calves",
-    "Core",
-    "Full body",
-  ];
   const targetMusclesByDay = {
-    monday: allMuscles.slice(0, 10),
-    tuesday: ["Quadriceps", "Hamstrings", "Glutes", "Hips", "Calves"],
-    wednesday: ["Shoulders", "Rotator cuff"],
-    thursday: ["Chest", "Shoulders", "Triceps"],
-    friday: ["Back", "Lats", "Biceps", "Forearms", "Grip", "Traps"],
-    saturday: allMuscles.slice(0, 10),
-    sunday: ["Quadriceps", "Hamstrings", "Glutes", "Hips", "Calves"],
+    monday: ["Quadriceps", "Hamstrings", "Glutes", "Hips", "Calves"],
+    tuesday: ["Shoulders", "Rotator cuff"],
+    wednesday: ["Chest", "Shoulders", "Triceps"],
+    thursday: ["Back", "Lats", "Biceps", "Forearms", "Grip", "Traps"],
+    friday: ["Quadriceps", "Hamstrings", "Glutes", "Hips", "Calves"],
+    saturday: ["Shoulders", "Rotator cuff"],
+    sunday: ["Chest", "Shoulders", "Triceps"],
   };
   for (const [dayId, targetMuscles] of Object.entries(targetMusclesByDay)) {
     clickAction(equipmentEligibilityApp, "replace", {
@@ -948,7 +1254,12 @@ async function main() {
     { day: "monday", item: "stretch" },
     true,
   );
-  changeAction(interactionApp, "core-check", { day: "monday" }, true);
+  changeAction(
+    interactionApp,
+    "cooldown-check",
+    { day: "monday", item: "core" },
+    true,
+  );
   assert.equal(
     interactionApp.Basement45.getState().week.days.monday.circuits[0]
       .roundsCompleted[0],
@@ -959,14 +1270,15 @@ async function main() {
     true,
   );
   assert.equal(
-    interactionApp.Basement45.getState().week.days.monday.coreCompleted,
+    interactionApp.Basement45.getState().week.days.monday.cooldownChecklist
+      .core,
     true,
   );
   assert.ok(
     interactionApp.__elements
       .get("workout-view")
-      .innerHTML.includes("core-routine is-complete"),
-    "the finisher should complete as soon as its core checkbox is checked",
+      .innerHTML.includes("cooldown-routine is-complete"),
+    "the default cool-down should complete as soon as 5 core is checked",
   );
   changeAction(
     interactionApp,
@@ -1249,7 +1561,7 @@ async function main() {
   assert.deepEqual(Array.from(interactionApp.Basement45.validateWeek()), []);
 
   clickAction(interactionApp, "replace", {
-    day: "tuesday",
+    day: "monday",
     circuit: "1",
     position: "first",
   });
@@ -1376,33 +1688,59 @@ async function main() {
   });
   assert.deepEqual(Array.from(interactionApp.Basement45.validateWeek()), []);
 
-  const deleteCircuitBefore =
-    interactionApp.Basement45.getState().week.days.monday.circuits[0];
+  const deleteTarget = Object.entries(
+    interactionApp.Basement45.getState().week.days,
+  )
+    .flatMap(([dayId, day]) =>
+      day.circuits.map((circuit, circuitIndex) => ({
+        dayId,
+        circuitIndex,
+        circuit,
+      })),
+    )
+    .find(
+      ({ circuit }) =>
+        circuit.extras.length > 0 &&
+        !circuit.extras[circuit.extras.length - 1].locked,
+    );
+  assert.ok(deleteTarget, "a generated circuit should have a removable extra");
+  const deleteCircuitBefore = deleteTarget.circuit;
   const deleteCountBefore = 2 + deleteCircuitBefore.extras.length;
   clickAction(interactionApp, "delete-circuit-exercise", {
-    day: "monday",
-    circuit: "0",
+    day: deleteTarget.dayId,
+    circuit: String(deleteTarget.circuitIndex),
     position: `extra-${deleteCircuitBefore.extras.length - 1}`,
   });
   assert.equal(
     2 +
-      interactionApp.Basement45.getState().week.days.monday.circuits[0].extras
-        .length,
+      interactionApp.Basement45.getState().week.days[deleteTarget.dayId]
+        .circuits[deleteTarget.circuitIndex].extras.length,
     deleteCountBefore - 1,
   );
   assert.deepEqual(Array.from(interactionApp.Basement45.validateWeek()), []);
 
-  const beforeAdd =
-    interactionApp.Basement45.getState().week.days.tuesday.circuits[0];
-  assert.equal(beforeAdd.extras.length, 0);
+  const addTarget = Object.entries(
+    interactionApp.Basement45.getState().week.days,
+  )
+    .flatMap(([dayId, day]) =>
+      day.circuits.map((circuit, circuitIndex) => ({
+        dayId,
+        circuitIndex,
+        circuit,
+      })),
+    )
+    .find(({ circuit }) => circuit.extras.length < 2);
+  assert.ok(addTarget, "a generated circuit should allow an added exercise");
+  const addCountBefore = addTarget.circuit.extras.length;
   clickAction(interactionApp, "add-round-exercise", {
-    day: "tuesday",
-    circuit: "0",
+    day: addTarget.dayId,
+    circuit: String(addTarget.circuitIndex),
   });
   assert.equal(
-    interactionApp.Basement45.getState().week.days.tuesday.circuits[0].extras
-      .length,
-    1,
+    interactionApp.Basement45.getState().week.days[addTarget.dayId].circuits[
+      addTarget.circuitIndex
+    ].extras.length,
+    addCountBefore + 1,
   );
   assert.deepEqual(Array.from(interactionApp.Basement45.validateWeek()), []);
   const automaticAddReload = launchApp(
@@ -1413,19 +1751,29 @@ async function main() {
     [],
   );
   clickAction(interactionApp, "remove-round-exercise", {
-    day: "tuesday",
-    circuit: "0",
+    day: addTarget.dayId,
+    circuit: String(addTarget.circuitIndex),
   });
   assert.equal(
-    interactionApp.Basement45.getState().week.days.tuesday.circuits[0].extras
-      .length,
-    0,
+    interactionApp.Basement45.getState().week.days[addTarget.dayId].circuits[
+      addTarget.circuitIndex
+    ].extras.length,
+    addCountBefore,
   );
 
   clickAction(interactionApp, "replace", {
-    day: "tuesday",
+    day: "monday",
     circuit: "0",
     position: "first",
+  });
+  interactionApp.document._listeners.change[0]({
+    target: {
+      id: "show-all-replacements",
+      checked: false,
+      closest() {
+        return null;
+      },
+    },
   });
   const replacementHtml =
     interactionApp.__elements.get("replace-results").innerHTML;
@@ -1481,12 +1829,12 @@ async function main() {
     exerciseId: replacementId,
   });
   assert.equal(
-    interactionApp.Basement45.getState().week.days.tuesday.circuits[0].first
+    interactionApp.Basement45.getState().week.days.monday.circuits[0].first
       .exerciseId,
     replacementId,
   );
   assert.equal(
-    interactionApp.Basement45.getState().week.days.tuesday.circuits[0].first
+    interactionApp.Basement45.getState().week.days.monday.circuits[0].first
       .manualOverride,
     true,
   );
@@ -1501,7 +1849,7 @@ async function main() {
 
   const customForm = interactionApp.__elements.get("exercise-form");
   clickAction(interactionApp, "replace", {
-    day: "tuesday",
+    day: "monday",
     circuit: "0",
     position: "first",
   });
@@ -1762,13 +2110,27 @@ async function main() {
 
   selectView(interactionApp, "settings");
   const settingsHtml = interactionApp.__elements.get("settings-view").innerHTML;
-  assert.equal((settingsHtml.match(/data-cycle-card=/g) || []).length, 5);
+  assert.equal((settingsHtml.match(/data-cycle-card=/g) || []).length, 4);
   assert.ok(settingsHtml.includes('data-action="add-cycle"'));
   assert.ok(settingsHtml.includes('data-action="move-cycle"'));
   assert.ok(settingsHtml.includes('data-action="delete-cycle"'));
+  assert.ok(settingsHtml.includes('data-action="toggle-body-part-coverage"'));
+  assert.ok(settingsHtml.includes('data-action="add-warmup-exercise"'));
+  assert.ok(settingsHtml.includes('data-action="move-warmup-exercise"'));
+  assert.ok(settingsHtml.includes('data-action="add-cooldown-exercise"'));
+  assert.equal(
+    (settingsHtml.match(/data-cooldown-setting="label"/g) || []).length,
+    1,
+    "5 core should appear as the default editable cool-down exercise",
+  );
+  assert.ok(settingsHtml.includes('value="5 core"'));
+  assert.equal(
+    (settingsHtml.match(/data-action="delete-warmup-exercise"/g) || []).length,
+    3,
+  );
   assert.ok(!settingsHtml.includes("Include this day"));
+  assert.ok(!settingsHtml.includes("Arms &amp; upper"));
   for (const label of [
-    "Arms &amp; upper",
     "Legs",
     "Shoulder &amp; Rotator cuff",
     "Push",
@@ -2095,6 +2457,75 @@ async function main() {
     "local JSON state should survive a reload",
   );
 
+  const separateCoreState = JSON.parse(JSON.stringify(roundTripState));
+  delete separateCoreState.cooldownExercises;
+  for (const [dayId, day] of Object.entries(separateCoreState.week.days)) {
+    delete day.cooldownChecklist;
+    day.coreCompleted = dayId === "monday";
+  }
+  const migratedCoreApp = launchApp(JSON.stringify(separateCoreState));
+  const migratedCoreState = migratedCoreApp.Basement45.getState();
+  assert.equal(migratedCoreState.cooldownExercises[0].id, "core");
+  assert.equal(migratedCoreState.cooldownExercises[0].label, "5 core");
+  assert.equal(
+    migratedCoreState.week.days.monday.cooldownChecklist.core,
+    true,
+    "the former standalone Core completion should migrate into the cool-down checklist",
+  );
+  assert.equal(
+    Object.hasOwn(migratedCoreState.week.days.monday, "coreCompleted"),
+    false,
+  );
+
+  const duplicateCoreState = JSON.parse(JSON.stringify(roundTripState));
+  duplicateCoreState.cooldownExercises = [
+    { id: "core", label: "Core complete" },
+    { id: "cooldown-1", label: "5 core" },
+  ];
+  for (const [dayId, day] of Object.entries(duplicateCoreState.week.days)) {
+    day.cooldownChecklist = {
+      core: false,
+      "cooldown-1": dayId === "monday",
+    };
+  }
+  const deduplicatedCoreApp = launchApp(JSON.stringify(duplicateCoreState));
+  const deduplicatedCoreState = deduplicatedCoreApp.Basement45.getState();
+  assert.deepEqual(
+    Array.from(deduplicatedCoreState.cooldownExercises, (exercise) => ({
+      id: exercise.id,
+      label: exercise.label,
+    })),
+    [{ id: "core", label: "5 core" }],
+    "Core complete and 5 core should collapse into one 5 core cool-down",
+  );
+  assert.equal(
+    deduplicatedCoreState.week.days.monday.cooldownChecklist.core,
+    true,
+    "deduplicating the core cool-down should preserve completion",
+  );
+
+  const retiredTargetState = JSON.parse(JSON.stringify(roundTripState));
+  retiredTargetState.cycles.unshift({
+    id: "retired-arms-cycle",
+    name: "Retired upper cycle",
+    target: "arms_upper",
+    bodyParts: [],
+    description: "Legacy Arms & upper cycle",
+    circuitExerciseCounts: [2, 2, 2],
+    lockedAssignments: [],
+  });
+  retiredTargetState.weekStartCycleId = "retired-arms-cycle";
+  retiredTargetState.week.startCycleId = "retired-arms-cycle";
+  const retiredTargetApp = launchApp(JSON.stringify(retiredTargetState));
+  const migratedTargetState = retiredTargetApp.Basement45.getState();
+  assert.equal(migratedTargetState.weekNumber, retiredTargetState.weekNumber);
+  assert.equal(migratedTargetState.cycles.length, 4);
+  assert.ok(
+    migratedTargetState.cycles.every((cycle) => cycle.target !== "arms_upper"),
+    "legacy Arms & upper cycles should be removed from current v18 state",
+  );
+  assert.deepEqual(Array.from(retiredTargetApp.Basement45.validateWeek()), []);
+
   const overdueState = JSON.parse(JSON.stringify(roundTripState));
   overdueState.week.days.monday.preChecklist = {
     stretch: true,
@@ -2208,7 +2639,7 @@ async function main() {
   const freshFromLegacyApp = launchApp(JSON.stringify(legacyState));
   assert.equal(freshFromLegacyApp.Basement45.getState().version, 18);
   assert.equal(freshFromLegacyApp.Basement45.getState().weekNumber, 1);
-  assert.equal(freshFromLegacyApp.Basement45.getState().cycles.length, 5);
+  assert.equal(freshFromLegacyApp.Basement45.getState().cycles.length, 4);
   assert.deepEqual(
     Array.from(freshFromLegacyApp.Basement45.validateWeek()),
     [],

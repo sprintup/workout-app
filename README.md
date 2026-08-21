@@ -10,11 +10,11 @@ At the top of the app:
 
 Each circuit starts with a non-blocking **Optional total-body activator** checkbox for use when time remains, followed by a sticky row of checkboxes for rounds 1–3 and two to four exercises: **Focused** has 2, **Standard** has 3, and **Challenge** has 4. The optional activator does not affect circuit completion or the timer. Use `−` to remove the last optional exercise or `+` to automatically add the highest-ranked compatible exercise. The day sidebar stays visible while the workout scrolls.
 
-The sidebar includes a per-day workout timer. It remains disabled until the warm-up is complete, starts automatically when the final warm-up checkbox is checked, can be paused and resumed, and can be adjusted in five-minute steps while paused. Each of the nine round deadlines scales evenly with the selected duration, and an unchecked round turns red when its deadline passes. The timer stops after round nine, so warm-up and finisher time are excluded. Reset starts that day's selected time budget over.
+The sidebar includes a per-day workout timer. It remains disabled until the warm-up is complete, starts automatically when the final warm-up checkbox is checked, can be paused and resumed, and can be adjusted in five-minute steps while paused. Each of the nine round deadlines scales evenly with the selected duration, and an unchecked round turns red when its deadline passes. The timer stops after round nine, so warm-up and cool-down time are excluded. Reset starts that day's selected time budget over.
 
 Each circuit also has a collapsed optional total-body activator. Expanding it reveals one independently selectable exercise with its own completion checkbox, equipment, load, notes, and controls. It is not included in the circuit's exercise count, score, rounds, favorites, or completion state.
 
-Workout settings define a continuous rotation of 1–16 named cycles instead of binding targets to weekdays. Each cycle has one of seven generation targets and can optionally be limited to selected body parts: Arms & upper, Legs, Shoulder & Rotator cuff, Push, Pull, Total Body, or Total Body - No Equipment. Cycles can be added, removed, named, and reordered. The seven weekday slots consume the rotation in order; marking any weekday as rest defers its pending cycle and shifts every later assignment forward. Removing the rest day shifts the sequence back. The rotation continues across week boundaries.
+Workout settings define a continuous rotation of 1–16 entries instead of binding targets to weekdays. Add-cycle and add-rest-day controls sit with the rotation cards. Training cycles have one of six generation targets and can optionally be limited to selected body parts: Legs, Shoulder & Rotator cuff, Push, Pull, Total Body, or Total Body - No Equipment. The default rotation contains the first four of those targets. Training and scheduled-rest entries can be removed, named, and reordered. Each workout header has a cycle selector beside **Rest today**; selecting another workout cycle skips directly to it, regenerates that day and later days, and continues with the following rotation entry—including a scheduled rest day. A scheduled rest day consumes its place in the rotation; the separate **Rest today** control defers the pending entry without consuming it. The cycle summary includes an expandable body-part coverage list showing how many training cycles target each body part; rest, warm-up, and cool-down items are excluded from those counts. The global warm-up and cool-down checklists can be added to, renamed, reordered, or emptied from Settings. Warm-ups appear before the circuits; cool-downs appear after the circuits and are excluded from workout time. **5 core** is the single default cool-down item. The seven weekday slots consume the rotation in order, and the rotation continues across week boundaries.
 
 Every occurrence receives newly generated unlocked exercises. Locking an exercise stores that position on its cycle, immediately updates later unstarted occurrences of that cycle, and carries it into future weeks. Target, body-part, rest-day, removal, and reorder changes ask for confirmation before clearing affected progress. The no-equipment target restricts both circuit exercises and optional activators to movements requiring no weights, benches, bands, cable attachments, or machines.
 
@@ -32,7 +32,7 @@ Workout cards show required equipment, both-sides status, thumbs-up/down control
 
 Four small checks beside each load track completed workouts at that load. Completing all three rounds credits every exercise in the circuit once. After four credited workouts, an **Increase load** button appears for the next session; choosing a higher load resets the checks. Manually editing the load also resets them. A populated load field is highlighted so recommended or saved weights are easy to spot. Built-in and user-added exercises can be hidden directly from a workout, the swap picker, or the library; hidden exercises can be restored with **Show hidden**. Equipment-expansion movements are treated as built-in and receive a demonstration search link by default. The shoulder placeholder remains fixed; PT Exercises 1–3 are unlocked library entries.
 
-The finisher contains only the core-complete checkbox; the previous 20-minute cardio item has been removed.
+**5 core** is the single default item in the editable cool-down checklist. The previous separate finisher and 20-minute cardio item have been removed.
 
 The header shows the connected JSON filename and the most specific path the browser exposes. Standard browser security normally hides a local file's absolute parent path, so a browser may display only the filename even though autosave is connected.
 
@@ -124,13 +124,12 @@ The gym is in a basement with a low ceiling.
 
 ## Default Cycle Rotation
 
-Use the following default five-cycle rotation:
+Use the following default four-cycle rotation:
 
-1. Cycle 1: Arms and upper body
-2. Cycle 2: Legs
-3. Cycle 3: Shoulders and rotator cuff
-4. Cycle 4: Push
-5. Cycle 5: Pull
+1. Cycle 1: Legs
+2. Cycle 2: Shoulders and rotator cuff
+3. Cycle 3: Push
+4. Cycle 4: Pull
 
 Calendar weekdays round-robin through these cycles. Users may rename, reorder, add, or remove cycles and may build alternatives such as push/pull/legs without changing the calendar-day model.
 
@@ -214,38 +213,9 @@ Suggested scoring:
 
 Prefer supersets with a transition cost of 0 to 2. Avoid scores of 4 or 5 unless the user explicitly requests the pairing.
 
-## Day-Specific Requirements
+## Target-Specific Requirements
 
-### Monday: Arms and Upper Body
-
-Monday should contain exactly:
-
-- Three push-type movements
-- Three pull-type movements
-
-The three push movements should represent:
-
-1. One compound push
-2. One total-body or integrated push
-3. One isolated push
-
-The three pull movements should represent:
-
-1. One compound pull
-2. One total-body or integrated pull
-3. One isolated pull
-
-Recommended pairing pattern:
-
-```text
-Superset 1: Compound push + compound pull
-Superset 2: Total-body push + total-body pull
-Superset 3: Isolated push + isolated pull
-```
-
-Do not allow Monday to become heavily push-dominant or pull-dominant.
-
-### Tuesday: Legs
+### Legs
 
 - Do not add a separate warm-up section to the displayed workout.
 - Barbell squats are available and may be recommended.
@@ -258,7 +228,7 @@ Do not allow Monday to become heavily push-dominant or pull-dominant.
 
 Avoid relying on leg extensions or machine leg curls because those attachments are unavailable. Physio-ball or sliding hamstring curls are acceptable substitutes.
 
-### Wednesday: Shoulders and Rotator Cuff
+### Shoulders and Rotator Cuff
 
 - Include rotator-cuff and scapular-stability work.
 - The user has one personal shoulder exercise whose name is unknown.
@@ -281,7 +251,7 @@ Possible shoulder-health movements include:
 
 These movements are options, not medical treatment.
 
-### Thursday: Push
+### Push
 
 - Chest, shoulder, and triceps exercises may use dumbbells, body weight, or the FT.
 - FT cable presses, flyes, raises, and triceps movements qualify when they target a Push muscle.
@@ -289,7 +259,7 @@ These movements are options, not medical treatment.
 - Favor neutral-grip pressing when appropriate.
 - Avoid duplicating Monday's exact pressing exercises.
 
-### Friday: Pull
+### Pull
 
 Pull-day recommendations may use:
 
@@ -398,16 +368,16 @@ A recommended day should be representable as:
 ```yaml
 calendar_day: Monday
 cycle: Cycle 1
-focus: Arms and Upper Body
+focus: Legs
 supersets:
   - number: 1
-    category: Compound
+    category: Squat
     exercise_1:
-      role: Push
-      exercise_id: incline-neutral-grip-dumbbell-press
+      role: Squat
+      exercise_id: goblet-squat
     exercise_2:
-      role: Pull
-      exercise_id: one-arm-dumbbell-row
+      role: Stability
+      exercise_id: glute-bridge
     rounds: 3
 ```
 
@@ -421,17 +391,15 @@ Before returning a workout, validate all of the following:
 4. Unlocked exercises should vary across cycle occurrences when the qualification pool permits; cycle-locked exercises may repeat intentionally.
 5. Each training day contains three supersets unless the user overrides the format; rest days contain none.
 6. Each circuit contains two to four exercises and three tracked rounds.
-7. The nine round deadlines scale evenly within an adjustable workout timer; warm-up and finisher time are excluded.
+7. The nine round deadlines scale evenly within an adjustable workout timer; warm-up and cool-down time are excluded.
 8. Superset transition costs are acceptable.
-9. Monday contains three push and three pull movements.
-10. Monday contains compound, total-body, and isolation categories for both push and pull.
-11. Tuesday does not display a separate warm-up block.
-12. Wednesday contains shoulder-health work and the shoulder placeholder.
-13. Replacement eligibility works from each day's target muscles across all selected equipment.
-14. Thursday may contain qualifying FT presses, flyes, raises, and triceps movements.
-15. PT Exercises 1, 2, and 3 remain unlocked library entries.
-16. All overhead pressing and overhead triceps extensions are seated.
-17. Shoulder-sensitive and back-sensitive exercises have appropriate cautions or alternatives.
+9. Leg cycles include an appropriate balance of lower-body patterns.
+10. Shoulder cycles contain shoulder-health work and the shoulder placeholder.
+11. Replacement eligibility works from each cycle's target muscles across all selected equipment.
+12. Push cycles may contain qualifying FT presses, flyes, raises, and triceps movements.
+13. PT Exercises 1, 2, and 3 remain unlocked library entries.
+14. All overhead pressing and overhead triceps extensions are seated.
+15. Shoulder-sensitive and back-sensitive exercises have appropriate cautions or alternatives.
 
 ## Simplicity Requirements
 
@@ -452,19 +420,19 @@ Do not require notes, detailed analytics, recovery scores, or complex periodizat
 ## Example User-Facing Format
 
 ```text
-Monday - Arms and Upper Body
+Monday - Legs
 
-Superset 1 - Compound
-Push: Incline neutral-grip dumbbell press
-Pull: One-arm dumbbell row
+Superset 1 - Squat
+Exercise 1: Goblet squat
+Exercise 2: Glute bridge
 
-Superset 2 - Total Body
-Push: [recommended integrated push]
-Pull: Dumbbell clean
+Superset 2 - Hinge
+Exercise 1: Romanian deadlift
+Exercise 2: Standing calf raise
 
-Superset 3 - Isolation
-Push: Dumbbell skull crusher
-Pull: Incline dumbbell curl
+Superset 3 - Stability
+Exercise 1: Reverse lunge
+Exercise 2: Side plank
 ```
 
 ## Future User-Configurable Settings

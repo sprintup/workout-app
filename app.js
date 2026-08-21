@@ -39,7 +39,6 @@
   };
 
   const WORKOUT_TARGETS = [
-    { id: "arms_upper", label: "Arms & upper", templateKey: "monday" },
     { id: "legs", label: "Legs", templateKey: "tuesday" },
     {
       id: "shoulders_rotator",
@@ -78,18 +77,6 @@
     "Full body",
   ];
   const TARGET_BODY_PARTS = {
-    arms_upper: [
-      "Chest",
-      "Back",
-      "Lats",
-      "Shoulders",
-      "Rotator cuff",
-      "Biceps",
-      "Triceps",
-      "Forearms",
-      "Grip",
-      "Traps",
-    ],
     legs: ["Quadriceps", "Hamstrings", "Glutes", "Hips", "Calves"],
     shoulders_rotator: ["Shoulders", "Rotator cuff"],
     push: ["Chest", "Shoulders", "Triceps"],
@@ -97,6 +84,100 @@
     total_body: [...BODY_PART_OPTIONS],
     total_body_no_equipment: [...BODY_PART_OPTIONS],
   };
+  const DEFAULT_WARMUP_EXERCISES = [
+    { id: "stretch", label: "Stretch" },
+    { id: "pushups", label: "20 push-ups" },
+    { id: "pullups", label: "5 pull-ups" },
+  ];
+  const DEFAULT_COOLDOWN_EXERCISES = [{ id: "core", label: "5 core" }];
+
+  function createDefaultWarmupExercises() {
+    return DEFAULT_WARMUP_EXERCISES.map((exercise) => ({ ...exercise }));
+  }
+
+  function createDefaultCooldownExercises() {
+    return DEFAULT_COOLDOWN_EXERCISES.map((exercise) => ({ ...exercise }));
+  }
+
+  function normalizeRoutineExercises(values, defaults, prefix, noun) {
+    const source = Array.isArray(values) ? values : defaults;
+    const seen = new Set();
+    return source.slice(0, 24).map((exercise, index) => {
+      const requestedId = String(exercise?.id || `${prefix}-${index + 1}`);
+      let id = requestedId;
+      let suffix = 2;
+      while (seen.has(id)) {
+        id = `${requestedId}-${suffix}`;
+        suffix += 1;
+      }
+      seen.add(id);
+      return {
+        id,
+        label:
+          String(exercise?.label || "")
+            .trim()
+            .slice(0, 100) || `${noun} ${index + 1}`,
+      };
+    });
+  }
+
+  function normalizeWarmupExercises(values) {
+    return normalizeRoutineExercises(
+      values,
+      createDefaultWarmupExercises(),
+      "warmup",
+      "Warm-up exercise",
+    );
+  }
+
+  function isCoreCooldownLabel(value) {
+    const label = String(value || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+    return label === "core complete" || label === "5 core";
+  }
+
+  function normalizeCooldownExercises(values) {
+    const normalized = normalizeRoutineExercises(
+      values,
+      createDefaultCooldownExercises(),
+      "cooldown",
+      "Cool-down exercise",
+    );
+    const firstCoreIndex = normalized.findIndex((exercise) =>
+      isCoreCooldownLabel(exercise.label),
+    );
+    if (firstCoreIndex < 0) return normalized;
+    const canonicalCore =
+      normalized.find(
+        (exercise) =>
+          exercise.id === "core" && isCoreCooldownLabel(exercise.label),
+      ) || normalized[firstCoreIndex];
+    return normalized.flatMap((exercise, index) => {
+      if (index === firstCoreIndex)
+        return [{ ...canonicalCore, label: "5 core" }];
+      return isCoreCooldownLabel(exercise.label) ? [] : [exercise];
+    });
+  }
+
+  function warmupChecklist(warmups, current = {}) {
+    return Object.fromEntries(
+      warmups.map((exercise) => [exercise.id, Boolean(current?.[exercise.id])]),
+    );
+  }
+
+  function emptyWarmupChecklist() {
+    return warmupChecklist(
+      state?.warmupExercises || createDefaultWarmupExercises(),
+    );
+  }
+
+  function emptyCooldownChecklist() {
+    return warmupChecklist(
+      state?.cooldownExercises || createDefaultCooldownExercises(),
+    );
+  }
 
   function normalizeWorkoutTarget(value, fallback = "total_body") {
     const normalized = String(value || "")
@@ -105,13 +186,6 @@
       .replace(/[^a-z0-9]+/g, " ")
       .trim();
     const aliases = {
-      arms_upper: [
-        "arms upper",
-        "arms and upper",
-        "arms upper body",
-        "arms and upper body",
-        "upper strength practice",
-      ],
       legs: ["legs"],
       shoulders_rotator: [
         "shoulder rotator cuff",
@@ -149,15 +223,30 @@
     );
   }
 
+  function isRemovedArmsUpperTarget(value) {
+    const normalized = String(value || "")
+      .toLowerCase()
+      .replace(/&/g, "and")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+    return [
+      "arms upper",
+      "arms and upper",
+      "arms upper body",
+      "arms and upper body",
+      "upper strength practice",
+    ].includes(normalized);
+  }
+
   const DAY_CONFIG = [
     {
       id: "monday",
       short: "MON",
       name: "Monday",
-      focus: "Arms & upper",
-      defaultTarget: "arms_upper",
+      focus: "Training",
+      defaultTarget: "legs",
       guidance:
-        "Balanced by design: one compound, one integrated, and one isolation pairing — each with one push and one pull.",
+        "Follow the active cycle target and keep transitions practical for the available equipment.",
     },
     {
       id: "tuesday",
@@ -218,8 +307,9 @@
   ];
 
   function createDefaultCycles() {
-    return DAY_CONFIG.slice(0, 5).map((day, index) => ({
+    return DAY_CONFIG.slice(1, 5).map((day, index) => ({
       id: `cycle-${index + 1}`,
+      kind: "training",
       name: "",
       target: day.defaultTarget,
       bodyParts: [],
@@ -229,8 +319,16 @@
     }));
   }
 
+  function isRestCycle(cycle) {
+    return cycle?.kind === "rest" || cycle?.rest === true;
+  }
+
   function normalizeCycles(values) {
-    const source = Array.isArray(values) ? values.slice(0, 16) : [];
+    const source = Array.isArray(values)
+      ? values
+          .filter((cycle) => !isRemovedArmsUpperTarget(cycle?.target))
+          .slice(0, 16)
+      : [];
     const seen = new Set();
     const cycles = source
       .map((cycle, index) => {
@@ -239,8 +337,26 @@
           ? `cycle-${index + 1}-${Date.now()}`
           : requestedId;
         seen.add(id);
+        if (isRestCycle(cycle)) {
+          return {
+            id,
+            kind: "rest",
+            name: String(cycle?.name || "")
+              .trim()
+              .slice(0, 80),
+            target: null,
+            bodyParts: [],
+            description: String(
+              cycle?.description ||
+                "A scheduled recovery day that advances the rotation.",
+            ).slice(0, 600),
+            circuitExerciseCounts: [null, null, null],
+            lockedAssignments: [],
+          };
+        }
         return {
           id,
+          kind: "training",
           name: String(cycle?.name || "")
             .trim()
             .slice(0, 80),
@@ -278,7 +394,13 @@
         };
       })
       .filter((cycle) => cycle.id);
-    return cycles.length ? cycles : createDefaultCycles();
+    if (!cycles.length) return createDefaultCycles();
+    if (!cycles.some((cycle) => !isRestCycle(cycle))) {
+      const fallback = createDefaultCycles()[0];
+      if (cycles.length < 16) cycles.push(fallback);
+      else cycles[cycles.length - 1] = fallback;
+    }
+    return cycles;
   }
 
   const CUSTOM_EXERCISES = [
@@ -1872,6 +1994,23 @@
     return [...(TARGET_BODY_PARTS[targetIdForDay(dayId)] || BODY_PART_OPTIONS)];
   }
 
+  function targetBodyPartsForCycle(cycle) {
+    if (isRestCycle(cycle)) return [];
+    const selected = normalizeBodyParts(cycle?.bodyParts);
+    if (selected.length) return selected;
+    const targetId = normalizeWorkoutTarget(cycle?.target);
+    return [...(TARGET_BODY_PARTS[targetId] || BODY_PART_OPTIONS)];
+  }
+
+  function bodyPartCoverage() {
+    return bodyPartOptions().map((bodyPart) => ({
+      bodyPart,
+      count: state.cycles.filter((cycle) =>
+        targetBodyPartsForCycle(cycle).includes(bodyPart),
+      ).length,
+    }));
+  }
+
   function matchesDayTargetMuscles(exercise, dayId) {
     const targetParts = targetBodyPartsForDay(dayId);
     return exercise.body_parts.some((part) => targetParts.includes(part));
@@ -1947,6 +2086,7 @@
     editingExerciseId: null,
     favoriteTarget: null,
     expandedActivators: new Set(),
+    showBodyPartCoverage: false,
   };
 
   let state;
@@ -1965,7 +2105,14 @@
   }
 
   function cycleDisplayName(cycle, index = cyclePosition(cycle?.id)) {
-    return String(cycle?.name || "").trim() || `Cycle ${index + 1}`;
+    return (
+      String(cycle?.name || "").trim() ||
+      (isRestCycle(cycle) ? "Rest day" : `Cycle ${index + 1}`)
+    );
+  }
+
+  function cycleTargetLabel(cycle) {
+    return isRestCycle(cycle) ? "Rest day" : workoutTarget(cycle?.target).label;
   }
 
   function cycleForDay(dayId) {
@@ -1977,16 +2124,50 @@
     return state.cycles[Math.max(0, fallbackIndex) % state.cycles.length].id;
   }
 
-  function scheduleCycles(startCycleId, restDayIds = []) {
+  function normalizeCycleOverrides(values, cycles = state?.cycles || []) {
+    if (!values || typeof values !== "object") return {};
+    const cycleById = new Map(cycles.map((cycle) => [cycle.id, cycle]));
+    return Object.fromEntries(
+      DAY_CONFIG.map((day) => [day.id, String(values[day.id] || "")]).filter(
+        ([, cycleId]) => {
+          const cycle = cycleById.get(cycleId);
+          return cycle && !isRestCycle(cycle);
+        },
+      ),
+    );
+  }
+
+  function scheduleCycles(startCycleId, restDayIds = [], cycleOverrides = {}) {
     const rest = new Set(restDayIds);
+    const overrides = normalizeCycleOverrides(cycleOverrides);
     let cursor = cyclePosition(normalizedCycleId(startCycleId));
     const days = {};
     for (const day of DAY_CONFIG) {
+      const overrideCycle = cycleForId(overrides[day.id]);
+      if (overrideCycle) cursor = cyclePosition(overrideCycle.id);
       const pending = state.cycles[cursor % state.cycles.length];
       if (rest.has(day.id)) {
-        days[day.id] = { rest: true, cycle: null, pendingCycle: pending };
+        days[day.id] = {
+          rest: true,
+          restSource: "calendar",
+          cycle: null,
+          pendingCycle: pending,
+        };
+      } else if (isRestCycle(pending)) {
+        days[day.id] = {
+          rest: true,
+          restSource: "rotation",
+          cycle: pending,
+          pendingCycle: null,
+        };
+        cursor = (cursor + 1) % state.cycles.length;
       } else {
-        days[day.id] = { rest: false, cycle: pending, pendingCycle: null };
+        days[day.id] = {
+          rest: false,
+          restSource: null,
+          cycle: pending,
+          pendingCycle: null,
+        };
         cursor = (cursor + 1) % state.cycles.length;
       }
     }
@@ -2000,7 +2181,7 @@
     if (!day || day.rest) return false;
     return (
       Object.values(day.preChecklist || {}).some(Boolean) ||
-      Boolean(day.coreCompleted) ||
+      Object.values(day.cooldownChecklist || {}).some(Boolean) ||
       timerElapsed(day) > 0 ||
       (day.circuits || []).some(
         (circuit) =>
@@ -2051,6 +2232,8 @@
       customExercises: [],
       exerciseEdits: {},
       equipmentCatalog: exerciseEquipmentCatalog(),
+      warmupExercises: createDefaultWarmupExercises(),
+      cooldownExercises: createDefaultCooldownExercises(),
       cycles,
       weekStartCycleId: cycles[0].id,
       nextCycleId: cycles[0].id,
@@ -2685,6 +2868,7 @@
     return {
       day: day.name,
       rest: true,
+      restSource: "calendar",
       cycleId: null,
       pendingCycleId: pendingCycle.id,
       target: null,
@@ -2692,8 +2876,32 @@
       bodyParts: [],
       description: `${cycleDisplayName(pendingCycle)} waits until the next training day.`,
       circuits: [],
-      preChecklist: { stretch: false, pushups: false, pullups: false },
-      coreCompleted: false,
+      preChecklist: emptyWarmupChecklist(),
+      cooldownChecklist: emptyCooldownChecklist(),
+      timer: {
+        durationMs: DEFAULT_WORKOUT_DURATION_MS,
+        elapsedMs: 0,
+        startedAt: null,
+      },
+    };
+  }
+
+  function rotationRestWorkoutDay(day, cycle) {
+    return {
+      day: day.name,
+      rest: true,
+      restSource: "rotation",
+      cycleId: cycle.id,
+      pendingCycleId: null,
+      target: null,
+      focus: "Scheduled rest",
+      bodyParts: [],
+      description:
+        cycle.description ||
+        "A scheduled recovery day that advances the rotation.",
+      circuits: [],
+      preChecklist: emptyWarmupChecklist(),
+      cooldownChecklist: emptyCooldownChecklist(),
       timer: {
         durationMs: DEFAULT_WORKOUT_DURATION_MS,
         elapsedMs: 0,
@@ -2765,6 +2973,7 @@
     return {
       day: day.name,
       rest: false,
+      restSource: null,
       cycleId: cycle.id,
       pendingCycleId: null,
       target: targetId,
@@ -2772,8 +2981,8 @@
       bodyParts: [...cycle.bodyParts],
       description: cycle.description,
       circuits,
-      preChecklist: { stretch: false, pushups: false, pullups: false },
-      coreCompleted: false,
+      preChecklist: emptyWarmupChecklist(),
+      cooldownChecklist: emptyCooldownChecklist(),
       timer: {
         durationMs: DEFAULT_WORKOUT_DURATION_MS,
         elapsedMs: 0,
@@ -2798,7 +3007,14 @@
       : Array.isArray(previousWeek?.restDayIds)
         ? previousWeek.restDayIds
         : [];
-    const schedule = scheduleCycles(state.weekStartCycleId, restDayIds);
+    const cycleOverrides = normalizeCycleOverrides(
+      options.cycleOverrides || previousWeek?.cycleOverrides,
+    );
+    const schedule = scheduleCycles(
+      state.weekStartCycleId,
+      restDayIds,
+      cycleOverrides,
+    );
     const preserveMatching = Boolean(options.preserveMatching);
     const forceCycleIds = new Set(options.forceCycleIds || []);
     const forceDayIds = new Set(options.forceDayIds || []);
@@ -2816,8 +3032,14 @@
         preserveMatching &&
         previousDay &&
         Boolean(previousDay.rest) === scheduled.rest &&
-        (scheduled.rest || previousDay.cycleId === scheduled.cycle.id) &&
-        !forceCycleIds.has(scheduled.cycle?.id) &&
+        (scheduled.rest
+          ? scheduled.restSource === "rotation"
+            ? previousDay.restSource === "rotation" &&
+              previousDay.cycleId === scheduled.cycle.id
+            : previousDay.restSource !== "rotation" &&
+              previousDay.pendingCycleId === scheduled.pendingCycle.id
+          : previousDay.cycleId === scheduled.cycle.id) &&
+        !forceCycleIds.has(scheduled.cycle?.id || scheduled.pendingCycle?.id) &&
         !forceDayIds.has(day.id);
       if (!canPreserve) continue;
       preservedDays[day.id] = JSON.parse(JSON.stringify(previousDay));
@@ -2838,14 +3060,18 @@
         continue;
       }
       const scheduled = schedule.days[day.id];
-      days[day.id] = scheduled.rest
-        ? restWorkoutDay(day, scheduled.pendingCycle)
-        : generatedWorkoutDay(
-            day,
-            scheduled.cycle,
-            used,
-            usedByCycle.get(scheduled.cycle.id),
-          );
+      if (scheduled.restSource === "calendar") {
+        days[day.id] = restWorkoutDay(day, scheduled.pendingCycle);
+      } else if (scheduled.restSource === "rotation") {
+        days[day.id] = rotationRestWorkoutDay(day, scheduled.cycle);
+      } else {
+        days[day.id] = generatedWorkoutDay(
+          day,
+          scheduled.cycle,
+          used,
+          usedByCycle.get(scheduled.cycle.id),
+        );
+      }
     }
 
     const oldIds = mainExerciseIdSet(previousWeek);
@@ -2854,9 +3080,14 @@
       startedAt: state.weekStartedAt,
       startCycleId: state.weekStartCycleId,
       nextCycleId: schedule.nextCycleId,
-      restDayIds: DAY_CONFIG.filter((day) => schedule.days[day.id].rest).map(
-        (day) => day.id,
-      ),
+      restDayIds: [
+        ...new Set(
+          restDayIds.filter((dayId) =>
+            DAY_CONFIG.some((day) => day.id === dayId),
+          ),
+        ),
+      ],
+      cycleOverrides,
       days,
     };
     const nextIds = mainExerciseIdSet(nextWeek);
@@ -2999,8 +3230,8 @@
       focus: workoutTarget(targetId).label,
       bodyParts: [...normalizeBodyParts(bodyParts)],
       circuits,
-      preChecklist: { stretch: false, pushups: false, pullups: false },
-      coreCompleted: false,
+      preChecklist: emptyWarmupChecklist(),
+      cooldownChecklist: emptyCooldownChecklist(),
       timer: {
         durationMs: DEFAULT_WORKOUT_DURATION_MS,
         elapsedMs: 0,
@@ -3156,6 +3387,24 @@
     }
   }
 
+  function applyPendingStateMigrations() {
+    let changed = false;
+    if (state?.needsCycleRegeneration) {
+      delete state.needsCycleRegeneration;
+      generateWeek(null, {
+        restDayIds: Array.isArray(state.week?.restDayIds)
+          ? state.week.restDayIds
+          : [],
+      });
+      changed = true;
+    }
+    if (state?.needsCooldownNormalization) {
+      delete state.needsCooldownNormalization;
+      changed = true;
+    }
+    return changed;
+  }
+
   function normalizeState(candidate) {
     rebuildExerciseCatalog(
       candidate.customExercises || [],
@@ -3175,7 +3424,52 @@
       candidate.exerciseEdits && typeof candidate.exerciseEdits === "object"
         ? candidate.exerciseEdits
         : {};
+    normalized.warmupExercises = normalizeWarmupExercises(
+      candidate.warmupExercises,
+    );
+    const hasLegacyCoreCompletion = DAY_CONFIG.some((day) =>
+      Object.hasOwn(candidate.week?.days?.[day.id] || {}, "coreCompleted"),
+    );
+    const cooldownSource = Array.isArray(candidate.cooldownExercises)
+      ? [...candidate.cooldownExercises]
+      : null;
+    if (
+      hasLegacyCoreCompletion &&
+      cooldownSource &&
+      !cooldownSource.some((exercise) => exercise?.id === "core")
+    ) {
+      cooldownSource.unshift({ id: "core", label: "5 core" });
+    }
+    const sourceCoreCooldownIds = (cooldownSource || [])
+      .map((exercise, index) => ({
+        id: String(exercise?.id || `cooldown-${index + 1}`),
+        label: exercise?.label,
+      }))
+      .filter((exercise) => isCoreCooldownLabel(exercise.label))
+      .map((exercise) => exercise.id);
+    normalized.cooldownExercises = normalizeCooldownExercises(cooldownSource);
+    const candidateCooldownSignature = Array.isArray(
+      candidate.cooldownExercises,
+    )
+      ? candidate.cooldownExercises.map((exercise) => ({
+          id: String(exercise?.id || ""),
+          label: String(exercise?.label || "").trim(),
+        }))
+      : null;
+    const normalizedCooldownSignature = normalized.cooldownExercises.map(
+      (exercise) => ({ id: exercise.id, label: exercise.label }),
+    );
+    normalized.needsCooldownNormalization =
+      hasLegacyCoreCompletion ||
+      JSON.stringify(candidateCooldownSignature) !==
+        JSON.stringify(normalizedCooldownSignature);
+    const normalizedCoreCooldown = normalized.cooldownExercises.find(
+      (exercise) => isCoreCooldownLabel(exercise.label),
+    );
     normalized.cycles = normalizeCycles(candidate.cycles);
+    normalized.needsCycleRegeneration =
+      Array.isArray(candidate.cycles) &&
+      candidate.cycles.some((cycle) => isRemovedArmsUpperTarget(cycle?.target));
     const cycleIds = new Set(normalized.cycles.map((cycle) => cycle.id));
     const loadedWeekStartCycleId =
       candidate.weekStartCycleId || candidate.week?.startCycleId;
@@ -3298,6 +3592,10 @@
         )
       : [];
     normalized.week.restDayIds = restDayIds;
+    normalized.week.cycleOverrides = normalizeCycleOverrides(
+      normalized.week.cycleOverrides,
+      normalized.cycles,
+    );
     normalized.week.startCycleId = normalized.weekStartCycleId;
     normalized.week.nextCycleId = normalized.nextCycleId;
     const restDays = new Set(restDayIds);
@@ -3306,21 +3604,53 @@
     );
     for (const day of DAY_CONFIG) {
       const dayData = normalized.week.days[day.id];
+      const overrideCycleId = normalized.week.cycleOverrides[day.id];
+      if (overrideCycleId) {
+        cycleCursor = normalized.cycles.findIndex(
+          (cycle) => cycle.id === overrideCycleId,
+        );
+      }
       const pendingCycle = normalized.cycles[cycleCursor];
       if (restDays.has(day.id)) {
         dayData.rest = true;
+        dayData.restSource = "calendar";
         dayData.cycleId = null;
         dayData.pendingCycleId = pendingCycle.id;
         dayData.target = null;
         dayData.focus = "Rest day";
         dayData.bodyParts = [];
         dayData.circuits = [];
-        dayData.preChecklist = {
-          stretch: false,
-          pushups: false,
-          pullups: false,
+        dayData.preChecklist = warmupChecklist(normalized.warmupExercises);
+        dayData.cooldownChecklist = warmupChecklist(
+          normalized.cooldownExercises,
+        );
+        delete dayData.coreCompleted;
+        dayData.timer = {
+          durationMs: DEFAULT_WORKOUT_DURATION_MS,
+          elapsedMs: 0,
+          startedAt: null,
         };
-        dayData.coreCompleted = false;
+        continue;
+      }
+      if (isRestCycle(pendingCycle)) {
+        cycleCursor = (cycleCursor + 1) % normalized.cycles.length;
+        dayData.rest = true;
+        dayData.restSource = "rotation";
+        dayData.cycleId = pendingCycle.id;
+        dayData.pendingCycleId = null;
+        dayData.target = null;
+        dayData.focus = "Scheduled rest";
+        dayData.bodyParts = [];
+        dayData.description =
+          pendingCycle.description ||
+          "A scheduled recovery day that advances the rotation.";
+        dayData.circuits = [];
+        dayData.preChecklist = warmupChecklist(normalized.warmupExercises);
+        dayData.cooldownChecklist = warmupChecklist(
+          normalized.cooldownExercises,
+        );
+        delete dayData.coreCompleted;
+        delete dayData.cardioCompleted;
         dayData.timer = {
           durationMs: DEFAULT_WORKOUT_DURATION_MS,
           elapsedMs: 0,
@@ -3331,18 +3661,33 @@
       const cycle = pendingCycle;
       cycleCursor = (cycleCursor + 1) % normalized.cycles.length;
       dayData.rest = false;
+      dayData.restSource = null;
       dayData.cycleId = cycle.id;
       dayData.pendingCycleId = null;
       dayData.target = cycle.target;
       dayData.focus = workoutTarget(dayData.target).label;
       dayData.bodyParts = [...cycle.bodyParts];
       dayData.description = cycle.description;
-      dayData.preChecklist = {
-        stretch: Boolean(dayData.preChecklist?.stretch),
-        pushups: Boolean(dayData.preChecklist?.pushups),
-        pullups: Boolean(dayData.preChecklist?.pullups),
+      dayData.preChecklist = warmupChecklist(
+        normalized.warmupExercises,
+        dayData.preChecklist,
+      );
+      const loadedCooldownChecklist = {
+        ...(dayData.cooldownChecklist || {}),
       };
-      dayData.coreCompleted = Boolean(dayData.coreCompleted);
+      const coreWasCompleted =
+        Boolean(dayData.coreCompleted) ||
+        sourceCoreCooldownIds.some((id) =>
+          Boolean(loadedCooldownChecklist[id]),
+        );
+      if (normalizedCoreCooldown && coreWasCompleted) {
+        loadedCooldownChecklist[normalizedCoreCooldown.id] = true;
+      }
+      dayData.cooldownChecklist = warmupChecklist(
+        normalized.cooldownExercises,
+        loadedCooldownChecklist,
+      );
+      delete dayData.coreCompleted;
       delete dayData.cardioCompleted;
       const durationMs = normalizeTimerDuration(dayData.timer?.durationMs);
       dayData.timer = {
@@ -3430,9 +3775,11 @@
     normalized.nextCycleId = normalized.cycles[cycleCursor].id;
     normalized.week.nextCycleId = normalized.nextCycleId;
     migrateTotalBodyActivators(normalized.week, excludedIds);
-    const issues = validateWeek(normalized.week);
-    if (issues.length)
-      throw new Error(`The saved week is invalid: ${issues[0]}`);
+    if (!normalized.needsCycleRegeneration) {
+      const issues = validateWeek(normalized.week);
+      if (issues.length)
+        throw new Error(`The saved week is invalid: ${issues[0]}`);
+    }
     return normalized;
   }
 
@@ -4221,16 +4568,25 @@
   function displayDay(day) {
     const dayData = state.week.days[day.id];
     const cycle = cycleForId(dayData.cycleId);
+    const rotationRest = dayData.restSource === "rotation";
+    const displayedCycle = rotationRest
+      ? cycle
+      : dayData.rest
+        ? cycleForId(dayData.pendingCycleId)
+        : cycle;
     return {
       ...day,
-      focus: dayData.rest ? "Rest day" : workoutTarget(cycle.target).label,
+      focus: dayData.rest
+        ? rotationRest
+          ? "Scheduled rest"
+          : "Rest day"
+        : workoutTarget(cycle.target).label,
       guidance: dayData.rest
         ? dayData.description
         : cycle.description || day.guidance,
-      cycle,
-      cycleName: dayData.rest
-        ? cycleDisplayName(cycleForId(dayData.pendingCycleId))
-        : cycleDisplayName(cycle),
+      cycle: displayedCycle,
+      cycleName: cycleDisplayName(displayedCycle),
+      rotationRest,
     };
   }
 
@@ -4253,7 +4609,7 @@
       return `
         <button class="day-tab ${dayData.rest ? "is-rest" : ""} ${active ? "active" : ""}" type="button" data-view="${day.id}" aria-current="${active ? "page" : "false"}">
           <span class="day-short">${day.short}</span>
-          <span><strong>${day.name}</strong><small>${dayData.rest ? `Rest &middot; ${escapeHtml(day.cycleName)} waits` : `${escapeHtml(day.cycleName)} &middot; ${escapeHtml(day.focus)}`}</small></span>
+          <span><strong>${day.name}</strong><small>${dayData.rest ? (day.rotationRest ? `${escapeHtml(day.cycleName)} &middot; Scheduled rest` : `Rest &middot; ${escapeHtml(day.cycleName)} waits`) : `${escapeHtml(day.cycleName)} &middot; ${escapeHtml(day.focus)}`}</small></span>
           <span class="tab-status ${completeCount === 3 ? "complete" : ""}" aria-label="${dayData.rest ? "Rest day" : `${completeCount} of 3 circuits complete`}">${dayData.rest ? "&mdash;" : "&#10003;"}</span>
         </button>`;
     }).join("");
@@ -4517,25 +4873,43 @@
       </article>`;
   }
 
+  function renderDayCycleSelector(dayId, selectedCycleId) {
+    const workoutCycles = state.cycles
+      .map((cycle, index) => ({ cycle, index }))
+      .filter(({ cycle }) => !isRestCycle(cycle));
+    return `<label class="day-cycle-selector">
+      <span>Cycle</span>
+      <select data-day-cycle-select="true" data-day="${dayId}" aria-label="Workout cycle for ${escapeHtml(state.week.days[dayId].day)}">
+        ${workoutCycles
+          .map(
+            ({ cycle, index }) =>
+              `<option value="${cycle.id}" ${cycle.id === selectedCycleId ? "selected" : ""}>${escapeHtml(cycleDisplayName(cycle, index))} — ${escapeHtml(cycleTargetLabel(cycle))}</option>`,
+          )
+          .join("")}
+      </select>
+    </label>`;
+  }
+
   function renderWorkout(dayId) {
     const config = displayDay(DAY_CONFIG.find((day) => day.id === dayId));
     const day = state.week.days[dayId];
     if (day.rest) {
+      const rotationRest = day.restSource === "rotation";
       document.getElementById("workout-view").innerHTML = `
         <div class="content-frame rest-day-view">
           <header class="view-header">
             <div>
-              <span class="eyebrow">Cycle paused</span>
+              <span class="eyebrow">${rotationRest ? "Rotation rest day" : "Cycle paused"}</span>
               <h1>${config.name} <span>&mdash; Rest day</span></h1>
-              <p class="view-subtitle">${escapeHtml(config.cycleName)} remains next in the rotation and moves to the next available training day.</p>
+              <p class="view-subtitle">${rotationRest ? `${escapeHtml(config.cycleName)} is part of the rotation, so the next entry advances to the following day.` : `${escapeHtml(config.cycleName)} remains next in the rotation and moves to the next available training day.`}</p>
             </div>
             <div class="workout-header-actions">
-              <button class="button button-primary" type="button" data-action="toggle-rest-day" data-day="${dayId}">Train today instead</button>
+              ${rotationRest ? `<button class="button button-quiet" type="button" data-view="settings">Edit rotation</button>` : `<button class="button button-primary" type="button" data-action="toggle-rest-day" data-day="${dayId}">Train today instead</button>`}
             </div>
           </header>
           <section class="rest-day-panel">
             <span class="rest-day-mark" aria-hidden="true">&mdash;</span>
-            <div><strong>Recover today</strong><p>No cycle was consumed. Every later calendar day has shifted forward automatically.</p></div>
+            <div><strong>${rotationRest ? "Scheduled recovery" : "Recover today"}</strong><p>${rotationRest ? "This rest entry was consumed and the rotation continues with the next entry." : "No cycle was consumed. Every later calendar day has shifted forward automatically."}</p></div>
           </section>
         </div>`;
       updateWorkoutTimer();
@@ -4545,10 +4919,12 @@
     const beforeCircuitsComplete = Object.values(day.preChecklist).every(
       Boolean,
     );
-    const finisherComplete = day.coreCompleted;
+    const cooldownComplete = Object.values(day.cooldownChecklist).every(
+      Boolean,
+    );
 
     document.getElementById("workout-view").innerHTML = `
-      <div class="content-frame workout-content ${beforeCircuitsComplete ? "" : "has-pending-warmup"}">
+      <div class="content-frame workout-content ${!state.warmupExercises.length || beforeCircuitsComplete ? "" : "has-pending-warmup"}">
         <header class="view-header">
           <div>
             <span class="eyebrow">${escapeHtml(config.cycleName)} &middot; ${completed} of 3 circuits complete</span>
@@ -4556,24 +4932,41 @@
             <p id="timer-deadline-summary" class="view-subtitle">The nine round deadlines scale evenly across your ${timerDuration(day) / 60000}-minute workout after the warm-up.</p>
           </div>
           <div class="workout-header-actions">
+            ${renderDayCycleSelector(dayId, day.cycleId)}
             <button class="button button-quiet" type="button" data-action="toggle-rest-day" data-day="${dayId}" title="Make ${config.name} a rest day and shift the cycle sequence forward">Rest today</button>
             <div class="session-chip">${ICONS.clock}<span><span>Target time</span><strong id="timer-target-summary">About ${timerDuration(day) / 60000} minutes</strong></span></div>
           </div>
         </header>
         <div class="day-guidance">${ICONS.info}<span>${escapeHtml(config.guidance)}</span></div>
-        <div class="routine-row pre-routine ${beforeCircuitsComplete ? "is-complete" : ""}" aria-label="Before-circuit checklist">
-          <strong>Before circuits</strong>
-          <label><input type="checkbox" data-action="daily-check" data-day="${dayId}" data-item="stretch" ${day.preChecklist.stretch ? "checked" : ""} /> Stretch</label>
-          <label><input type="checkbox" data-action="daily-check" data-day="${dayId}" data-item="pushups" ${day.preChecklist.pushups ? "checked" : ""} /> 20 push-ups</label>
-          <label><input type="checkbox" data-action="daily-check" data-day="${dayId}" data-item="pullups" ${day.preChecklist.pullups ? "checked" : ""} /> 5 pull-ups</label>
-        </div>
+        ${
+          state.warmupExercises.length
+            ? `<div class="routine-row pre-routine ${beforeCircuitsComplete ? "is-complete" : ""}" aria-label="Warm-up checklist">
+                <strong>Warm-up</strong>
+                ${state.warmupExercises
+                  .map(
+                    (exercise) =>
+                      `<label><input type="checkbox" data-action="daily-check" data-day="${dayId}" data-item="${escapeHtml(exercise.id)}" ${day.preChecklist[exercise.id] ? "checked" : ""} /> ${escapeHtml(exercise.label)}</label>`,
+                  )
+                  .join("")}
+              </div>`
+            : ""
+        }
         <div class="circuit-grid">
           ${day.circuits.map((circuit, index) => renderCircuit(dayId, circuit, index)).join("")}
         </div>
-        <div class="routine-row core-routine ${finisherComplete ? "is-complete" : ""}">
-          <strong>Finisher</strong>
-          <label><input type="checkbox" data-action="core-check" data-day="${dayId}" ${day.coreCompleted ? "checked" : ""} /> Core complete</label>
-        </div>
+        ${
+          state.cooldownExercises.length
+            ? `<div class="routine-row cooldown-routine ${cooldownComplete ? "is-complete" : ""}" aria-label="Cool-down checklist">
+                <strong>Cool-down</strong>
+                ${state.cooldownExercises
+                  .map(
+                    (exercise) =>
+                      `<label><input type="checkbox" data-action="cooldown-check" data-day="${dayId}" data-item="${escapeHtml(exercise.id)}" ${day.cooldownChecklist[exercise.id] ? "checked" : ""} /> ${escapeHtml(exercise.label)}</label>`,
+                  )
+                  .join("")}
+              </div>`
+            : ""
+        }
       </div>`;
     updateWorkoutTimer();
   }
@@ -4770,55 +5163,137 @@
       </div>`;
   }
 
+  function renderRoutineSettingsPanel(kind, exercises) {
+    const warmup = kind === "warmup";
+    const title = warmup ? "Warm-up exercises" : "Cool-down exercises";
+    const adjective = warmup ? "Warm-up" : "Cool-down";
+    const description = warmup
+      ? "Shown before the circuits on every training day."
+      : "Shown after the circuits and excluded from workout time.";
+    const emptyMessage = warmup
+      ? "No warm-up exercises. Add one whenever you want a pre-circuit checklist."
+      : "No cool-down exercises. Add one whenever you want a post-workout checklist.";
+    return `<section class="routine-settings-panel ${kind}-settings-panel">
+      <header>
+        <div><strong>${title}</strong><span>${description}</span></div>
+        <button class="button button-quiet" type="button" data-action="add-${kind}-exercise" ${exercises.length >= 24 ? "disabled" : ""}>+ Add ${kind === "warmup" ? "warm-up" : "cool-down"} exercise</button>
+      </header>
+      <div class="routine-settings-list">
+        ${
+          exercises.length
+            ? exercises
+                .map(
+                  (exercise, index) =>
+                    `<div class="routine-settings-row">
+                      <span class="routine-order">${index + 1}</span>
+                      <label class="form-field"><span>Exercise ${index + 1}</span><input data-${kind}-setting="label" data-${kind}-id="${escapeHtml(exercise.id)}" maxlength="100" value="${escapeHtml(exercise.label)}" aria-label="${adjective} exercise ${index + 1}" /></label>
+                      <div class="routine-row-actions">
+                        <button type="button" data-action="move-${kind}-exercise" data-${kind}-id="${escapeHtml(exercise.id)}" data-direction="-1" ${index === 0 ? "disabled" : ""} aria-label="Move ${escapeHtml(exercise.label)} earlier">&uarr;</button>
+                        <button type="button" data-action="move-${kind}-exercise" data-${kind}-id="${escapeHtml(exercise.id)}" data-direction="1" ${index === exercises.length - 1 ? "disabled" : ""} aria-label="Move ${escapeHtml(exercise.label)} later">&darr;</button>
+                        <button class="routine-delete" type="button" data-action="delete-${kind}-exercise" data-${kind}-id="${escapeHtml(exercise.id)}" aria-label="Delete ${escapeHtml(exercise.label)}">Delete</button>
+                      </div>
+                    </div>`,
+                )
+                .join("")
+            : `<div class="routine-empty">${emptyMessage}</div>`
+        }
+      </div>
+    </section>`;
+  }
+
+  function renderCycleSettingsCard(cycle, index) {
+    const displayName = cycleDisplayName(cycle, index);
+    const trainingCycleCount = state.cycles.filter(
+      (item) => !isRestCycle(item),
+    ).length;
+    const removeDisabled = !isRestCycle(cycle) && trainingCycleCount <= 1;
+    const header = `<header>
+      <div><span class="cycle-number">${index + 1}</span><strong>${escapeHtml(displayName)}</strong></div>
+      <div class="cycle-card-actions">
+        <button type="button" data-action="move-cycle" data-cycle-id="${cycle.id}" data-direction="-1" ${index === 0 ? "disabled" : ""} aria-label="Move ${escapeHtml(displayName)} earlier">&uarr;</button>
+        <button type="button" data-action="move-cycle" data-cycle-id="${cycle.id}" data-direction="1" ${index === state.cycles.length - 1 ? "disabled" : ""} aria-label="Move ${escapeHtml(displayName)} later">&darr;</button>
+        <button class="delete" type="button" data-action="delete-cycle" data-cycle-id="${cycle.id}" ${removeDisabled ? "disabled" : ""}>Remove</button>
+      </div>
+    </header>`;
+
+    if (isRestCycle(cycle)) {
+      return `<article class="settings-card cycle-settings-card is-rest-cycle" data-cycle-card="${cycle.id}">
+        ${header}
+        <span class="cycle-kind-label">Rest day</span>
+        <label class="form-field"><span>Rest day name <small>optional</small></span><input data-cycle-setting="name" data-cycle-id="${cycle.id}" maxlength="80" value="${escapeHtml(cycle.name)}" placeholder="Rest day" /></label>
+        <p class="rest-cycle-copy">This entry consumes its place in the rotation. The separate <strong>Rest today</strong> control still pauses the rotation without consuming an entry.</p>
+        <label class="form-field"><span>Description</span><textarea data-cycle-setting="description" data-cycle-id="${cycle.id}" maxlength="600" rows="4">${escapeHtml(cycle.description)}</textarea></label>
+      </article>`;
+    }
+
+    return `<article class="settings-card cycle-settings-card" data-cycle-card="${cycle.id}">
+      ${header}
+      <label class="form-field"><span>Cycle name <small>optional</small></span><input data-cycle-setting="name" data-cycle-id="${cycle.id}" maxlength="80" value="${escapeHtml(cycle.name)}" placeholder="Cycle ${index + 1}" /></label>
+      <label class="form-field"><span>Training target</span><select data-cycle-setting="target" data-cycle-id="${cycle.id}">
+        ${WORKOUT_TARGETS.map((target) => `<option value="${target.id}" ${cycle.target === target.id ? "selected" : ""}>${escapeHtml(target.label)}</option>`).join("")}
+      </select></label>
+      <details class="body-part-settings">
+        <summary>${cycle.bodyParts.length ? `${cycle.bodyParts.length} selected body part${cycle.bodyParts.length === 1 ? "" : "s"}` : "All qualifying body parts"}</summary>
+        <div class="body-part-options">
+          ${bodyPartOptions()
+            .map(
+              (part) =>
+                `<label><input type="checkbox" data-cycle-body-part="${escapeHtml(part)}" data-cycle-id="${cycle.id}" ${cycle.bodyParts.includes(part) ? "checked" : ""} /> ${escapeHtml(part)}</label>`,
+            )
+            .join("")}
+          <small>Leave every box unchecked to use all body parts that qualify for this target.</small>
+          <button class="button button-quiet body-part-apply" type="button" data-action="apply-cycle-body-parts" data-cycle-id="${cycle.id}">Apply body parts</button>
+        </div>
+      </details>
+      <label class="form-field"><span>Description</span><textarea data-cycle-setting="description" data-cycle-id="${cycle.id}" maxlength="600" rows="4">${escapeHtml(cycle.description)}</textarea></label>
+    </article>`;
+  }
+
   function renderSettings() {
+    const coverage = bodyPartCoverage();
     document.getElementById("settings-view").innerHTML = `
       <div class="content-frame">
         <header class="view-header">
           <div>
             <span class="eyebrow">Continuous training rotation</span>
             <h1>Workout <span>cycles</span></h1>
-            <p class="view-subtitle">Build a 1&ndash;16 cycle split independent of weekdays. Calendar rest days defer the pending cycle without breaking the sequence.</p>
+            <p class="view-subtitle">Build a 1&ndash;16 entry rotation independent of weekdays. Scheduled rest entries advance the rotation; calendar rest days defer the pending entry.</p>
           </div>
-          <button class="button button-primary" type="button" data-action="add-cycle" ${state.cycles.length >= 16 ? "disabled" : ""}>+ Add cycle</button>
         </header>
-        <div class="cycle-sequence-summary">
-          <strong>${state.cycles.length} cycle${state.cycles.length === 1 ? "" : "s"}</strong>
-          <span>${state.cycles.map((cycle, index) => `${escapeHtml(cycleDisplayName(cycle, index))}: ${escapeHtml(workoutTarget(cycle.target).label)}`).join(" &rarr; ")}</span>
+        ${renderRoutineSettingsPanel("warmup", state.warmupExercises)}
+        <hr class="settings-section-divider" aria-hidden="true" />
+        <div class="cycle-section-heading">
+          <div><span class="eyebrow">Rotation sequence</span><h2>Cycles</h2></div>
+          <div class="cycle-section-actions">
+            <button class="button button-primary" type="button" data-action="add-cycle" ${state.cycles.length >= 16 ? "disabled" : ""}>+ Add cycle</button>
+            <button class="button button-quiet" type="button" data-action="add-rest-cycle" ${state.cycles.length >= 16 ? "disabled" : ""}>+ Add rest day</button>
+          </div>
         </div>
-        <div class="settings-grid cycle-settings-grid">
-          ${state.cycles
-            .map((cycle, index) => {
-              return `<article class="settings-card cycle-settings-card" data-cycle-card="${cycle.id}">
-              <header>
-                <div><span class="cycle-number">${index + 1}</span><strong>${escapeHtml(cycleDisplayName(cycle, index))}</strong></div>
-                <div class="cycle-card-actions">
-                  <button type="button" data-action="move-cycle" data-cycle-id="${cycle.id}" data-direction="-1" ${index === 0 ? "disabled" : ""} aria-label="Move ${escapeHtml(cycleDisplayName(cycle, index))} earlier">&uarr;</button>
-                  <button type="button" data-action="move-cycle" data-cycle-id="${cycle.id}" data-direction="1" ${index === state.cycles.length - 1 ? "disabled" : ""} aria-label="Move ${escapeHtml(cycleDisplayName(cycle, index))} later">&darr;</button>
-                  <button class="delete" type="button" data-action="delete-cycle" data-cycle-id="${cycle.id}" ${state.cycles.length <= 1 ? "disabled" : ""}>Remove</button>
-                </div>
-              </header>
-              <label class="form-field"><span>Cycle name <small>optional</small></span><input data-cycle-setting="name" data-cycle-id="${cycle.id}" maxlength="80" value="${escapeHtml(cycle.name)}" placeholder="Cycle ${index + 1}" /></label>
-              <label class="form-field"><span>Training target</span><select data-cycle-setting="target" data-cycle-id="${cycle.id}">
-                ${WORKOUT_TARGETS.map((target) => `<option value="${target.id}" ${cycle.target === target.id ? "selected" : ""}>${escapeHtml(target.label)}</option>`).join("")}
-              </select></label>
-              <details class="body-part-settings">
-                <summary>${cycle.bodyParts.length ? `${cycle.bodyParts.length} selected body part${cycle.bodyParts.length === 1 ? "" : "s"}` : "All qualifying body parts"}</summary>
-                <div class="body-part-options">
-                  ${bodyPartOptions()
+        <div class="cycle-sequence-summary">
+          <strong>${state.cycles.length} rotation entr${state.cycles.length === 1 ? "y" : "ies"}</strong>
+          <span>${state.cycles.map((cycle, index) => `${escapeHtml(cycleDisplayName(cycle, index))}: ${escapeHtml(cycleTargetLabel(cycle))}`).join(" &rarr; ")}</span>
+          <button class="coverage-toggle" type="button" data-action="toggle-body-part-coverage" aria-expanded="${ui.showBodyPartCoverage}">Body-part coverage</button>
+        </div>
+        ${
+          ui.showBodyPartCoverage
+            ? `<section class="body-part-coverage-panel" aria-label="Body-part coverage throughout cycles">
+                <header><strong>Body-part coverage</strong><span>Number of cycles that target each body part; warm-up and cool-down items are excluded</span></header>
+                <div class="body-part-coverage-list">
+                  ${coverage
                     .map(
-                      (part) =>
-                        `<label><input type="checkbox" data-cycle-body-part="${escapeHtml(part)}" data-cycle-id="${cycle.id}" ${cycle.bodyParts.includes(part) ? "checked" : ""} /> ${escapeHtml(part)}</label>`,
+                      ({ bodyPart, count }) =>
+                        `<div class="body-part-coverage-item" data-body-part-coverage="${escapeHtml(bodyPart)}"><span>${escapeHtml(bodyPart)}</span><strong>${count}</strong></div>`,
                     )
                     .join("")}
-                  <small>Leave every box unchecked to use all body parts that qualify for this target.</small>
-                  <button class="button button-quiet body-part-apply" type="button" data-action="apply-cycle-body-parts" data-cycle-id="${cycle.id}">Apply body parts</button>
                 </div>
-              </details>
-              <label class="form-field"><span>Description</span><textarea data-cycle-setting="description" data-cycle-id="${cycle.id}" maxlength="600" rows="4">${escapeHtml(cycle.description)}</textarea></label>
-            </article>`;
-            })
-            .join("")}
+              </section>`
+            : ""
+        }
+        <div class="settings-grid cycle-settings-grid">
+          ${state.cycles.map(renderCycleSettingsCard).join("")}
         </div>
+        <hr class="settings-section-divider" aria-hidden="true" />
+        ${renderRoutineSettingsPanel("cooldown", state.cooldownExercises)}
       </div>`;
   }
 
@@ -5646,6 +6121,9 @@
         );
       const { candidate, recoveredCount } = stateWithPortableExercises(parsed);
       state = normalizeState(candidate);
+      const removedLegacyArmsCycle = Boolean(state.needsCycleRegeneration);
+      const normalizedCoreCooldown = Boolean(state.needsCooldownNormalization);
+      applyPendingStateMigrations();
       ui.currentView = enabledDays()[0]?.id || "settings";
       if (handle) {
         fileHandle = handle;
@@ -5657,7 +6135,7 @@
       persist();
       render();
       showToast(
-        `Loaded Week ${state.weekNumber} from ${file.name}.${recoveredCount ? ` Recovered ${recoveredCount} portable library exercise${recoveredCount === 1 ? "" : "s"}.` : ""}`,
+        `Loaded Week ${state.weekNumber} from ${file.name}.${removedLegacyArmsCycle ? " Removed the retired Arms & upper cycle." : ""}${normalizedCoreCooldown ? " Consolidated the core cool-down into 5 core." : ""}${recoveredCount ? ` Recovered ${recoveredCount} portable library exercise${recoveredCount === 1 ? "" : "s"}.` : ""}`,
       );
     } catch (error) {
       rebuildExerciseCatalog(previousCustomExercises, previousExerciseEdits);
@@ -6022,8 +6500,10 @@
     try {
       generateWeek(previousWeek, {
         restDayIds: state.week.restDayIds,
+        cycleOverrides: state.week.cycleOverrides,
         preserveMatching: options.preserveMatching !== false,
         forceCycleIds: options.forceCycleIds || [],
+        forceDayIds: options.forceDayIds || [],
         trackChanges: true,
       });
       const issues = validateWeek(state.week);
@@ -6071,6 +6551,52 @@
     }
   }
 
+  function selectDayCycle(dayId, cycleId) {
+    const dayIndex = DAY_CONFIG.findIndex((day) => day.id === dayId);
+    const selectedCycle = cycleForId(cycleId);
+    const dayData = state.week.days[dayId];
+    if (
+      dayIndex < 0 ||
+      !dayData ||
+      dayData.rest ||
+      !selectedCycle ||
+      isRestCycle(selectedCycle) ||
+      dayData.cycleId === selectedCycle.id
+    )
+      return;
+    const affectedDays = DAY_CONFIG.slice(dayIndex);
+    if (
+      affectedDays.some((day) =>
+        workoutDayHasProgress(state.week.days[day.id]),
+      ) &&
+      !window.confirm(
+        `Changing ${dayData.day} to ${cycleDisplayName(selectedCycle)} skips to that point in the rotation and regenerates this day and every later day. Affected workout progress will be cleared. Continue?`,
+      )
+    ) {
+      renderWorkout(dayId);
+      return;
+    }
+
+    const backup = JSON.parse(JSON.stringify(state));
+    state.week.cycleOverrides ||= {};
+    for (const day of affectedDays) {
+      delete state.week.cycleOverrides[day.id];
+    }
+    state.week.cycleOverrides[dayId] = selectedCycle.id;
+    if (
+      !rebuildCycleSchedule(
+        {
+          preserveMatching: true,
+          forceDayIds: affectedDays.map((day) => day.id),
+        },
+        `${dayData.day} now uses ${cycleDisplayName(selectedCycle)}. The rotation continues from there.`,
+      )
+    ) {
+      state = normalizeState(backup);
+      render();
+    }
+  }
+
   function confirmWholeScheduleChange(message) {
     return (
       !cycleDaysWithProgress().length ||
@@ -6078,6 +6604,86 @@
         `${message} Affected workout progress will be cleared. Continue?`,
       )
     );
+  }
+
+  function nextRoutineId(exercises, prefix) {
+    const used = new Set(exercises.map((exercise) => exercise.id));
+    let index = 1;
+    while (used.has(`${prefix}-${index}`)) index += 1;
+    return `${prefix}-${index}`;
+  }
+
+  function moveRoutineExercise(exercises, exerciseId, direction, label) {
+    const index = exercises.findIndex((exercise) => exercise.id === exerciseId);
+    const nextIndex = index + Number(direction);
+    if (index < 0 || nextIndex < 0 || nextIndex >= exercises.length) return;
+    [exercises[index], exercises[nextIndex]] = [
+      exercises[nextIndex],
+      exercises[index],
+    ];
+    persist();
+    renderSettings();
+    showToast(`${label} order updated.`);
+  }
+
+  function addWarmupExercise() {
+    if (state.warmupExercises.length >= 24) return;
+    const exercise = {
+      id: nextRoutineId(state.warmupExercises, "warmup"),
+      label: "New warm-up exercise",
+    };
+    state.warmupExercises.push(exercise);
+    for (const day of DAY_CONFIG) {
+      state.week.days[day.id].preChecklist ||= {};
+      state.week.days[day.id].preChecklist[exercise.id] = false;
+    }
+    persist();
+    renderSettings();
+    showToast("Warm-up exercise added.");
+  }
+
+  function deleteWarmupExercise(warmupId) {
+    const index = state.warmupExercises.findIndex(
+      (exercise) => exercise.id === warmupId,
+    );
+    if (index < 0) return;
+    const [removed] = state.warmupExercises.splice(index, 1);
+    for (const day of DAY_CONFIG) {
+      delete state.week.days[day.id].preChecklist?.[warmupId];
+    }
+    persist();
+    renderSettings();
+    showToast(`${removed.label} removed from the warm-up.`);
+  }
+
+  function addCooldownExercise() {
+    if (state.cooldownExercises.length >= 24) return;
+    const exercise = {
+      id: nextRoutineId(state.cooldownExercises, "cooldown"),
+      label: "New cool-down exercise",
+    };
+    state.cooldownExercises.push(exercise);
+    for (const day of DAY_CONFIG) {
+      state.week.days[day.id].cooldownChecklist ||= {};
+      state.week.days[day.id].cooldownChecklist[exercise.id] = false;
+    }
+    persist();
+    renderSettings();
+    showToast("Cool-down exercise added.");
+  }
+
+  function deleteCooldownExercise(cooldownId) {
+    const index = state.cooldownExercises.findIndex(
+      (exercise) => exercise.id === cooldownId,
+    );
+    if (index < 0) return;
+    const [removed] = state.cooldownExercises.splice(index, 1);
+    for (const day of DAY_CONFIG) {
+      delete state.week.days[day.id].cooldownChecklist?.[cooldownId];
+    }
+    persist();
+    renderSettings();
+    showToast(`${removed.label} removed from the cool-down.`);
   }
 
   function addCycle() {
@@ -6092,6 +6698,7 @@
     const id = `cycle-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     state.cycles.push({
       id,
+      kind: "training",
       name: "",
       target: "total_body",
       bodyParts: [],
@@ -6103,6 +6710,37 @@
       !rebuildCycleSchedule(
         { preserveMatching: true },
         `Cycle ${state.cycles.length} added to the rotation.`,
+      )
+    ) {
+      state = normalizeState(backup);
+      render();
+    }
+  }
+
+  function addRestCycle() {
+    if (state.cycles.length >= 16) return;
+    if (
+      !confirmWholeScheduleChange(
+        "Adding a rest day may shift this week's rotation.",
+      )
+    )
+      return;
+    const backup = JSON.parse(JSON.stringify(state));
+    const id = `rest-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    state.cycles.push({
+      id,
+      kind: "rest",
+      name: "",
+      target: null,
+      bodyParts: [],
+      description: "A scheduled recovery day that advances the rotation.",
+      circuitExerciseCounts: [null, null, null],
+      lockedAssignments: [],
+    });
+    if (
+      !rebuildCycleSchedule(
+        { preserveMatching: true },
+        "Rest day added to the rotation.",
       )
     ) {
       state = normalizeState(backup);
@@ -6134,10 +6772,16 @@
   }
 
   function deleteCycle(cycleId) {
-    if (state.cycles.length <= 1) return;
     const index = state.cycles.findIndex((cycle) => cycle.id === cycleId);
     if (index < 0) return;
     const cycle = state.cycles[index];
+    if (
+      !isRestCycle(cycle) &&
+      state.cycles.filter((item) => !isRestCycle(item)).length <= 1
+    ) {
+      showToast("Keep at least one training cycle in the rotation.", "error");
+      return;
+    }
     if (
       !confirmWholeScheduleChange(
         `Removing ${cycleDisplayName(cycle, index)} changes this week's rotation.`,
@@ -6167,7 +6811,7 @@
   function applyCycleBodyParts(button) {
     const cycle = cycleForId(button.dataset.cycleId);
     const card = button.closest(".settings-card");
-    if (!cycle || !card) return;
+    if (!cycle || isRestCycle(cycle) || !card) return;
     const bodyParts = normalizeBodyParts(
       [...card.querySelectorAll("[data-cycle-body-part]:checked")].map(
         (input) => input.dataset.cycleBodyPart,
@@ -6240,8 +6884,51 @@
       toggleRestDay(actionButton.dataset.day);
       return;
     }
+    if (actionButton.dataset.action === "toggle-body-part-coverage") {
+      ui.showBodyPartCoverage = !ui.showBodyPartCoverage;
+      renderSettings();
+      return;
+    }
+    if (actionButton.dataset.action === "add-warmup-exercise") {
+      addWarmupExercise();
+      return;
+    }
+    if (actionButton.dataset.action === "move-warmup-exercise") {
+      moveRoutineExercise(
+        state.warmupExercises,
+        actionButton.dataset.warmupId,
+        actionButton.dataset.direction,
+        "Warm-up",
+      );
+      return;
+    }
+    if (actionButton.dataset.action === "delete-warmup-exercise") {
+      deleteWarmupExercise(actionButton.dataset.warmupId);
+      return;
+    }
+    if (actionButton.dataset.action === "add-cooldown-exercise") {
+      addCooldownExercise();
+      return;
+    }
+    if (actionButton.dataset.action === "move-cooldown-exercise") {
+      moveRoutineExercise(
+        state.cooldownExercises,
+        actionButton.dataset.cooldownId,
+        actionButton.dataset.direction,
+        "Cool-down",
+      );
+      return;
+    }
+    if (actionButton.dataset.action === "delete-cooldown-exercise") {
+      deleteCooldownExercise(actionButton.dataset.cooldownId);
+      return;
+    }
     if (actionButton.dataset.action === "add-cycle") {
       addCycle();
+      return;
+    }
+    if (actionButton.dataset.action === "add-rest-cycle") {
+      addRestCycle();
       return;
     }
     if (actionButton.dataset.action === "move-cycle") {
@@ -6396,12 +7083,50 @@
   }
 
   function handleChange(event) {
+    if (event.target.dataset?.dayCycleSelect && event.target.dataset.day) {
+      selectDayCycle(event.target.dataset.day, event.target.value);
+      return;
+    }
+    if (
+      event.target.dataset?.cooldownSetting === "label" &&
+      event.target.dataset.cooldownId
+    ) {
+      const index = state.cooldownExercises.findIndex(
+        (exercise) => exercise.id === event.target.dataset.cooldownId,
+      );
+      if (index < 0) return;
+      const label =
+        String(event.target.value || "")
+          .trim()
+          .slice(0, 100) || `Cool-down exercise ${index + 1}`;
+      state.cooldownExercises[index].label = label;
+      event.target.value = label;
+      persist();
+      return;
+    }
+    if (
+      event.target.dataset?.warmupSetting === "label" &&
+      event.target.dataset.warmupId
+    ) {
+      const index = state.warmupExercises.findIndex(
+        (exercise) => exercise.id === event.target.dataset.warmupId,
+      );
+      if (index < 0) return;
+      const label =
+        String(event.target.value || "")
+          .trim()
+          .slice(0, 100) || `Warm-up exercise ${index + 1}`;
+      state.warmupExercises[index].label = label;
+      event.target.value = label;
+      persist();
+      return;
+    }
     if (
       event.target.dataset?.cycleSetting === "target" &&
       event.target.dataset.cycleId
     ) {
       const cycle = cycleForId(event.target.dataset.cycleId);
-      if (!cycle) return;
+      if (!cycle || isRestCycle(cycle)) return;
       const nextTarget = normalizeWorkoutTarget(
         event.target.value,
         cycle.target,
@@ -6527,9 +7252,11 @@
       return;
     }
 
-    const core = event.target.closest('[data-action="core-check"]');
-    if (core) {
-      state.week.days[core.dataset.day].coreCompleted = core.checked;
+    const cooldown = event.target.closest('[data-action="cooldown-check"]');
+    if (cooldown) {
+      state.week.days[cooldown.dataset.day].cooldownChecklist[
+        cooldown.dataset.item
+      ] = cooldown.checked;
       persist();
       render();
       return;
@@ -6566,6 +7293,30 @@
   }
 
   function handleInput(event) {
+    if (
+      event.target.dataset?.cooldownSetting === "label" &&
+      event.target.dataset.cooldownId
+    ) {
+      const exercise = state.cooldownExercises.find(
+        (item) => item.id === event.target.dataset.cooldownId,
+      );
+      if (!exercise) return;
+      exercise.label = event.target.value.slice(0, 100);
+      persist();
+      return;
+    }
+    if (
+      event.target.dataset?.warmupSetting === "label" &&
+      event.target.dataset.warmupId
+    ) {
+      const exercise = state.warmupExercises.find(
+        (item) => item.id === event.target.dataset.warmupId,
+      );
+      if (!exercise) return;
+      exercise.label = event.target.value.slice(0, 100);
+      persist();
+      return;
+    }
     if (event.target.dataset?.cycleSetting && event.target.dataset.cycleId) {
       const cycle = cycleForId(event.target.dataset.cycleId);
       if (!cycle) return;
@@ -6701,6 +7452,8 @@
       rebuildExerciseCatalog([]);
       state = createState();
       generateWeek(null);
+      persist();
+    } else if (applyPendingStateMigrations()) {
       persist();
     }
 
