@@ -737,6 +737,46 @@ async function main() {
     splitApp.__elements.get("settings-view").innerHTML.includes("My ULPPL"),
     "settings should identify the applied custom split",
   );
+  selectView(splitApp, "thursday");
+  const customCycleWorkoutHtml =
+    splitApp.__elements.get("workout-view").innerHTML;
+  assert.equal(
+    (customCycleWorkoutHtml.match(/data-day-target-muscle=/g) || []).length,
+    2,
+    "the day summary should show the complete configured muscle list",
+  );
+  for (const muscle of ["Chest", "Shoulders"]) {
+    assert.ok(
+      customCycleWorkoutHtml.includes(`data-day-target-muscle="${muscle}"`),
+    );
+  }
+  const customCycleDay = splitState.week.days.thursday;
+  customCycleDay.circuits.forEach((circuit, circuitIndex) => {
+    const assignments = [circuit.first, circuit.second, ...circuit.extras];
+    const expectedCircuitMuscles = ["Chest", "Shoulders"].filter((part) =>
+      assignments.some((assignment) =>
+        splitApp.Basement45.exercises
+          .find((exercise) => exercise.id === assignment.exerciseId)
+          .body_parts.includes(part),
+      ),
+    );
+    assert.ok(expectedCircuitMuscles.length > 0);
+    for (const muscle of expectedCircuitMuscles) {
+      assert.ok(
+        customCycleWorkoutHtml.includes(
+          `data-circuit-muscle="${circuitIndex}:${muscle}"`,
+        ),
+        `circuit ${circuitIndex + 1} should list its ${muscle} subset`,
+      );
+    }
+  });
+  assert.equal(
+    customCycleWorkoutHtml.includes(
+      "training focused on the selected target muscles",
+    ),
+    false,
+  );
+  selectView(splitApp, "settings");
   const reloadedCustomSplitApp = launchApp(JSON.stringify(splitState));
   assert.equal(
     reloadedCustomSplitApp.Basement45.getState().customSplits[0].name,
@@ -1168,6 +1208,12 @@ async function main() {
     "45:00",
   );
   assert.ok(html.includes('data-action="adjust-workout-timer"'));
+  assert.ok(workoutHtml.includes("Target muscles"));
+  assert.equal((workoutHtml.match(/data-day-target-muscle=/g) || []).length, 5);
+  assert.equal(
+    (workoutHtml.match(/class="circuit-muscle-list"/g) || []).length,
+    3,
+  );
   assert.ok(
     workoutHtml.includes('data-action="toggle-rest-day" data-day="monday"'),
     "the active training day should expose its rest control in the workout header",

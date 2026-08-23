@@ -5137,8 +5137,21 @@
       </div>`;
   }
 
+  function circuitTargetMuscles(dayId, circuit) {
+    const workedMuscles = new Set(
+      mainAssignments(circuit).flatMap(
+        (assignment) =>
+          exerciseById.get(assignment.exerciseId)?.body_parts || [],
+      ),
+    );
+    return targetBodyPartsForDay(dayId).filter((part) =>
+      workedMuscles.has(part),
+    );
+  }
+
   function renderCircuit(dayId, circuit, circuitIndex) {
     const assignments = mainAssignments(circuit);
+    const circuitMuscles = circuitTargetMuscles(dayId, circuit);
     const elapsed = timerElapsed(state.week.days[dayId]);
     const exerciseItems = assignments
       .map((assignment, index) => {
@@ -5197,7 +5210,7 @@
         <header class="circuit-header">
           <div class="circuit-number">
             <span class="number-badge">${circuit.number}</span>
-            <span class="circuit-title"><span>Circuit ${circuit.number}</span><strong>${escapeHtml(circuit.category)}</strong></span>
+            <span class="circuit-title"><span>Circuit ${circuit.number}</span><strong>${escapeHtml(circuit.category)}</strong><span class="circuit-muscle-list" aria-label="Muscles targeted in circuit ${circuit.number}">${circuitMuscles.map((part) => `<i data-circuit-muscle="${circuitIndex}:${escapeHtml(part)}">${escapeHtml(part)}</i>`).join("")}</span></span>
           </div>
           <div class="circuit-scaling">
             <button class="favorite-button ${isFavoriteCircuit(dayId, circuitIndex, circuit) ? "active" : ""}" type="button" data-action="toggle-favorite-circuit" data-day="${dayId}" data-circuit="${circuitIndex}" title="${isFavoriteCircuit(dayId, circuitIndex, circuit) ? "Remove this circuit from favorites" : "Save this circuit as a favorite"}" aria-label="${isFavoriteCircuit(dayId, circuitIndex, circuit) ? "Remove circuit from favorites" : "Favorite this circuit"}">${ICONS.star}</button>
@@ -5276,6 +5289,7 @@
     const cooldownComplete = Object.values(day.cooldownChecklist).every(
       Boolean,
     );
+    const dayTargetMuscles = targetBodyPartsForDay(dayId);
 
     document.getElementById("workout-view").innerHTML = `
       <div class="content-frame workout-content ${!state.warmupExercises.length || beforeCircuitsComplete ? "" : "has-pending-warmup"}">
@@ -5291,7 +5305,7 @@
             <div class="session-chip">${ICONS.clock}<span><span>Target time</span><strong id="timer-target-summary">About ${timerDuration(day) / 60000} minutes</strong></span></div>
           </div>
         </header>
-        <div class="day-guidance">${ICONS.info}<span>${escapeHtml(config.guidance)}</span></div>
+        <div class="day-guidance day-muscle-summary">${ICONS.info}<div><strong>Target muscles</strong><span class="day-muscle-list">${dayTargetMuscles.map((part) => `<i data-day-target-muscle="${escapeHtml(part)}">${escapeHtml(part)}</i>`).join("")}</span></div></div>
         ${
           state.warmupExercises.length
             ? `<div class="routine-row pre-routine ${beforeCircuitsComplete ? "is-complete" : ""}" aria-label="Warm-up checklist">

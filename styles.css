@@ -655,6 +655,43 @@ svg {
   color: var(--orange-dark);
 }
 
+.day-muscle-summary > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+}
+
+.day-muscle-summary strong {
+  flex: 0 0 auto;
+  color: var(--forest);
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.day-muscle-list,
+.circuit-muscle-list {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 0.28rem;
+}
+
+.day-muscle-list i,
+.circuit-muscle-list i {
+  padding: 0.2rem 0.4rem;
+  border: 1px solid #bfd7cb;
+  border-radius: 999px;
+  color: var(--forest-2);
+  background: #f2f8f5;
+  font-size: 0.58rem;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
 .circuit-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -720,7 +757,8 @@ svg {
 
 .circuit-number {
   display: flex;
-  align-items: center;
+  min-width: 0;
+  align-items: flex-start;
   gap: 0.65rem;
 }
 
@@ -739,12 +777,16 @@ svg {
   line-height: 1;
 }
 
-.circuit-title span,
-.circuit-title strong {
+.circuit-title {
+  min-width: 0;
+}
+
+.circuit-title > span,
+.circuit-title > strong {
   display: block;
 }
 
-.circuit-title span {
+.circuit-title > span {
   color: var(--ink-soft);
   font-size: 0.65rem;
   font-weight: 700;
@@ -752,8 +794,20 @@ svg {
   text-transform: uppercase;
 }
 
-.circuit-title strong {
+.circuit-title > strong {
   font-size: 0.84rem;
+}
+
+.circuit-title > .circuit-muscle-list {
+  display: flex;
+  margin-top: 0.38rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.circuit-muscle-list i {
+  padding: 0.16rem 0.32rem;
+  font-size: 0.53rem;
 }
 
 .rounds-badge {
