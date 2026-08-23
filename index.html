@@ -7,7 +7,7 @@
       name="description"
       content="A flexible cycle-based basement-gym workout planner with exercise replacement and JSON backup."
     />
-    <title>Basement 45 — Workout Planner</title>
+    <title>Your Rotation. Your Domain. Keep Moving. — Basement 45</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -18,7 +18,7 @@
         <span class="brand-mark" aria-hidden="true">B45</span>
         <span>
           <strong>Basement 45</strong>
-          <small>Your rotation. Your rest days. Keep moving.</small>
+          <small>Your rotation. Your domain. Keep moving.</small>
         </span>
       </div>
 
@@ -446,6 +446,84 @@
           >
             Add to library
           </button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="split-dialog" class="replace-dialog split-dialog">
+      <form method="dialog" class="dialog-shell">
+        <header class="dialog-header">
+          <div>
+            <span class="eyebrow">Split and cycle manager</span>
+            <h2>Edit splits</h2>
+            <p>
+              Start with a template or a saved custom split. Day numbers define
+              the rotation; the selected weekday only maps Day 1 to the sidebar.
+            </p>
+          </div>
+          <button
+            class="icon-button"
+            type="button"
+            data-action="close-split-dialog"
+            aria-label="Close training split picker"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="m6 6 12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </header>
+        <div class="split-dialog-scroll">
+          <div class="split-dialog-toolbar">
+            <label class="split-week-start" for="split-week-start">
+              <span>Begin week on</span>
+              <select id="split-week-start">
+                <option value="monday">Monday</option>
+                <option value="tuesday">Tuesday</option>
+                <option value="wednesday">Wednesday</option>
+                <option value="thursday">Thursday</option>
+                <option value="friday">Friday</option>
+                <option value="saturday">Saturday</option>
+                <option value="sunday">Sunday</option>
+              </select>
+            </label>
+            <div class="split-toolbar-actions">
+              <button
+                class="button button-quiet"
+                type="button"
+                data-action="toggle-cycle-manager"
+              >
+                Edit cycles
+              </button>
+              <button
+                class="button button-primary"
+                type="button"
+                data-action="add-cycle-definition"
+              >
+                + Add cycle
+              </button>
+            </div>
+          </div>
+          <div id="split-cycle-manager"></div>
+          <div id="split-editor"></div>
+          <div id="split-options" class="split-options"></div>
+        </div>
+        <footer class="dialog-footer split-dialog-footer">
+          <div class="split-dialog-actions">
+            <button
+              class="button button-quiet"
+              type="button"
+              data-action="close-split-dialog"
+            >
+              Cancel
+            </button>
+            <button
+              class="button button-primary"
+              type="button"
+              data-action="apply-selected-split"
+            >
+              Add split
+            </button>
+          </div>
         </footer>
       </form>
     </dialog>

@@ -190,6 +190,45 @@ function changeDayCycle(app, day, cycleId) {
   });
 }
 
+function changeSplitWeekStart(app, day) {
+  const splitWeekStart = app.__elements.get("split-week-start");
+  splitWeekStart.value = day;
+  app.document._listeners.change[0]({
+    target: {
+      id: "split-week-start",
+      value: day,
+      dataset: {},
+    },
+  });
+}
+
+function changeSplitEntry(app, index, cycleId) {
+  app.document._listeners.change[0]({
+    target: {
+      value: cycleId,
+      dataset: { splitEntryIndex: String(index) },
+    },
+  });
+}
+
+function changeCycleDraftBodyPart(app, bodyPart, checked) {
+  app.document._listeners.change[0]({
+    target: {
+      checked,
+      dataset: { cycleDraftBodyPart: bodyPart },
+    },
+  });
+}
+
+function changeCycleDesignation(app, cycleId, designation) {
+  app.document._listeners.change[0]({
+    target: {
+      value: designation,
+      dataset: { cycleSetting: "designation", cycleId },
+    },
+  });
+}
+
 function selectView(app, view) {
   const target = {
     dataset: { view },
@@ -548,6 +587,309 @@ async function main() {
     "the day selector should continue into a scheduled rest after reload",
   );
 
+  selectView(cycleSelectorApp, "tuesday");
+  const scheduledRestSelectorHtml =
+    cycleSelectorApp.__elements.get("workout-view").innerHTML;
+  assert.ok(scheduledRestSelectorHtml.includes('data-day-cycle-select="true"'));
+  assert.ok(
+    scheduledRestSelectorHtml.includes(
+      `<option value="${selectorRestCycle.id}" selected>`,
+    ),
+    "a scheduled rest entry should be selected in the rest-day cycle picker",
+  );
+  changeDayCycle(cycleSelectorApp, "tuesday", selectableCycles[0].id);
+  cycleSelectorState = cycleSelectorApp.Basement45.getState();
+  assert.equal(cycleSelectorState.week.days.tuesday.rest, false);
+  assert.equal(
+    cycleSelectorState.week.days.tuesday.cycleId,
+    selectableCycles[0].id,
+    "choosing a workout cycle on a scheduled rest day should train that cycle",
+  );
+  assert.equal(
+    cycleSelectorState.week.days.wednesday.cycleId,
+    selectableCycles[1].id,
+    "the rotation should continue after a rest-day cycle override",
+  );
+
+  const splitApp = launchApp();
+  selectView(splitApp, "settings");
+  clickAction(splitApp, "open-split-dialog");
+  assert.equal(splitApp.__elements.get("split-dialog").open, true);
+  assert.equal(splitApp.__elements.get("split-week-start").value, "monday");
+  const splitOptionsHtml = splitApp.__elements.get("split-options").innerHTML;
+  assert.ok(splitOptionsHtml.includes('data-action="select-split"'));
+  assert.ok(splitOptionsHtml.includes("is-selected"));
+  assert.ok(html.includes('data-action="apply-selected-split"'));
+  assert.match(
+    html,
+    /class="button button-primary"[\s\S]*?data-action="add-cycle-definition"/,
+  );
+  assert.ok(html.includes("Add split"));
+  assert.ok(html.includes("Begin week on"));
+  assert.ok(
+    html.indexOf("Begin week on") < html.indexOf('id="split-options"'),
+    "the calendar mapping should appear above the split list",
+  );
+  assert.equal(splitOptionsHtml.includes("<small>MON</small>"), false);
+  assert.ok(splitOptionsHtml.includes("<small>Day 1</small>"));
+  for (const splitName of [
+    "ULPPL",
+    "PPL",
+    "Bro split",
+    "Full body",
+    "High-frequency full body",
+    "6-day upper / lower",
+    "4-day upper / lower + delts",
+  ]) {
+    assert.ok(splitOptionsHtml.includes(splitName));
+  }
+  assert.equal(
+    (splitOptionsHtml.match(/data-action="edit-split"/g) || []).length,
+    7,
+    "every supplied split template should have an editor",
+  );
+
+  clickAction(splitApp, "toggle-cycle-manager");
+  const cycleManagerHtml = splitApp.__elements.get(
+    "split-cycle-manager",
+  ).innerHTML;
+  for (const muscle of ["Biceps", "Chest", "Quadriceps", "Shoulders"]) {
+    assert.ok(
+      cycleManagerHtml.includes(`<span>${muscle}</span>`),
+      `the cycle library should expose ${muscle} membership`,
+    );
+  }
+  assert.ok(cycleManagerHtml.includes('data-action="edit-cycle-definition"'));
+  clickAction(splitApp, "add-cycle-definition");
+  inputSetting(splitApp, { cycleDraftName: "true" }, "Chest and shoulders");
+  changeCycleDraftBodyPart(splitApp, "Chest", true);
+  changeCycleDraftBodyPart(splitApp, "Shoulders", true);
+  clickAction(splitApp, "save-cycle-definition");
+  let splitState = splitApp.Basement45.getState();
+  assert.equal(splitState.customCycles.length, 1);
+  assert.equal(splitState.customCycles[0].name, "Chest and shoulders");
+  assert.deepEqual(Array.from(splitState.customCycles[0].bodyParts), [
+    "Chest",
+    "Shoulders",
+  ]);
+
+  const customCycleId = splitState.customCycles[0].id;
+  clickAction(splitApp, "edit-split", { splitId: "ulppl" });
+  let splitEditorHtml = splitApp.__elements.get("split-editor").innerHTML;
+  assert.ok(splitEditorHtml.includes("ULPPL custom"));
+  assert.equal(
+    (splitEditorHtml.match(/data-split-entry-index=/g) || []).length,
+    7,
+  );
+  assert.ok(splitEditorHtml.includes('data-action="edit-cycle-definition"'));
+  inputSetting(splitApp, { splitDraftName: "true" }, "My ULPPL");
+  changeSplitEntry(splitApp, 0, customCycleId);
+  clickAction(splitApp, "add-split-day");
+  clickAction(splitApp, "move-split-day", {
+    entryIndex: "0",
+    direction: "1",
+  });
+  clickAction(splitApp, "remove-split-day", { entryIndex: "7" });
+  clickAction(splitApp, "save-custom-split");
+  splitState = splitApp.Basement45.getState();
+  assert.equal(splitState.customSplits.length, 1);
+  assert.equal(splitState.customSplits[0].name, "My ULPPL");
+  assert.deepEqual(Array.from(splitState.customSplits[0].entries), [
+    "upper",
+    customCycleId,
+    "lower",
+    "rest",
+    "push",
+    "pull",
+    "legs",
+  ]);
+  const customSplitId = splitState.customSplits[0].id;
+  assert.ok(
+    splitApp.__elements
+      .get("split-options")
+      .innerHTML.includes(
+        `data-split-id="${customSplitId}" aria-pressed="true"`,
+      ),
+  );
+  changeSplitWeekStart(splitApp, "wednesday");
+  clickAction(splitApp, "apply-selected-split");
+  splitState = splitApp.Basement45.getState();
+  assert.equal(splitState.activeSplitId, customSplitId);
+  assert.equal(splitState.splitWeekStartDay, "wednesday");
+  assert.deepEqual(
+    Array.from(splitState.cycles, (cycle) =>
+      cycle.kind === "rest" ? "Rest" : cycle.designation,
+    ),
+    [
+      "Upper body",
+      "Chest and shoulders",
+      "Lower body",
+      "Rest",
+      "Push",
+      "Pull",
+      "Legs",
+    ],
+  );
+  assert.equal(splitState.week.days.monday.cycleId, splitState.cycles[5].id);
+  assert.equal(splitState.week.days.tuesday.cycleId, splitState.cycles[6].id);
+  assert.equal(splitState.week.days.wednesday.cycleId, splitState.cycles[0].id);
+  assert.ok(
+    splitApp.__elements.get("settings-view").innerHTML.includes("My ULPPL"),
+    "settings should identify the applied custom split",
+  );
+  const reloadedCustomSplitApp = launchApp(JSON.stringify(splitState));
+  assert.equal(
+    reloadedCustomSplitApp.Basement45.getState().customSplits[0].name,
+    "My ULPPL",
+  );
+  assert.equal(
+    reloadedCustomSplitApp.Basement45.getState().customCycles[0].name,
+    "Chest and shoulders",
+  );
+
+  const splitExpectations = [
+    {
+      id: "ulppl",
+      entries: [
+        "Rest",
+        "Upper body",
+        "Lower body",
+        "Rest",
+        "Push",
+        "Pull",
+        "Legs",
+      ],
+    },
+    {
+      id: "ppl",
+      entries: ["Push", "Pull", "Legs", "Push", "Pull", "Legs", "Rest"],
+    },
+    {
+      id: "bro",
+      entries: ["Rest", "Chest", "Back", "Legs", "Arms", "Delts", "Rest"],
+    },
+    {
+      id: "full_body",
+      entries: [
+        "Rest",
+        "Full body",
+        "Rest",
+        "Full body",
+        "Rest",
+        "Full body",
+        "Rest",
+      ],
+    },
+    {
+      id: "high_frequency_full_body",
+      entries: [
+        "Rest",
+        "Full body",
+        "Full body",
+        "Full body",
+        "Full body",
+        "Full body",
+        "Rest",
+      ],
+    },
+    {
+      id: "six_day_upper_lower",
+      entries: [
+        "Rest",
+        "Upper body",
+        "Lower body",
+        "Upper body",
+        "Lower body",
+        "Upper body",
+        "Lower body",
+      ],
+    },
+    {
+      id: "four_day_upper_lower_delts",
+      entries: [
+        "Rest",
+        "Upper body",
+        "Lower body",
+        "Rest",
+        "Upper body",
+        "Lower body",
+        "Arms / delts",
+      ],
+    },
+  ];
+  for (const [index, expectation] of splitExpectations.entries()) {
+    clickAction(splitApp, "open-split-dialog");
+    clickAction(splitApp, "select-split", { splitId: expectation.id });
+    const selectedSplitHtml =
+      splitApp.__elements.get("split-options").innerHTML;
+    assert.ok(
+      selectedSplitHtml.includes(
+        `data-split-id="${expectation.id}" aria-pressed="true"`,
+      ),
+      `${expectation.id} should be visibly selected before it is applied`,
+    );
+    const beginDay = index === 0 ? "wednesday" : "monday";
+    changeSplitWeekStart(splitApp, beginDay);
+    clickAction(splitApp, "apply-selected-split");
+    splitState = splitApp.Basement45.getState();
+    assert.equal(splitState.activeSplitId, expectation.id);
+    assert.equal(splitState.splitWeekStartDay, beginDay);
+    assert.deepEqual(
+      Array.from(splitState.cycles, (cycle) =>
+        cycle.kind === "rest" ? "Rest" : cycle.designation,
+      ),
+      expectation.entries,
+    );
+    if (index === 0) {
+      assert.equal(splitState.weekStartCycleId, splitState.cycles[5].id);
+      assert.equal(
+        splitState.week.days.monday.cycleId,
+        splitState.cycles[5].id,
+      );
+      assert.equal(
+        splitState.week.days.tuesday.cycleId,
+        splitState.cycles[6].id,
+      );
+      assert.equal(splitState.week.days.wednesday.rest, true);
+      assert.equal(
+        splitState.week.days.wednesday.cycleId,
+        splitState.cycles[0].id,
+      );
+    }
+    assert.deepEqual(Array.from(splitApp.Basement45.validateWeek()), []);
+  }
+  const appliedSplitSettingsHtml =
+    splitApp.__elements.get("settings-view").innerHTML;
+  assert.ok(appliedSplitSettingsHtml.includes("Current split"));
+  assert.ok(appliedSplitSettingsHtml.includes("4-day upper / lower + delts"));
+  assert.ok(appliedSplitSettingsHtml.includes(">+ Edit splits</button>"));
+  const reloadedSplitApp = launchApp(
+    JSON.stringify(splitApp.Basement45.getState()),
+  );
+  assert.equal(
+    reloadedSplitApp.Basement45.getState().activeSplitId,
+    "four_day_upper_lower_delts",
+  );
+  assert.equal(
+    reloadedSplitApp.Basement45.getState().splitWeekStartDay,
+    "monday",
+  );
+  assert.deepEqual(Array.from(reloadedSplitApp.Basement45.validateWeek()), []);
+
+  const designationApp = launchApp();
+  const designationCycleId = designationApp.Basement45.getState().cycles[0].id;
+  changeCycleDesignation(designationApp, designationCycleId, "Arms");
+  const armsCycle = designationApp.Basement45.getState().cycles[0];
+  assert.equal(armsCycle.designation, "Arms");
+  assert.equal(armsCycle.target, "custom");
+  assert.deepEqual(Array.from(armsCycle.bodyParts), [
+    "Biceps",
+    "Triceps",
+    "Forearms",
+    "Grip",
+  ]);
+  assert.deepEqual(Array.from(designationApp.Basement45.validateWeek()), []);
+
   const cycleSettingsApp = launchApp();
   const firstCycleId = cycleSettingsApp.Basement45.getState().cycles[0].id;
   inputSetting(
@@ -598,6 +940,7 @@ async function main() {
     cycleSettingsApp.__elements.get("workout-view").innerHTML;
   assert.ok(rotationRestHtml.includes("Scheduled recovery"));
   assert.ok(rotationRestHtml.includes('data-view="settings"'));
+  assert.ok(rotationRestHtml.includes('data-day-cycle-select="true"'));
   assert.equal(
     rotationRestHtml.includes('data-action="toggle-rest-day"'),
     false,
@@ -679,14 +1022,16 @@ async function main() {
       cycleSettingsHtml.indexOf("cycle-section-heading") <
         cycleSettingsHtml.indexOf("cycle-sequence-summary") &&
       cycleSettingsHtml.indexOf("cycle-sequence-summary") <
-        cycleSettingsHtml.indexOf("cycle-settings-grid") &&
-      cycleSettingsHtml.indexOf('data-action="add-cycle"') >
-        cycleSettingsHtml.indexOf("warmup-settings-panel") &&
-      cycleSettingsHtml.indexOf("cycle-settings-grid") <
         cycleSettingsHtml.indexOf("cooldown-settings-panel"),
     "warm-up settings should precede cycles and cool-down settings should follow them",
   );
-  assert.ok(cycleSettingsHtml.includes('data-action="add-rest-cycle"'));
+  assert.equal(cycleSettingsHtml.includes("cycle-settings-grid"), false);
+  assert.equal(cycleSettingsHtml.includes('data-action="add-cycle"'), false);
+  assert.equal(
+    cycleSettingsHtml.includes('data-action="add-rest-cycle"'),
+    false,
+  );
+  assert.ok(cycleSettingsHtml.includes(">+ Edit splits</button>"));
   clickAction(cycleSettingsApp, "add-warmup-exercise");
   let warmups = cycleSettingsApp.Basement45.getState().warmupExercises;
   assert.equal(warmups.length, 4);
@@ -815,7 +1160,7 @@ async function main() {
 
   const interactionApp = launchApp();
   const workoutHtml = interactionApp.__elements.get("workout-view").innerHTML;
-  assert.ok(html.includes("Your rotation. Your rest days. Keep moving."));
+  assert.ok(html.includes("Your rotation. Your domain. Keep moving."));
   assert.ok(!html.includes("Five days. Three circuits. Done."));
   assert.ok(html.includes("Not connected · basement-45-workouts.json"));
   assert.equal(
@@ -2110,10 +2455,13 @@ async function main() {
 
   selectView(interactionApp, "settings");
   const settingsHtml = interactionApp.__elements.get("settings-view").innerHTML;
-  assert.equal((settingsHtml.match(/data-cycle-card=/g) || []).length, 4);
-  assert.ok(settingsHtml.includes('data-action="add-cycle"'));
-  assert.ok(settingsHtml.includes('data-action="move-cycle"'));
-  assert.ok(settingsHtml.includes('data-action="delete-cycle"'));
+  assert.equal((settingsHtml.match(/data-cycle-card=/g) || []).length, 0);
+  assert.equal(settingsHtml.includes('data-action="add-cycle"'), false);
+  assert.ok(settingsHtml.includes('data-action="open-split-dialog"'));
+  assert.ok(settingsHtml.includes(">+ Edit splits</button>"));
+  assert.ok(settingsHtml.includes("Current split"));
+  assert.equal(settingsHtml.includes('data-action="move-cycle"'), false);
+  assert.equal(settingsHtml.includes('data-action="delete-cycle"'), false);
   assert.ok(settingsHtml.includes('data-action="toggle-body-part-coverage"'));
   assert.ok(settingsHtml.includes('data-action="add-warmup-exercise"'));
   assert.ok(settingsHtml.includes('data-action="move-warmup-exercise"'));
@@ -2130,19 +2478,12 @@ async function main() {
   );
   assert.ok(!settingsHtml.includes("Include this day"));
   assert.ok(!settingsHtml.includes("Arms &amp; upper"));
-  for (const label of [
-    "Legs",
-    "Shoulder &amp; Rotator cuff",
-    "Push",
-    "Pull",
-    "Total Body",
-    "Total Body - No Equipment",
-  ]) {
-    assert.ok(
-      settingsHtml.includes(`>${label}</option>`),
-      `settings should include the ${label} target`,
-    );
-  }
+  assert.equal(
+    (settingsHtml.match(/data-cycle-setting="designation"/g) || []).length,
+    0,
+    "cycle editing should live inside the split manager",
+  );
+  assert.equal(settingsHtml.includes('data-cycle-setting="target"'), false);
   const mondayIdsBeforeTargetChange =
     interactionApp.Basement45.getState().week.days.monday.circuits.flatMap(
       (circuit) => [
@@ -2189,7 +2530,13 @@ async function main() {
   assert.deepEqual(Array.from(interactionApp.Basement45.validateWeek()), []);
 
   const noEquipmentApp = launchApp();
-  changeDayTarget(noEquipmentApp, "saturday", "total_body_no_equipment");
+  const noEquipmentCycleId =
+    noEquipmentApp.Basement45.getState().week.days.saturday.cycleId;
+  changeCycleDesignation(
+    noEquipmentApp,
+    noEquipmentCycleId,
+    "Total Body - No Equipment",
+  );
   const noEquipmentState = noEquipmentApp.Basement45.getState();
   assert.equal(
     noEquipmentState.cycles.find(
@@ -2293,6 +2640,10 @@ async function main() {
   assert.ok(
     restDayHtml.includes("Train today instead"),
     "a rest day should expose its Train control at the top of the day",
+  );
+  assert.ok(
+    restDayHtml.includes('data-day-cycle-select="true"'),
+    "calendar rest days should retain the rotation selector",
   );
   assert.equal(
     (restDayHtml.match(/data-action="toggle-rest-day"/g) || []).length,

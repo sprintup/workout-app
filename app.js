@@ -53,6 +53,7 @@
       label: "Total Body - No Equipment",
       templateKey: "total_body_no_equipment",
     },
+    { id: "custom", label: "Custom", templateKey: "designation" },
   ];
   const WORKOUT_TARGET_BY_ID = new Map(
     WORKOUT_TARGETS.map((target) => [target.id, target]),
@@ -83,7 +84,195 @@
     pull: ["Back", "Lats", "Biceps", "Forearms", "Grip", "Traps"],
     total_body: [...BODY_PART_OPTIONS],
     total_body_no_equipment: [...BODY_PART_OPTIONS],
+    custom: [...BODY_PART_OPTIONS],
   };
+  const TRAINING_DESIGNATIONS = [
+    {
+      id: "upper",
+      label: "Upper body",
+      aliases: ["Upper"],
+      target: "custom",
+      bodyParts: [
+        "Chest",
+        "Back",
+        "Lats",
+        "Shoulders",
+        "Rotator cuff",
+        "Biceps",
+        "Triceps",
+        "Forearms",
+        "Grip",
+        "Traps",
+      ],
+    },
+    {
+      id: "lower",
+      label: "Lower body",
+      aliases: ["Lower"],
+      target: "legs",
+      bodyParts: ["Quadriceps", "Hamstrings", "Glutes", "Hips", "Calves"],
+    },
+    {
+      id: "push",
+      label: "Push",
+      target: "push",
+      bodyParts: ["Chest", "Shoulders", "Triceps"],
+    },
+    {
+      id: "pull",
+      label: "Pull",
+      target: "pull",
+      bodyParts: ["Back", "Lats", "Biceps", "Forearms", "Grip", "Traps"],
+    },
+    {
+      id: "legs",
+      label: "Legs",
+      target: "legs",
+      bodyParts: ["Quadriceps", "Hamstrings", "Glutes", "Hips", "Calves"],
+    },
+    {
+      id: "chest",
+      label: "Chest",
+      target: "custom",
+      bodyParts: ["Chest"],
+    },
+    {
+      id: "back",
+      label: "Back",
+      target: "custom",
+      bodyParts: ["Back", "Lats", "Traps"],
+    },
+    {
+      id: "arms",
+      label: "Arms",
+      target: "custom",
+      bodyParts: ["Biceps", "Triceps", "Forearms", "Grip"],
+    },
+    {
+      id: "delts",
+      label: "Delts",
+      target: "custom",
+      bodyParts: ["Shoulders", "Rotator cuff"],
+    },
+    {
+      id: "shoulders_rotator",
+      label: "Shoulder & Rotator cuff",
+      aliases: ["Shoulders and rotator cuff"],
+      target: "shoulders_rotator",
+      bodyParts: ["Shoulders", "Rotator cuff"],
+    },
+    {
+      id: "full_body",
+      label: "Full body",
+      aliases: ["Total Body"],
+      target: "total_body",
+      bodyParts: [...BODY_PART_OPTIONS],
+    },
+    {
+      id: "total_body_no_equipment",
+      label: "Total Body - No Equipment",
+      aliases: ["Full body no equipment"],
+      target: "total_body_no_equipment",
+      bodyParts: [...BODY_PART_OPTIONS],
+    },
+    {
+      id: "arms_delts",
+      label: "Arms / delts",
+      target: "custom",
+      bodyParts: [
+        "Shoulders",
+        "Rotator cuff",
+        "Biceps",
+        "Triceps",
+        "Forearms",
+        "Grip",
+      ],
+    },
+  ];
+
+  function normalizedDesignationKey(value) {
+    return String(value || "")
+      .toLowerCase()
+      .replace(/&/g, "and")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  }
+
+  const TRAINING_DESIGNATION_BY_KEY = new Map(
+    TRAINING_DESIGNATIONS.flatMap((designation) =>
+      [designation.id, designation.label, ...(designation.aliases || [])].map(
+        (key) => [normalizedDesignationKey(key), designation],
+      ),
+    ),
+  );
+  const SPLIT_PRESETS = [
+    {
+      id: "ulppl",
+      name: "ULPPL",
+      description: "Upper/lower followed by push, pull, and legs.",
+      entries: ["rest", "upper", "lower", "rest", "push", "pull", "legs"],
+    },
+    {
+      id: "ppl",
+      name: "PPL",
+      description: "Two push/pull/legs passes followed by recovery.",
+      entries: ["push", "pull", "legs", "push", "pull", "legs", "rest"],
+    },
+    {
+      id: "bro",
+      name: "Bro split",
+      description: "Dedicated chest, back, legs, arms, and delt days.",
+      entries: ["rest", "chest", "back", "legs", "arms", "delts", "rest"],
+    },
+    {
+      id: "full_body",
+      name: "Full body",
+      description: "Three full-body sessions separated by recovery days.",
+      entries: [
+        "rest",
+        "full_body",
+        "rest",
+        "full_body",
+        "rest",
+        "full_body",
+        "rest",
+      ],
+    },
+    {
+      id: "high_frequency_full_body",
+      name: "High-frequency full body",
+      description: "Five consecutive full-body sessions between rest days.",
+      entries: [
+        "rest",
+        "full_body",
+        "full_body",
+        "full_body",
+        "full_body",
+        "full_body",
+        "rest",
+      ],
+    },
+    {
+      id: "six_day_upper_lower",
+      name: "6-day upper / lower",
+      description: "Three alternating upper/lower pairs after recovery.",
+      entries: ["rest", "upper", "lower", "upper", "lower", "upper", "lower"],
+    },
+    {
+      id: "four_day_upper_lower_delts",
+      name: "4-day upper / lower + delts",
+      description: "Two upper/lower pairs plus a focused arms and delts day.",
+      entries: [
+        "rest",
+        "upper",
+        "lower",
+        "rest",
+        "upper",
+        "lower",
+        "arms_delts",
+      ],
+    },
+  ];
   const DEFAULT_WARMUP_EXERCISES = [
     { id: "stretch", label: "Stretch" },
     { id: "pushups", label: "20 push-ups" },
@@ -207,6 +396,7 @@
         "total body bodyweight",
         "bodyweight total body",
       ],
+      custom: ["custom"],
     };
     if (WORKOUT_TARGET_BY_ID.has(String(value))) return String(value);
     return (
@@ -221,6 +411,18 @@
       WORKOUT_TARGET_BY_ID.get(normalizeWorkoutTarget(targetId)) ||
       WORKOUT_TARGET_BY_ID.get("total_body")
     );
+  }
+
+  function trainingDesignation(value) {
+    return (
+      TRAINING_DESIGNATION_BY_KEY.get(String(value || "")) ||
+      TRAINING_DESIGNATION_BY_KEY.get(normalizedDesignationKey(value)) ||
+      null
+    );
+  }
+
+  function defaultDesignationLabel(targetId) {
+    return workoutTarget(normalizeWorkoutTarget(targetId)).label;
   }
 
   function isRemovedArmsUpperTarget(value) {
@@ -312,6 +514,7 @@
       kind: "training",
       name: "",
       target: day.defaultTarget,
+      designation: defaultDesignationLabel(day.defaultTarget),
       bodyParts: [],
       description: day.guidance,
       circuitExerciseCounts: [null, null, null],
@@ -354,13 +557,18 @@
             lockedAssignments: [],
           };
         }
+        const target = normalizeWorkoutTarget(cycle?.target);
         return {
           id,
           kind: "training",
           name: String(cycle?.name || "")
             .trim()
             .slice(0, 80),
-          target: normalizeWorkoutTarget(cycle?.target),
+          target,
+          designation:
+            String(cycle?.designation || defaultDesignationLabel(target))
+              .trim()
+              .slice(0, 80) || defaultDesignationLabel(target),
           bodyParts: normalizeBodyParts(cycle?.bodyParts),
           description: String(cycle?.description || "").slice(0, 600),
           circuitExerciseCounts: [0, 1, 2].map((circuitIndex) => {
@@ -401,6 +609,74 @@
       else cycles[cycles.length - 1] = fallback;
     }
     return cycles;
+  }
+
+  function builtInCycleDefinitions() {
+    return TRAINING_DESIGNATIONS.map((designation) => ({
+      id: designation.id,
+      name: designation.label,
+      target: designation.target,
+      bodyParts: [...designation.bodyParts],
+      description: `${designation.label} training focused on the selected target muscles.`,
+      template: true,
+    }));
+  }
+
+  function normalizeCustomCycleDefinitions(values) {
+    const seen = new Set(TRAINING_DESIGNATIONS.map((cycle) => cycle.id));
+    return (Array.isArray(values) ? values : [])
+      .slice(0, 64)
+      .map((cycle, index) => {
+        const requestedId = String(cycle?.id || `custom-cycle-${index + 1}`);
+        const id = seen.has(requestedId)
+          ? `custom-cycle-${index + 1}-${Date.now()}`
+          : requestedId;
+        seen.add(id);
+        const bodyParts = normalizeBodyParts(cycle?.bodyParts);
+        return {
+          id,
+          name:
+            String(cycle?.name || "")
+              .trim()
+              .slice(0, 80) || `Custom cycle ${index + 1}`,
+          target: normalizeWorkoutTarget(cycle?.target, "custom"),
+          bodyParts: bodyParts.length ? bodyParts : [...BODY_PART_OPTIONS],
+          description: String(cycle?.description || "").slice(0, 600),
+        };
+      });
+  }
+
+  function normalizeCustomSplits(values, customCycles = []) {
+    const validCycleIds = new Set([
+      "rest",
+      ...TRAINING_DESIGNATIONS.map((cycle) => cycle.id),
+      ...customCycles.map((cycle) => cycle.id),
+    ]);
+    const seen = new Set(SPLIT_PRESETS.map((split) => split.id));
+    return (Array.isArray(values) ? values : [])
+      .slice(0, 32)
+      .map((split, index) => {
+        const requestedId = String(split?.id || `custom-split-${index + 1}`);
+        const id = seen.has(requestedId)
+          ? `custom-split-${index + 1}-${Date.now()}`
+          : requestedId;
+        seen.add(id);
+        const entries = (Array.isArray(split?.entries) ? split.entries : [])
+          .map(String)
+          .filter((entry) => validCycleIds.has(entry))
+          .slice(0, 16);
+        if (!entries.some((entry) => entry !== "rest")) return null;
+        return {
+          id,
+          name:
+            String(split?.name || "")
+              .trim()
+              .slice(0, 80) || `Custom split ${index + 1}`,
+          description: String(split?.description || "").slice(0, 300),
+          entries,
+        };
+      })
+      .filter(Boolean);
   }
 
   const CUSTOM_EXERCISES = [
@@ -1747,6 +2023,14 @@
     },
     bridge: { label: "Between rounds", names: recoveryNames },
   }));
+  SLOTS.designation = ["Primary work", "Secondary work", "Accessory work"].map(
+    (category) => ({
+      category,
+      first: { label: "Target movement", names: flexibleExerciseNames },
+      second: { label: "Target movement", names: flexibleExerciseNames },
+      bridge: { label: "Between rounds", names: recoveryNames },
+    }),
+  );
 
   for (const circuits of Object.values(SLOTS)) {
     for (const circuit of circuits) circuit.bridge.label = ACTIVATOR_LABEL;
@@ -1963,6 +2247,10 @@
       { defaultCount: 3, names: totalBodyNoEquipmentNames },
       { defaultCount: 3, names: totalBodyNoEquipmentNames },
     ],
+    designation: [0, 1, 2].map(() => ({
+      defaultCount: 3,
+      names: flexibleExerciseNames,
+    })),
   };
 
   for (const [templateKey, circuits] of Object.entries(SLOTS)) {
@@ -2087,6 +2375,13 @@
     favoriteTarget: null,
     expandedActivators: new Set(),
     showBodyPartCoverage: false,
+    selectedSplitId: null,
+    splitWeekStartDay: "monday",
+    editingSplitId: null,
+    splitDraft: null,
+    showCycleManager: false,
+    editingCycleId: null,
+    cycleDraft: null,
   };
 
   let state;
@@ -2094,6 +2389,34 @@
   let fileHandle = null;
   let fileSaveTimer = null;
   let timerInterval = null;
+
+  function allSplitDefinitions() {
+    return [
+      ...SPLIT_PRESETS.map((split) => ({ ...split, template: true })),
+      ...(state?.customSplits || []).map((split) => ({
+        ...split,
+        template: false,
+      })),
+    ];
+  }
+
+  function splitForId(splitId) {
+    return allSplitDefinitions().find((split) => split.id === splitId) || null;
+  }
+
+  function allReusableCycles() {
+    return [
+      ...builtInCycleDefinitions(),
+      ...(state?.customCycles || []).map((cycle) => ({
+        ...cycle,
+        template: false,
+      })),
+    ];
+  }
+
+  function reusableCycleForId(cycleId) {
+    return allReusableCycles().find((cycle) => cycle.id === cycleId) || null;
+  }
 
   function cycleForId(cycleId) {
     return state?.cycles?.find((cycle) => cycle.id === cycleId) || null;
@@ -2112,7 +2435,10 @@
   }
 
   function cycleTargetLabel(cycle) {
-    return isRestCycle(cycle) ? "Rest day" : workoutTarget(cycle?.target).label;
+    return isRestCycle(cycle)
+      ? "Rest day"
+      : String(cycle?.designation || "").trim() ||
+          defaultDesignationLabel(cycle?.target);
   }
 
   function cycleForDay(dayId) {
@@ -2129,10 +2455,7 @@
     const cycleById = new Map(cycles.map((cycle) => [cycle.id, cycle]));
     return Object.fromEntries(
       DAY_CONFIG.map((day) => [day.id, String(values[day.id] || "")]).filter(
-        ([, cycleId]) => {
-          const cycle = cycleById.get(cycleId);
-          return cycle && !isRestCycle(cycle);
-        },
+        ([, cycleId]) => cycleById.has(cycleId),
       ),
     );
   }
@@ -2235,6 +2558,10 @@
       warmupExercises: createDefaultWarmupExercises(),
       cooldownExercises: createDefaultCooldownExercises(),
       cycles,
+      customCycles: [],
+      customSplits: [],
+      activeSplitId: null,
+      splitWeekStartDay: "monday",
       weekStartCycleId: cycles[0].id,
       nextCycleId: cycles[0].id,
       favoriteCircuits: [],
@@ -2977,7 +3304,7 @@
       cycleId: cycle.id,
       pendingCycleId: null,
       target: targetId,
-      focus: workoutTarget(targetId).label,
+      focus: cycleTargetLabel(cycle),
       bodyParts: [...cycle.bodyParts],
       description: cycle.description,
       circuits,
@@ -3467,6 +3794,24 @@
       (exercise) => isCoreCooldownLabel(exercise.label),
     );
     normalized.cycles = normalizeCycles(candidate.cycles);
+    normalized.customCycles = normalizeCustomCycleDefinitions(
+      candidate.customCycles,
+    );
+    normalized.customSplits = normalizeCustomSplits(
+      candidate.customSplits,
+      normalized.customCycles,
+    );
+    normalized.activeSplitId = [
+      ...SPLIT_PRESETS,
+      ...normalized.customSplits,
+    ].some((preset) => preset.id === candidate.activeSplitId)
+      ? candidate.activeSplitId
+      : null;
+    normalized.splitWeekStartDay = DAY_CONFIG.some(
+      (day) => day.id === candidate.splitWeekStartDay,
+    )
+      ? candidate.splitWeekStartDay
+      : "monday";
     normalized.needsCycleRegeneration =
       Array.isArray(candidate.cycles) &&
       candidate.cycles.some((cycle) => isRemovedArmsUpperTarget(cycle?.target));
@@ -3665,7 +4010,7 @@
       dayData.cycleId = cycle.id;
       dayData.pendingCycleId = null;
       dayData.target = cycle.target;
-      dayData.focus = workoutTarget(dayData.target).label;
+      dayData.focus = cycleTargetLabel(cycle);
       dayData.bodyParts = [...cycle.bodyParts];
       dayData.description = cycle.description;
       dayData.preChecklist = warmupChecklist(
@@ -4580,7 +4925,7 @@
         ? rotationRest
           ? "Scheduled rest"
           : "Rest day"
-        : workoutTarget(cycle.target).label,
+        : cycleTargetLabel(cycle),
       guidance: dayData.rest
         ? dayData.description
         : cycle.description || day.guidance,
@@ -4874,17 +5219,24 @@
   }
 
   function renderDayCycleSelector(dayId, selectedCycleId) {
-    const workoutCycles = state.cycles
-      .map((cycle, index) => ({ cycle, index }))
-      .filter(({ cycle }) => !isRestCycle(cycle));
+    const rotationEntries = state.cycles.map((cycle, index) => ({
+      cycle,
+      index,
+    }));
     return `<label class="day-cycle-selector">
       <span>Cycle</span>
       <select data-day-cycle-select="true" data-day="${dayId}" aria-label="Workout cycle for ${escapeHtml(state.week.days[dayId].day)}">
-        ${workoutCycles
-          .map(
-            ({ cycle, index }) =>
-              `<option value="${cycle.id}" ${cycle.id === selectedCycleId ? "selected" : ""}>${escapeHtml(cycleDisplayName(cycle, index))} — ${escapeHtml(cycleTargetLabel(cycle))}</option>`,
-          )
+        ${rotationEntries
+          .map(({ cycle, index }) => {
+            const name = cycleDisplayName(cycle, index);
+            const target = cycleTargetLabel(cycle);
+            const label = isRestCycle(cycle)
+              ? `${name} — Entry ${index + 1}`
+              : name === target
+                ? name
+                : `${name} — ${target}`;
+            return `<option value="${cycle.id}" ${cycle.id === selectedCycleId ? "selected" : ""}>${escapeHtml(label)}</option>`;
+          })
           .join("")}
       </select>
     </label>`;
@@ -4895,6 +5247,7 @@
     const day = state.week.days[dayId];
     if (day.rest) {
       const rotationRest = day.restSource === "rotation";
+      const selectedCycleId = rotationRest ? day.cycleId : day.pendingCycleId;
       document.getElementById("workout-view").innerHTML = `
         <div class="content-frame rest-day-view">
           <header class="view-header">
@@ -4904,6 +5257,7 @@
               <p class="view-subtitle">${rotationRest ? `${escapeHtml(config.cycleName)} is part of the rotation, so the next entry advances to the following day.` : `${escapeHtml(config.cycleName)} remains next in the rotation and moves to the next available training day.`}</p>
             </div>
             <div class="workout-header-actions">
+              ${renderDayCycleSelector(dayId, selectedCycleId)}
               ${rotationRest ? `<button class="button button-quiet" type="button" data-view="settings">Edit rotation</button>` : `<button class="button button-primary" type="button" data-action="toggle-rest-day" data-day="${dayId}">Train today instead</button>`}
             </div>
           </header>
@@ -5229,11 +5583,9 @@
     return `<article class="settings-card cycle-settings-card" data-cycle-card="${cycle.id}">
       ${header}
       <label class="form-field"><span>Cycle name <small>optional</small></span><input data-cycle-setting="name" data-cycle-id="${cycle.id}" maxlength="80" value="${escapeHtml(cycle.name)}" placeholder="Cycle ${index + 1}" /></label>
-      <label class="form-field"><span>Training target</span><select data-cycle-setting="target" data-cycle-id="${cycle.id}">
-        ${WORKOUT_TARGETS.map((target) => `<option value="${target.id}" ${cycle.target === target.id ? "selected" : ""}>${escapeHtml(target.label)}</option>`).join("")}
-      </select></label>
+      <label class="form-field"><span>Training target</span><input data-cycle-setting="designation" data-cycle-id="${cycle.id}" maxlength="80" value="${escapeHtml(cycleTargetLabel(cycle))}" placeholder="e.g. Upper body, Pull, or Chest" /></label>
       <details class="body-part-settings">
-        <summary>${cycle.bodyParts.length ? `${cycle.bodyParts.length} selected body part${cycle.bodyParts.length === 1 ? "" : "s"}` : "All qualifying body parts"}</summary>
+        <summary>${cycle.bodyParts.length ? `${cycle.bodyParts.length} target muscle${cycle.bodyParts.length === 1 ? "" : "s"}` : "All qualifying muscles"}</summary>
         <div class="body-part-options">
           ${bodyPartOptions()
             .map(
@@ -5241,37 +5593,187 @@
                 `<label><input type="checkbox" data-cycle-body-part="${escapeHtml(part)}" data-cycle-id="${cycle.id}" ${cycle.bodyParts.includes(part) ? "checked" : ""} /> ${escapeHtml(part)}</label>`,
             )
             .join("")}
-          <small>Leave every box unchecked to use all body parts that qualify for this target.</small>
-          <button class="button button-quiet body-part-apply" type="button" data-action="apply-cycle-body-parts" data-cycle-id="${cycle.id}">Apply body parts</button>
+          <small>Choose the muscles included in this designation. An exercise qualifies when it works at least one selected muscle.</small>
+          <button class="button button-quiet body-part-apply" type="button" data-action="apply-cycle-body-parts" data-cycle-id="${cycle.id}">Apply target muscles</button>
         </div>
       </details>
       <label class="form-field"><span>Description</span><textarea data-cycle-setting="description" data-cycle-id="${cycle.id}" maxlength="600" rows="4">${escapeHtml(cycle.description)}</textarea></label>
     </article>`;
   }
 
+  function splitEntryDetails(entryId) {
+    if (entryId === "rest") return { label: "Rest", bodyParts: [] };
+    const cycle = reusableCycleForId(entryId);
+    return {
+      label: cycle?.name || entryId,
+      bodyParts: cycle?.bodyParts || [],
+    };
+  }
+
+  function splitCycleOptions(selectedCycleId) {
+    return [
+      `<option value="rest" ${selectedCycleId === "rest" ? "selected" : ""}>Rest day</option>`,
+      ...allReusableCycles().map(
+        (cycle) =>
+          `<option value="${escapeHtml(cycle.id)}" ${selectedCycleId === cycle.id ? "selected" : ""}>${escapeHtml(cycle.name)}${cycle.template ? " (template)" : ""}</option>`,
+      ),
+    ].join("");
+  }
+
+  function renderSplitEditor() {
+    const editor = document.getElementById("split-editor");
+    const draft = ui.splitDraft;
+    if (!draft) {
+      editor.innerHTML = "";
+      return;
+    }
+    const source = splitForId(ui.editingSplitId);
+    const createsCustom = source?.template !== false;
+    editor.innerHTML = `<section class="split-editor-panel">
+      <header>
+        <div><span class="eyebrow">${createsCustom ? "New custom split" : "Custom split"}</span><h3>${createsCustom ? `Customize ${escapeHtml(source?.name || "split")}` : `Edit ${escapeHtml(source?.name || draft.name)}`}</h3><p>${createsCustom ? "The original template stays unchanged. Saving creates a named custom split." : "Changes update this reusable custom split; use Add split when you are ready to apply it."}</p></div>
+        <button class="button button-quiet" type="button" data-action="cancel-split-edit">Close editor</button>
+      </header>
+      <label class="form-field split-name-field"><span>Custom split name</span><input data-split-draft-name="true" maxlength="80" value="${escapeHtml(draft.name)}" placeholder="Name this split" /></label>
+      <div class="split-day-editor-list">
+        ${draft.entries
+          .map(
+            (entry, index) => `<div class="split-day-editor-row">
+              <strong>Day ${index + 1}</strong>
+              <label><span>Cycle</span><select data-split-entry-index="${index}" aria-label="Cycle assigned to Day ${index + 1}">${splitCycleOptions(entry)}</select></label>
+              <div class="split-day-actions">
+                <button type="button" data-action="edit-cycle-definition" data-cycle-definition-id="${escapeHtml(entry)}" ${entry === "rest" ? "disabled" : ""}>Edit cycle</button>
+                <button type="button" data-action="move-split-day" data-entry-index="${index}" data-direction="-1" ${index === 0 ? "disabled" : ""} aria-label="Move Day ${index + 1} earlier">&uarr;</button>
+                <button type="button" data-action="move-split-day" data-entry-index="${index}" data-direction="1" ${index === draft.entries.length - 1 ? "disabled" : ""} aria-label="Move Day ${index + 1} later">&darr;</button>
+                <button class="delete" type="button" data-action="remove-split-day" data-entry-index="${index}" ${draft.entries.length <= 1 ? "disabled" : ""}>Remove</button>
+              </div>
+            </div>`,
+          )
+          .join("")}
+      </div>
+      <footer>
+        <button class="button button-quiet" type="button" data-action="add-split-day" ${draft.entries.length >= 16 ? "disabled" : ""}>+ Add day</button>
+        <button class="button button-primary" type="button" data-action="save-custom-split">Save custom split</button>
+      </footer>
+    </section>`;
+  }
+
+  function renderCycleManager() {
+    const manager = document.getElementById("split-cycle-manager");
+    if (!ui.showCycleManager) {
+      manager.innerHTML = "";
+      return;
+    }
+    const draft = ui.cycleDraft;
+    manager.innerHTML = `<section class="split-cycle-manager-panel">
+      <header>
+        <div><span class="eyebrow">Reusable cycle library</span><h3>Edit cycles</h3><p>Name each cycle and choose every muscle it may target. Splits can assign the same cycle to multiple Day positions.</p></div>
+        <button class="button button-quiet" type="button" data-action="toggle-cycle-manager">Close cycles</button>
+      </header>
+      ${
+        draft
+          ? `<div class="cycle-definition-editor">
+              <header><strong>${draft.customId ? "Edit custom cycle" : draft.sourceId ? "Create a custom cycle" : "Add cycle"}</strong><span>${draft.sourceId && !draft.customId ? "The template remains unchanged; saving creates a custom cycle." : "This cycle can be used in any custom split."}</span></header>
+              <label class="form-field"><span>Cycle name</span><input data-cycle-draft-name="true" maxlength="80" value="${escapeHtml(draft.name)}" placeholder="e.g. Upper strength" /></label>
+              <fieldset class="cycle-muscle-picker"><legend>Muscles worked</legend><div>${bodyPartOptions()
+                .map(
+                  (part) =>
+                    `<label><input type="checkbox" data-cycle-draft-body-part="${escapeHtml(part)}" ${draft.bodyParts.includes(part) ? "checked" : ""} /> ${escapeHtml(part)}</label>`,
+                )
+                .join("")}</div></fieldset>
+              <div class="cycle-definition-editor-actions"><button class="button button-quiet" type="button" data-action="cancel-cycle-edit">Cancel</button><button class="button button-primary" type="button" data-action="save-cycle-definition">Save cycle</button></div>
+            </div>`
+          : ""
+      }
+      <div class="cycle-definition-list">
+        ${allReusableCycles()
+          .map(
+            (cycle) => `<article class="cycle-definition-card">
+              <header><div><strong>${escapeHtml(cycle.name)}</strong><span>${cycle.template ? "Template cycle" : "Custom cycle"}</span></div><div><button class="button button-quiet" type="button" data-action="edit-cycle-definition" data-cycle-definition-id="${escapeHtml(cycle.id)}">Edit cycle</button>${cycle.template ? "" : `<button class="button button-danger" type="button" data-action="delete-cycle-definition" data-cycle-definition-id="${escapeHtml(cycle.id)}">Delete</button>`}</div></header>
+              <div class="cycle-muscle-pills">${cycle.bodyParts.map((part) => `<span>${escapeHtml(part)}</span>`).join("")}</div>
+            </article>`,
+          )
+          .join("")}
+      </div>
+    </section>`;
+  }
+
+  function renderSplitOptions() {
+    document.getElementById("split-options").innerHTML = allSplitDefinitions()
+      .map((split) => {
+        const isCurrent = state.activeSplitId === split.id;
+        const isSelected = ui.selectedSplitId === split.id;
+        return `<article class="split-option ${isCurrent ? "is-active" : ""} ${isSelected ? "is-selected" : ""}">
+          <header><div><small>${split.template ? "Template" : "Custom split"}</small><strong>${escapeHtml(split.name)}</strong><span>${escapeHtml(split.description)}</span></div><div class="split-option-status">${isCurrent ? "<em>Current</em>" : ""}${isSelected ? '<em class="is-selection">Selected</em>' : ""}</div></header>
+          <div class="split-sequence" aria-label="${escapeHtml(split.name)} rotation">
+            ${split.entries
+              .map((entry, index) => {
+                const details = splitEntryDetails(entry);
+                return `<span class="${entry === "rest" ? "is-rest" : ""}"><small>Day ${index + 1}</small>${escapeHtml(details.label)}</span>`;
+              })
+              .join("")}
+          </div>
+          <div class="split-option-actions">
+            <button class="button ${isSelected ? "button-quiet" : "button-primary"}" type="button" data-action="select-split" data-split-id="${escapeHtml(split.id)}" aria-pressed="${isSelected}">${isSelected ? "Selected" : "Select split"}</button>
+            <button class="button button-quiet" type="button" data-action="edit-split" data-split-id="${escapeHtml(split.id)}">Edit split</button>
+          </div>
+        </article>`;
+      })
+      .join("");
+  }
+
+  function renderSplitDialog() {
+    renderCycleManager();
+    renderSplitEditor();
+    renderSplitOptions();
+  }
+
+  function openSplitDialog() {
+    ui.selectedSplitId =
+      state.activeSplitId && splitForId(state.activeSplitId)
+        ? state.activeSplitId
+        : SPLIT_PRESETS[0].id;
+    ui.splitWeekStartDay = state.splitWeekStartDay || "monday";
+    ui.editingSplitId = null;
+    ui.splitDraft = null;
+    ui.showCycleManager = false;
+    ui.editingCycleId = null;
+    ui.cycleDraft = null;
+    renderSplitDialog();
+    document.getElementById("split-week-start").value = ui.splitWeekStartDay;
+    document.getElementById("split-dialog").showModal();
+  }
+
   function renderSettings() {
     const coverage = bodyPartCoverage();
+    const activeSplit = splitForId(state.activeSplitId);
     document.getElementById("settings-view").innerHTML = `
       <div class="content-frame">
         <header class="view-header">
           <div>
             <span class="eyebrow">Continuous training rotation</span>
             <h1>Workout <span>cycles</span></h1>
-            <p class="view-subtitle">Build a 1&ndash;16 entry rotation independent of weekdays. Scheduled rest entries advance the rotation; calendar rest days defer the pending entry.</p>
+            <p class="view-subtitle">Choose a split, define its reusable cycles, and arrange a 1&ndash;16 day rotation independent of weekdays. Scheduled rest entries advance the rotation; calendar rest days defer the pending entry.</p>
           </div>
         </header>
         ${renderRoutineSettingsPanel("warmup", state.warmupExercises)}
         <hr class="settings-section-divider" aria-hidden="true" />
         <div class="cycle-section-heading">
-          <div><span class="eyebrow">Rotation sequence</span><h2>Cycles</h2></div>
+          <div><span class="eyebrow">Rotation sequence</span><h2>Active split</h2></div>
           <div class="cycle-section-actions">
-            <button class="button button-primary" type="button" data-action="add-cycle" ${state.cycles.length >= 16 ? "disabled" : ""}>+ Add cycle</button>
-            <button class="button button-quiet" type="button" data-action="add-rest-cycle" ${state.cycles.length >= 16 ? "disabled" : ""}>+ Add rest day</button>
+            <span class="current-split-status">Current split <strong>${activeSplit ? escapeHtml(activeSplit.name) : "Custom rotation"}</strong></span>
+            <button class="button button-primary" type="button" data-action="open-split-dialog">+ Edit splits</button>
           </div>
         </div>
         <div class="cycle-sequence-summary">
-          <strong>${state.cycles.length} rotation entr${state.cycles.length === 1 ? "y" : "ies"}</strong>
-          <span>${state.cycles.map((cycle, index) => `${escapeHtml(cycleDisplayName(cycle, index))}: ${escapeHtml(cycleTargetLabel(cycle))}`).join(" &rarr; ")}</span>
+          <strong>${activeSplit ? `${escapeHtml(activeSplit.name)} &middot; ` : ""}${state.cycles.length} rotation entr${state.cycles.length === 1 ? "y" : "ies"}</strong>
+          <span>${state.cycles
+            .map((cycle, index) => {
+              const name = cycleDisplayName(cycle, index);
+              const target = cycleTargetLabel(cycle);
+              return escapeHtml(name === target ? name : `${name}: ${target}`);
+            })
+            .join(" &rarr; ")}</span>
           <button class="coverage-toggle" type="button" data-action="toggle-body-part-coverage" aria-expanded="${ui.showBodyPartCoverage}">Body-part coverage</button>
         </div>
         ${
@@ -5289,9 +5791,6 @@
               </section>`
             : ""
         }
-        <div class="settings-grid cycle-settings-grid">
-          ${state.cycles.map(renderCycleSettingsCard).join("")}
-        </div>
         <hr class="settings-section-divider" aria-hidden="true" />
         ${renderRoutineSettingsPanel("cooldown", state.cooldownExercises)}
       </div>`;
@@ -6555,13 +7054,15 @@
     const dayIndex = DAY_CONFIG.findIndex((day) => day.id === dayId);
     const selectedCycle = cycleForId(cycleId);
     const dayData = state.week.days[dayId];
+    const scheduledCycleId =
+      dayData?.restSource === "calendar"
+        ? dayData.pendingCycleId
+        : dayData?.cycleId;
     if (
       dayIndex < 0 ||
       !dayData ||
-      dayData.rest ||
       !selectedCycle ||
-      isRestCycle(selectedCycle) ||
-      dayData.cycleId === selectedCycle.id
+      scheduledCycleId === selectedCycle.id
     )
       return;
     const affectedDays = DAY_CONFIG.slice(dayIndex);
@@ -6578,6 +7079,7 @@
     }
 
     const backup = JSON.parse(JSON.stringify(state));
+    state.week.restDayIds = state.week.restDayIds.filter((id) => id !== dayId);
     state.week.cycleOverrides ||= {};
     for (const day of affectedDays) {
       delete state.week.cycleOverrides[day.id];
@@ -6696,11 +7198,13 @@
       return;
     const backup = JSON.parse(JSON.stringify(state));
     const id = `cycle-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    state.activeSplitId = null;
     state.cycles.push({
       id,
       kind: "training",
       name: "",
       target: "total_body",
+      designation: "Full body",
       bodyParts: [],
       description: "A flexible total-body training cycle.",
       circuitExerciseCounts: [null, null, null],
@@ -6727,6 +7231,7 @@
       return;
     const backup = JSON.parse(JSON.stringify(state));
     const id = `rest-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    state.activeSplitId = null;
     state.cycles.push({
       id,
       kind: "rest",
@@ -6759,6 +7264,7 @@
     )
       return;
     const backup = JSON.parse(JSON.stringify(state));
+    state.activeSplitId = null;
     [state.cycles[index], state.cycles[nextIndex]] = [
       state.cycles[nextIndex],
       state.cycles[index],
@@ -6789,6 +7295,7 @@
     )
       return;
     const backup = JSON.parse(JSON.stringify(state));
+    state.activeSplitId = null;
     const nextCycle = state.cycles[(index + 1) % state.cycles.length];
     state.cycles.splice(index, 1);
     if (state.weekStartCycleId === cycleId)
@@ -6805,6 +7312,269 @@
     ) {
       state = normalizeState(backup);
       render();
+    }
+  }
+
+  function newDefinitionId(prefix, values) {
+    const used = new Set(values.map((value) => value.id));
+    let id;
+    do {
+      id = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    } while (used.has(id));
+    return id;
+  }
+
+  function openSplitEditor(splitId) {
+    const split = splitForId(splitId);
+    if (!split) return;
+    ui.editingSplitId = split.id;
+    ui.splitDraft = {
+      customId: split.template ? null : split.id,
+      name: split.template ? `${split.name} custom` : split.name,
+      description: split.description,
+      entries: [...split.entries],
+    };
+    renderSplitDialog();
+  }
+
+  function moveSplitDay(entryIndex, direction) {
+    if (!ui.splitDraft) return;
+    const index = Number(entryIndex);
+    const nextIndex = index + Number(direction);
+    if (
+      !Number.isInteger(index) ||
+      index < 0 ||
+      nextIndex < 0 ||
+      nextIndex >= ui.splitDraft.entries.length
+    )
+      return;
+    [ui.splitDraft.entries[index], ui.splitDraft.entries[nextIndex]] = [
+      ui.splitDraft.entries[nextIndex],
+      ui.splitDraft.entries[index],
+    ];
+    renderSplitEditor();
+  }
+
+  function addSplitDay() {
+    if (!ui.splitDraft || ui.splitDraft.entries.length >= 16) return;
+    ui.splitDraft.entries.push(allReusableCycles()[0]?.id || "rest");
+    renderSplitEditor();
+  }
+
+  function removeSplitDay(entryIndex) {
+    if (!ui.splitDraft || ui.splitDraft.entries.length <= 1) return;
+    const index = Number(entryIndex);
+    if (
+      !Number.isInteger(index) ||
+      index < 0 ||
+      index >= ui.splitDraft.entries.length
+    )
+      return;
+    ui.splitDraft.entries.splice(index, 1);
+    renderSplitEditor();
+  }
+
+  function saveCustomSplit() {
+    const draft = ui.splitDraft;
+    if (!draft) return;
+    const name = String(draft.name || "")
+      .trim()
+      .slice(0, 80);
+    if (!name) {
+      showToast("Give the custom split a name before saving.", "error");
+      return;
+    }
+    if (!draft.entries.some((entry) => entry !== "rest")) {
+      showToast("A split needs at least one training cycle.", "error");
+      return;
+    }
+    const id =
+      draft.customId || newDefinitionId("custom-split", state.customSplits);
+    const normalized = normalizeCustomSplits(
+      [
+        {
+          id,
+          name,
+          description:
+            draft.description || "A custom training split based on a template.",
+          entries: draft.entries,
+        },
+      ],
+      state.customCycles,
+    )[0];
+    if (!normalized) {
+      showToast("The custom split contains an unavailable cycle.", "error");
+      return;
+    }
+    const existingIndex = state.customSplits.findIndex(
+      (split) => split.id === id,
+    );
+    if (existingIndex >= 0) state.customSplits[existingIndex] = normalized;
+    else state.customSplits.push(normalized);
+    ui.selectedSplitId = normalized.id;
+    ui.editingSplitId = null;
+    ui.splitDraft = null;
+    persist();
+    renderSettings();
+    renderSplitDialog();
+    showToast(`${normalized.name} saved as a custom split.`);
+  }
+
+  function openCycleDefinitionEditor(cycleId = null) {
+    const cycle = cycleId ? reusableCycleForId(cycleId) : null;
+    if (cycleId && !cycle) return;
+    ui.showCycleManager = true;
+    ui.editingCycleId = cycle?.id || null;
+    ui.cycleDraft = {
+      customId: cycle && !cycle.template ? cycle.id : null,
+      sourceId: cycle?.id || null,
+      name: cycle
+        ? cycle.template
+          ? `${cycle.name} custom`
+          : cycle.name
+        : "New cycle",
+      target: cycle?.target || "custom",
+      bodyParts: cycle ? [...cycle.bodyParts] : [],
+      description: cycle?.description || "A reusable custom training cycle.",
+    };
+    renderCycleManager();
+  }
+
+  function saveCycleDefinition() {
+    const draft = ui.cycleDraft;
+    if (!draft) return;
+    const name = String(draft.name || "")
+      .trim()
+      .slice(0, 80);
+    const bodyParts = normalizeBodyParts(draft.bodyParts);
+    if (!name) {
+      showToast("Give the cycle a name before saving.", "error");
+      return;
+    }
+    if (!bodyParts.length) {
+      showToast("Select at least one muscle for this cycle.", "error");
+      return;
+    }
+    const id =
+      draft.customId || newDefinitionId("custom-cycle", state.customCycles);
+    const normalized = normalizeCustomCycleDefinitions([
+      {
+        id,
+        name,
+        target: draft.target,
+        bodyParts,
+        description: draft.description,
+      },
+    ])[0];
+    const existingIndex = state.customCycles.findIndex(
+      (cycle) => cycle.id === id,
+    );
+    if (existingIndex >= 0) state.customCycles[existingIndex] = normalized;
+    else state.customCycles.push(normalized);
+    if (ui.splitDraft && draft.sourceId && !draft.customId) {
+      ui.splitDraft.entries = ui.splitDraft.entries.map((entry) =>
+        entry === draft.sourceId ? normalized.id : entry,
+      );
+    }
+    ui.editingCycleId = null;
+    ui.cycleDraft = null;
+    persist();
+    renderSplitDialog();
+    showToast(`${normalized.name} saved to the cycle library.`);
+  }
+
+  function deleteCycleDefinition(cycleId) {
+    const cycle = state.customCycles.find((item) => item.id === cycleId);
+    if (!cycle) return;
+    const usedBy = state.customSplits.filter((split) =>
+      split.entries.includes(cycleId),
+    );
+    if (usedBy.length) {
+      showToast(
+        `${cycle.name} is used by ${usedBy.map((split) => split.name).join(", ")}. Remove it from those splits first.`,
+        "error",
+      );
+      return;
+    }
+    if (!window.confirm(`Delete ${cycle.name} from the cycle library?`)) return;
+    state.customCycles = state.customCycles.filter(
+      (item) => item.id !== cycleId,
+    );
+    persist();
+    renderSplitDialog();
+    showToast(`${cycle.name} deleted from the cycle library.`);
+  }
+
+  function cyclesForSplit(preset) {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    return preset.entries.map((entry, index) => {
+      if (entry === "rest") {
+        return {
+          id: `split-${preset.id}-rest-${index + 1}-${stamp}`,
+          kind: "rest",
+          name: "",
+          target: null,
+          bodyParts: [],
+          description: "Scheduled recovery within this training split.",
+          circuitExerciseCounts: [null, null, null],
+          lockedAssignments: [],
+        };
+      }
+      const cycle = reusableCycleForId(entry);
+      return {
+        id: `split-${preset.id}-${entry}-${index + 1}-${stamp}`,
+        kind: "training",
+        name: cycle?.name || entry,
+        target: cycle?.target || "custom",
+        designation: cycle?.name || entry,
+        bodyParts: [...(cycle?.bodyParts || BODY_PART_OPTIONS)],
+        description:
+          cycle?.description ||
+          `${cycle?.name || entry} training focused on the selected target muscles.`,
+        circuitExerciseCounts: [null, null, null],
+        lockedAssignments: [],
+      };
+    });
+  }
+
+  function applySplit(splitId, beginDayId = "monday") {
+    const preset = splitForId(splitId);
+    const beginDay =
+      DAY_CONFIG.find((day) => day.id === beginDayId) || DAY_CONFIG[0];
+    if (!preset) return;
+    if (
+      !window.confirm(
+        `Use the ${preset.name} split beginning on ${beginDay.name}? This replaces the current rotation, clears current workout progress and calendar rest overrides, and removes favorites tied to the old cycles.`,
+      )
+    )
+      return;
+    const backup = JSON.parse(JSON.stringify(state));
+    try {
+      state.cycles = cyclesForSplit(preset);
+      state.activeSplitId = preset.id;
+      state.splitWeekStartDay = beginDay.id;
+      const beginDayIndex = DAY_CONFIG.findIndex(
+        (day) => day.id === beginDay.id,
+      );
+      const mondayCycleIndex =
+        (state.cycles.length - (beginDayIndex % state.cycles.length)) %
+        state.cycles.length;
+      state.weekStartCycleId = state.cycles[mondayCycleIndex].id;
+      state.nextCycleId = state.weekStartCycleId;
+      state.favoriteCircuits = [];
+      generateWeek(null, { restDayIds: [], cycleOverrides: {} });
+      const issues = validateWeek(state.week);
+      if (issues.length) throw new Error(issues[0]);
+      persist();
+      document.getElementById("split-dialog").close();
+      render();
+      showToast(
+        `${preset.name} is now your active rotation and begins on ${beginDay.name}.`,
+      );
+    } catch (error) {
+      state = normalizeState(backup);
+      render();
+      showToast(`The split could not be applied: ${error.message}`, "error");
     }
   }
 
@@ -6831,6 +7601,7 @@
       return;
     }
     const backup = JSON.parse(JSON.stringify(state));
+    state.activeSplitId = null;
     cycle.bodyParts = bodyParts;
     if (
       !rebuildCycleSchedule(
@@ -6921,6 +7692,85 @@
     }
     if (actionButton.dataset.action === "delete-cooldown-exercise") {
       deleteCooldownExercise(actionButton.dataset.cooldownId);
+      return;
+    }
+    if (actionButton.dataset.action === "open-split-dialog") {
+      openSplitDialog();
+      return;
+    }
+    if (actionButton.dataset.action === "close-split-dialog") {
+      document.getElementById("split-dialog").close();
+      return;
+    }
+    if (actionButton.dataset.action === "select-split") {
+      if (splitForId(actionButton.dataset.splitId)) {
+        ui.selectedSplitId = actionButton.dataset.splitId;
+        renderSplitOptions();
+      }
+      return;
+    }
+    if (actionButton.dataset.action === "edit-split") {
+      openSplitEditor(actionButton.dataset.splitId);
+      return;
+    }
+    if (actionButton.dataset.action === "cancel-split-edit") {
+      ui.editingSplitId = null;
+      ui.splitDraft = null;
+      renderSplitEditor();
+      return;
+    }
+    if (actionButton.dataset.action === "add-split-day") {
+      addSplitDay();
+      return;
+    }
+    if (actionButton.dataset.action === "move-split-day") {
+      moveSplitDay(
+        actionButton.dataset.entryIndex,
+        actionButton.dataset.direction,
+      );
+      return;
+    }
+    if (actionButton.dataset.action === "remove-split-day") {
+      removeSplitDay(actionButton.dataset.entryIndex);
+      return;
+    }
+    if (actionButton.dataset.action === "save-custom-split") {
+      saveCustomSplit();
+      return;
+    }
+    if (actionButton.dataset.action === "toggle-cycle-manager") {
+      ui.showCycleManager = !ui.showCycleManager;
+      if (!ui.showCycleManager) {
+        ui.editingCycleId = null;
+        ui.cycleDraft = null;
+      }
+      renderCycleManager();
+      return;
+    }
+    if (actionButton.dataset.action === "add-cycle-definition") {
+      openCycleDefinitionEditor();
+      return;
+    }
+    if (actionButton.dataset.action === "edit-cycle-definition") {
+      openCycleDefinitionEditor(actionButton.dataset.cycleDefinitionId);
+      return;
+    }
+    if (actionButton.dataset.action === "cancel-cycle-edit") {
+      ui.editingCycleId = null;
+      ui.cycleDraft = null;
+      renderCycleManager();
+      return;
+    }
+    if (actionButton.dataset.action === "save-cycle-definition") {
+      saveCycleDefinition();
+      return;
+    }
+    if (actionButton.dataset.action === "delete-cycle-definition") {
+      deleteCycleDefinition(actionButton.dataset.cycleDefinitionId);
+      return;
+    }
+    if (actionButton.dataset.action === "apply-selected-split") {
+      applySplit(ui.selectedSplitId, ui.splitWeekStartDay);
       return;
     }
     if (actionButton.dataset.action === "add-cycle") {
@@ -7083,6 +7933,39 @@
   }
 
   function handleChange(event) {
+    if (event.target.id === "split-week-start") {
+      ui.splitWeekStartDay = DAY_CONFIG.some(
+        (day) => day.id === event.target.value,
+      )
+        ? event.target.value
+        : "monday";
+      event.target.value = ui.splitWeekStartDay;
+      renderSplitOptions();
+      return;
+    }
+    if (event.target.dataset?.splitEntryIndex !== undefined && ui.splitDraft) {
+      const index = Number(event.target.dataset.splitEntryIndex);
+      const validEntry =
+        event.target.value === "rest" ||
+        Boolean(reusableCycleForId(event.target.value));
+      if (
+        Number.isInteger(index) &&
+        index >= 0 &&
+        index < ui.splitDraft.entries.length &&
+        validEntry
+      ) {
+        ui.splitDraft.entries[index] = event.target.value;
+      }
+      return;
+    }
+    if (event.target.dataset?.cycleDraftBodyPart && ui.cycleDraft) {
+      const part = event.target.dataset.cycleDraftBodyPart;
+      if (!BODY_PART_OPTIONS.includes(part)) return;
+      ui.cycleDraft.bodyParts = event.target.checked
+        ? [...new Set([...ui.cycleDraft.bodyParts, part])]
+        : ui.cycleDraft.bodyParts.filter((item) => item !== part);
+      return;
+    }
     if (event.target.dataset?.dayCycleSelect && event.target.dataset.day) {
       selectDayCycle(event.target.dataset.day, event.target.value);
       return;
@@ -7122,6 +8005,54 @@
       return;
     }
     if (
+      event.target.dataset?.cycleSetting === "designation" &&
+      event.target.dataset.cycleId
+    ) {
+      const cycle = cycleForId(event.target.dataset.cycleId);
+      if (!cycle || isRestCycle(cycle)) return;
+      const nextDesignation =
+        String(event.target.value || "")
+          .trim()
+          .slice(0, 80) || cycleTargetLabel(cycle);
+      const preset = trainingDesignation(nextDesignation);
+      const nextTarget = preset?.target || "custom";
+      const nextBodyParts = preset
+        ? [...preset.bodyParts]
+        : [...cycle.bodyParts];
+      if (
+        nextDesignation === cycleTargetLabel(cycle) &&
+        nextTarget === cycle.target &&
+        nextBodyParts.join("|") === cycle.bodyParts.join("|")
+      ) {
+        event.target.value = nextDesignation;
+        return;
+      }
+      if (
+        cycleDaysWithProgress(cycle.id).length &&
+        !window.confirm(
+          `Changing ${cycleDisplayName(cycle)}'s training target regenerates its current workouts and clears their progress. Continue?`,
+        )
+      ) {
+        renderSettings();
+        return;
+      }
+      const backup = JSON.parse(JSON.stringify(state));
+      state.activeSplitId = null;
+      cycle.designation = nextDesignation;
+      cycle.target = nextTarget;
+      cycle.bodyParts = nextBodyParts;
+      if (
+        !rebuildCycleSchedule(
+          { forceCycleIds: [cycle.id], preserveMatching: true },
+          `${cycleDisplayName(cycle)} now targets ${nextDesignation}.`,
+        )
+      ) {
+        state = normalizeState(backup);
+        render();
+      }
+      return;
+    }
+    if (
       event.target.dataset?.cycleSetting === "target" &&
       event.target.dataset.cycleId
     ) {
@@ -7142,7 +8073,9 @@
         return;
       }
       const backup = JSON.parse(JSON.stringify(state));
+      state.activeSplitId = null;
       cycle.target = nextTarget;
+      cycle.designation = defaultDesignationLabel(nextTarget);
       if (
         !rebuildCycleSchedule(
           { forceCycleIds: [cycle.id], preserveMatching: true },
@@ -7293,6 +8226,14 @@
   }
 
   function handleInput(event) {
+    if (event.target.dataset?.splitDraftName && ui.splitDraft) {
+      ui.splitDraft.name = event.target.value.slice(0, 80);
+      return;
+    }
+    if (event.target.dataset?.cycleDraftName && ui.cycleDraft) {
+      ui.cycleDraft.name = event.target.value.slice(0, 80);
+      return;
+    }
     if (
       event.target.dataset?.cooldownSetting === "label" &&
       event.target.dataset.cooldownId
