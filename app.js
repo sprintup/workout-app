@@ -746,6 +746,9 @@
       "ankle straps": "ankle_straps",
       "pull up bar": "pull_up_bar",
       "pull-up bar": "pull_up_bar",
+      smith: "smith_machine",
+      "smith machine": "smith_machine",
+      "smitch machine": "smith_machine",
     };
     if (aliases[normalized]) return aliases[normalized];
     return normalized;
@@ -762,6 +765,7 @@
       d_handles: "D-handles",
       ankle_straps: "Ankle straps",
       pull_up_bar: "Pull-up bar",
+      smith_machine: "Smith machine",
     };
     return (
       labels[key] ||
@@ -810,6 +814,8 @@
     if (value.includes("barbell")) equipment.push("barbell");
     if (includesAny(value, ["bench", "box"])) equipment.push("bench");
     if (value.includes("squat rack")) equipment.push("squat rack");
+    if (value.includes("smith machine") || value.includes("smitch machine"))
+      equipment.push("smith machine");
     if (value.includes("physio ball")) equipment.push("physio ball");
     if (value.includes("body weight")) equipment.push("body weight");
     if (value.includes("wall")) equipment.push("wall");
@@ -880,6 +886,7 @@
     add("Dumbbells", ["dumbbell"]);
     add("Barbell", ["barbell"]);
     add("Squat rack", ["squat rack"]);
+    add("Smith machine", ["smith machine", "smitch machine"]);
     add("Physio ball", ["physio ball", "stability ball"]);
     add("Weight plates", ["plate"]);
     add("Body weight", ["body weight", "bodyweight"]);
@@ -4619,7 +4626,6 @@
           }
           if (
             includesAny(exercise.name, [
-              "smith machine",
               "leg extension machine",
               "leg curl machine",
             ])
@@ -5083,6 +5089,9 @@
               type="button"
               data-action="toggle-hide-workout"
               data-exercise-id="${exercise.id}"
+              data-day="${context.dayId}"
+              data-circuit="${context.circuitIndex}"
+              data-position="${context.position}"
               title="${isHidden(exercise.id) ? "Restore to future recommendations" : "Hide from future recommendations"}"
               aria-label="${isHidden(exercise.id) ? `Restore ${escapeHtml(exercise.name)}` : `Hide ${escapeHtml(exercise.name)} from recommendations`}"
               ${fixed ? "disabled" : ""}
@@ -6313,7 +6322,7 @@
 
   function randomReplace(context) {
     const assignment = assignmentFor(context);
-    if (!assignment || assignment.locked) return;
+    if (!assignment || assignment.locked) return null;
     ui.replacement = { ...context, mode: "replace" };
     ui.replaceSearch = "";
     ui.showAllReplacements = false;
@@ -6376,11 +6385,12 @@
         "No unused replacement is available for today's target muscles.",
         "error",
       );
-      return;
+      return null;
     }
     const selected = weightedRandomExercise(candidates);
     if (outsideTarget) ui.showAllReplacements = true;
     replaceExercise(selected.id);
+    return selected;
   }
 
   function resetCircuitCompletion(circuit) {
@@ -6941,14 +6951,66 @@
     renderTabs();
     document.getElementById("exercise-dialog").close();
     render();
-    showToast(
-      wasEditing
-        ? `${name} updated.`
-        : `${name} added to the exercise library.`,
-    );
     ui.editingExerciseId = null;
     ui.returnToReplacementAfterExerciseAdd = false;
-    if (replacementContext) openReplacement(replacementContext);
+    if (replacementContext) {
+      openReplacement(replacementContext);
+      const savedExercise = exerciseById.get(savedExerciseId);
+      ui.replaceSearch = savedExercise.name;
+      ui.showAllReplacements = !matchesAutomaticReplacementEligibility(
+        savedExercise,
+        replacementContext,
+      );
+      document.getElementById("replace-search").value = savedExercise.name;
+      document.getElementById("show-all-replacements").checked =
+        ui.showAllReplacements;
+      renderReplacementResults();
+      showToast(`${name} added and ready to use as the replacement.`);
+    } else {
+      showToast(
+        wasEditing
+          ? `${name} updated.`
+          : `${name} added to the exercise library.`,
+      );
+    }
+  }
+
+  function hideWorkoutExercise(exerciseId, context) {
+    const exercise = exerciseById.get(exerciseId);
+    const assignment = assignmentFor(context);
+    if (
+      !exercise ||
+      !assignment ||
+      assignment.exerciseId !== exerciseId ||
+      exercise.always_locked ||
+      assignment.fixed ||
+      isDeleted(exerciseId)
+    )
+      return;
+
+    if (isHidden(exerciseId)) {
+      toggleHiddenExercise(exerciseId);
+      return;
+    }
+
+    const wasLocked = assignment.locked;
+    state.hiddenExerciseIds.push(exerciseId);
+    assignment.locked = false;
+    const replacement = randomReplace(context);
+    if (!replacement) {
+      state.hiddenExerciseIds = state.hiddenExerciseIds.filter(
+        (id) => id !== exerciseId,
+      );
+      assignment.locked = wasLocked;
+      persist();
+      render();
+      showToast(
+        `${exercise.name} was kept because no replacement is available.`,
+        "error",
+      );
+      return;
+    }
+    showToast(`${exercise.name} hidden. ${replacement.name} selected instead.`);
   }
 
   function toggleHiddenExercise(exerciseId, options = {}) {
@@ -7900,7 +7962,10 @@
       }
     }
     if (actionButton.dataset.action === "toggle-hide-workout") {
-      toggleHiddenExercise(actionButton.dataset.exerciseId);
+      hideWorkoutExercise(
+        actionButton.dataset.exerciseId,
+        parseContext(actionButton),
+      );
     }
     if (actionButton.dataset.action === "hide-replacement") {
       toggleHiddenExercise(actionButton.dataset.exerciseId, { hideOnly: true });

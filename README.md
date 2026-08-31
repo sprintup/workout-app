@@ -32,7 +32,7 @@ Eligibility remains the default, but **Show all library exercises** removes the 
 
 Every exercise now has a checkbox selection of all body parts in its detail form. Reps/time, load, and whether the load is total or used by each hand or side are also edited in the detail form and remain available on workout cards; the library rows stay compact.
 
-The Exercise Library supports user-added exercises plus a built-in equipment expansion for the functional-trainer attachments, bands, kettlebell, physio ball, back-extension machine, pull-up bar, and bench. **Edit equipment** maintains a master equipment list in the saved JSON; names are compared case-insensitively and common aliases such as FT, FT2, Functional trainer, cable, dumbbell(s), and band(s) are deduplicated. Exercise details select required equipment from this shared list instead of accepting separate free-form variety names. Each exercise also has an editable primary setup, a **Both sides** setting, and a 1–5 effectiveness rating. Difficulty and global setup scores are not part of the user-facing scoring model. The exercise results use their own vertical scroll area so the library header, filters, and counts remain visible while browsing.
+The Exercise Library supports user-added exercises plus a built-in equipment expansion for the functional-trainer attachments, bands, kettlebell, physio ball, back-extension machine, pull-up bar, bench, and Smith machine. **Edit equipment** maintains a master equipment list in the saved JSON; names are compared case-insensitively and common aliases such as FT, FT2, Functional trainer, cable, dumbbell(s), band(s), Smith, and Smith machine are deduplicated. Exercise details select required equipment from this shared list instead of accepting separate free-form variety names. Each exercise also has an editable primary setup, a **Both sides** setting, and a 1–5 effectiveness rating. Difficulty and global setup scores are not part of the user-facing scoring model. The exercise results use their own vertical scroll area so the library header, filters, and counts remain visible while browsing.
 
 Workout cards show required equipment, both-sides status, thumbs-up/down controls, and a pencil button for editing the exercise directly. Effectiveness, setup, and exercise score appear as three evenly spaced informational pills. Each assignment has a manual setup-ease score from 0–5; its exercise score is effectiveness plus setup, and the circuit header shows the sum of every exercise score. Setup scores are saved with the circuit and restored by named favorites. Adding, removing, replacing, or reordering an exercise clears that circuit's setup scores because its context changed.
 
@@ -95,6 +95,7 @@ The recommendation engine may select exercises using the following equipment:
 - Resistance bands
 - Back-extension machine
 - Adjustable bench
+- Smith machine
 - Light squat rack
 - Barbell and weight plates
 - Physio ball
@@ -105,7 +106,6 @@ The recommendation engine may select exercises using the following equipment:
 
 Do not recommend exercises that require the following unless the user later adds the equipment:
 
-- Smith machine
 - Leg-extension attachment
 - Leg-curl attachment
 - Other large commercial exercise machines
@@ -395,7 +395,7 @@ Before returning a workout, validate all of the following:
 
 1. The recommendation uses only available equipment.
 2. No standing overhead press is present.
-3. No Smith-machine or leg-extension/curl-machine exercise is present.
+3. No leg-extension/curl-machine exercise is present.
 4. Unlocked exercises should vary across cycle occurrences when the qualification pool permits; cycle-locked exercises may repeat intentionally.
 5. Each training day contains three supersets unless the user overrides the format; rest days contain none.
 6. Each circuit contains two to four exercises and three tracked rounds.

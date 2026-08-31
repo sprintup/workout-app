@@ -291,6 +291,7 @@ async function main() {
       catalog.every((exercise) => exercise.equipment_varieties.length > 0),
     );
     assert.ok(state.equipmentCatalog.includes("FT"));
+    assert.ok(state.equipmentCatalog.includes("Smith machine"));
     assert.equal(
       new Set(
         state.equipmentCatalog.map((equipment) => equipment.toLowerCase()),
@@ -330,6 +331,21 @@ async function main() {
       ).length >= 7,
       "the available equipment catalog should include the physio-ball exercise set",
     );
+    const smithExercises = catalog.filter((exercise) =>
+      exercise.equipment_varieties.includes("Smith machine"),
+    );
+    assert.ok(
+      smithExercises.length >= 26,
+      "the Smith machine should have a comprehensive exercise set",
+    );
+    const smithSquat = catalogById.get("smith-machine-back-squat");
+    const smithCalfRaise = catalogById.get("smith-machine-standing-calf-raise");
+    assert.ok(smithSquat);
+    assert.ok(smithSquat.body_parts.includes("Quadriceps"));
+    assert.ok(smithSquat.equipment_varieties.includes("Smith machine"));
+    assert.ok(smithCalfRaise);
+    assert.ok(smithCalfRaise.body_parts.includes("Calves"));
+    assert.ok(smithCalfRaise.equipment_varieties.includes("Smith machine"));
     assert.equal(
       catalog.find((exercise) => exercise.id === "kettlebell-swing").custom,
       false,
@@ -1822,18 +1838,29 @@ async function main() {
   );
   clickAction(interactionApp, "toggle-hide-workout", {
     exerciseId: noteExerciseId,
+    day: "monday",
+    circuit: "0",
+    position: "first",
   });
   assert.ok(
     interactionApp.Basement45.getState().hiddenExerciseIds.includes(
       noteExerciseId,
     ),
   );
-  assert.ok(
-    interactionApp.__elements
-      .get("workout-view")
-      .innerHTML.includes("exercise-item is-hidden"),
+  const hiddenExerciseReplacementId =
+    interactionApp.Basement45.getState().week.days.monday.circuits[0].first
+      .exerciseId;
+  assert.notEqual(
+    hiddenExerciseReplacementId,
+    noteExerciseId,
+    "hiding a workout exercise should immediately replace it",
   );
-  clickAction(interactionApp, "toggle-hide-workout", {
+  assert.ok(
+    !interactionApp.Basement45.getState().hiddenExerciseIds.includes(
+      hiddenExerciseReplacementId,
+    ),
+  );
+  clickAction(interactionApp, "toggle-hide-library", {
     exerciseId: noteExerciseId,
   });
   assert.ok(
@@ -2282,6 +2309,17 @@ async function main() {
     true,
     "saving from the swap should return to the swap",
   );
+  assert.equal(
+    interactionApp.__elements.get("replace-search").value,
+    "Test supported row",
+    "the returned swap should focus the newly added exercise",
+  );
+  assert.ok(
+    interactionApp.__elements
+      .get("replace-results")
+      .innerHTML.includes('data-exercise-id="test-supported-row"'),
+    "an exercise added from the swap should be immediately available to use",
+  );
   assert.deepEqual(
     Array.from(
       interactionApp.Basement45.exercises.find(
@@ -2446,6 +2484,22 @@ async function main() {
   assert.ok(!dHandleLibraryHtml.includes("equipment additions"));
   interactionApp.document._listeners.change[0]({
     target: {
+      id: "library-equipment",
+      value: "Smith machine",
+      dataset: {},
+      closest() {
+        return null;
+      },
+    },
+  });
+  const smithLibraryHtml =
+    interactionApp.__elements.get("library-view").innerHTML;
+  assert.ok(smithLibraryHtml.includes("Smith machine back squat"));
+  assert.ok(smithLibraryHtml.includes("Smith machine front squat"));
+  assert.ok(smithLibraryHtml.includes("Smith machine standing calf raise"));
+  assert.ok(!smithLibraryHtml.includes("Cable Y raise"));
+  interactionApp.document._listeners.change[0]({
+    target: {
       id: "library-sort",
       value: "equipment",
       dataset: {},
@@ -2497,6 +2551,16 @@ async function main() {
     interactionApp.Basement45.getState().equipmentCatalog.length,
     equipmentCount,
     "equipment names should be deduplicated case-insensitively",
+  );
+  equipmentForm._formData = new Map([["equipmentName", "smitch machine"]]);
+  equipmentForm._listeners.submit[0]({
+    preventDefault() {},
+    currentTarget: equipmentForm,
+  });
+  assert.equal(
+    interactionApp.Basement45.getState().equipmentCatalog.length,
+    equipmentCount,
+    "Smith machine aliases and common misspellings should not create duplicates",
   );
 
   selectView(interactionApp, "settings");
