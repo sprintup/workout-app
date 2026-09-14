@@ -2211,11 +2211,57 @@ async function main() {
   });
   const allReplacementHtml =
     interactionApp.__elements.get("replace-results").innerHTML;
+  assert.ok(
+    interactionApp.__elements
+      .get("replace-description")
+      .textContent.includes("including exercises already scheduled this week"),
+  );
   const allReplacementIds = [
-    ...allReplacementHtml.matchAll(/data-exercise-id="([^"]+)"/g),
-  ].map((match) => match[1]);
+    ...new Set(
+      [...allReplacementHtml.matchAll(/data-exercise-id="([^"]+)"/g)].map(
+        (match) => match[1],
+      ),
+    ),
+  ];
+  const currentReplacementExerciseId =
+    interactionApp.Basement45.getState().week.days.monday.circuits[0].first
+      .exerciseId;
+  const activeLibraryIds = Array.from(interactionApp.Basement45.exercises)
+    .filter(
+      (exercise) =>
+        exercise.id !== currentReplacementExerciseId &&
+        !interactionApp.Basement45.getState().hiddenExerciseIds.includes(
+          exercise.id,
+        ) &&
+        !interactionApp.Basement45.getState().deletedExerciseIds.includes(
+          exercise.id,
+        ),
+    )
+    .map((exercise) => exercise.id)
+    .sort();
+  assert.deepEqual(
+    allReplacementIds.slice().sort(),
+    activeLibraryIds,
+    `show all should expose every active library exercise except the current exercise; missing: ${activeLibraryIds.filter((id) => !allReplacementIds.includes(id)).join(", ")}; unexpected: ${allReplacementIds.filter((id) => !activeLibraryIds.includes(id)).join(", ")}`,
+  );
+  const scheduledExerciseIds = new Set(
+    Object.values(interactionApp.Basement45.getState().week.days).flatMap(
+      (day) =>
+        day.circuits.flatMap((circuit) => [
+          circuit.first.exerciseId,
+          circuit.second.exerciseId,
+          ...circuit.extras.map((assignment) => assignment.exerciseId),
+          circuit.optionalActivator?.exerciseId,
+        ]),
+    ),
+  );
+  const scheduledElsewhereId = [...scheduledExerciseIds].find(
+    (exerciseId) => exerciseId && exerciseId !== currentReplacementExerciseId,
+  );
+  assert.ok(allReplacementIds.includes(scheduledElsewhereId));
   const replacementId = allReplacementIds.find(
     (exerciseId) =>
+      !scheduledExerciseIds.has(exerciseId) &&
       !replacementHtml.includes(`data-exercise-id="${exerciseId}"`),
   );
   assert.ok(
@@ -2224,6 +2270,30 @@ async function main() {
   );
   const replacementExercise = interactionApp.Basement45.exercises.find(
     (exercise) => exercise.id === replacementId,
+  );
+  const smithAliasCase = [
+    ["smith-machine-bench-press", "smith machine barbel bench pres"],
+    [
+      "smith-machine-incline-bench-press",
+      "incline smith machine barbel bench pres",
+    ],
+    [
+      "smith-machine-decline-bench-press",
+      "decline smith machine barbel bench pres",
+    ],
+  ].find(([exerciseId]) => exerciseId !== currentReplacementExerciseId);
+  interactionApp.document._listeners.input[0]({
+    target: {
+      id: "replace-search",
+      value: smithAliasCase[1],
+      dataset: {},
+    },
+  });
+  assert.ok(
+    interactionApp.__elements
+      .get("replace-results")
+      .innerHTML.includes(`data-exercise-id="${smithAliasCase[0]}"`),
+    "replacement fuzzy search should match exercise aliases",
   );
   const fuzzyQuery = replacementExercise.name
     .split(/\s+/)
@@ -2283,6 +2353,7 @@ async function main() {
   );
   customForm._formData = new Map([
     ["name", "Test supported row"],
+    ["aliases", "Supported dumbbell row\nChest-supported DB row"],
     ["category", "Back and Lats"],
     ["bodyParts", "Back\nLats\nBiceps"],
     ["equipment", "Adjustable dumbbell + bench"],
@@ -2319,6 +2390,27 @@ async function main() {
       .get("replace-results")
       .innerHTML.includes('data-exercise-id="test-supported-row"'),
     "an exercise added from the swap should be immediately available to use",
+  );
+  assert.deepEqual(
+    Array.from(
+      interactionApp.Basement45.exercises.find(
+        (exercise) => exercise.id === "test-supported-row",
+      ).aliases,
+    ),
+    ["Supported dumbbell row", "Chest-supported DB row"],
+  );
+  interactionApp.document._listeners.input[0]({
+    target: {
+      id: "replace-search",
+      value: "chest suported db ro",
+      dataset: {},
+    },
+  });
+  assert.ok(
+    interactionApp.__elements
+      .get("replace-results")
+      .innerHTML.includes('data-exercise-id="test-supported-row"'),
+    "newly saved aliases should be searchable in the active swap",
   );
   assert.deepEqual(
     Array.from(
@@ -2482,6 +2574,38 @@ async function main() {
   assert.ok(dHandleLibraryHtml.includes(">Edit equipment</button>"));
   assert.ok(!dHandleLibraryHtml.includes("spreadsheet exercises"));
   assert.ok(!dHandleLibraryHtml.includes("equipment additions"));
+  interactionApp.document._listeners.change[0]({
+    target: {
+      id: "library-equipment",
+      value: "all",
+      dataset: {},
+      closest() {
+        return null;
+      },
+    },
+  });
+  interactionApp.document._listeners.input[0]({
+    target: {
+      id: "library-search",
+      value: "smith machine barbel bench pres",
+      selectionStart: 31,
+      dataset: {},
+    },
+  });
+  assert.ok(
+    interactionApp.__elements
+      .get("library-view")
+      .innerHTML.includes("Smith machine bench press"),
+    "library fuzzy search should match exercise aliases",
+  );
+  interactionApp.document._listeners.input[0]({
+    target: {
+      id: "library-search",
+      value: "",
+      selectionStart: 0,
+      dataset: {},
+    },
+  });
   interactionApp.document._listeners.change[0]({
     target: {
       id: "library-equipment",

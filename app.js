@@ -1135,6 +1135,26 @@
     ];
   }
 
+  function normalizeExerciseAliases(values, exerciseName = "") {
+    const items = Array.isArray(values)
+      ? values
+      : String(values || "").split(/[\r\n;]+/);
+    const exerciseKey = String(exerciseName)
+      .trim()
+      .replace(/\s+/g, " ")
+      .toLowerCase();
+    const seen = new Set();
+    return items
+      .map((alias) => String(alias).trim().replace(/\s+/g, " ").slice(0, 100))
+      .filter((alias) => {
+        const key = alias.toLowerCase();
+        if (!key || key === exerciseKey || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 40);
+  }
+
   function inferBodyParts(record, movementPattern, forceType) {
     const explicit = normalizeBodyParts(record.bodyParts ?? record.body_parts);
     if (explicit.length) return explicit;
@@ -1315,6 +1335,10 @@
     return {
       id: String(record.id || slugify(record.name)),
       name: record.name,
+      aliases: normalizeExerciseAliases(
+        record.aliases ?? record.exercise_aliases,
+        record.name,
+      ),
       primary_body_part: record.category,
       body_parts: bodyParts,
       secondary_body_parts: bodyParts.slice(1),
@@ -1411,6 +1435,7 @@
     if (!edit) return exercise;
     const edited = enrichExercise({
       name: edit.name || exercise.name,
+      aliases: edit.aliases ?? exercise.aliases,
       category: edit.category || exercise.primary_body_part,
       equipment: edit.equipment || exercise.equipment_label,
       instructionUrl: edit.instructionUrl ?? exercise.instruction_url,
@@ -5372,6 +5397,7 @@
 
   function filteredLibrary() {
     const search = ui.librarySearch.trim().toLowerCase();
+    const searchScores = new Map();
     const filtered = exercises.filter((exercise) => {
       if (isDeleted(exercise.id)) return false;
       if (isHidden(exercise.id) && !ui.showHidden) return false;
@@ -5382,16 +5408,16 @@
         exercise,
         ui.libraryEquipment,
       );
-      const haystack =
-        `${exercise.name} ${exercise.primary_body_part} ${exercise.equipment_label} ${exercise.equipment_varieties.join(" ")}`.toLowerCase();
-      return (
-        matchesCategory &&
-        matchesEquipment &&
-        (!search || haystack.includes(search))
-      );
+      const searchScore = fuzzyExerciseScore(exercise, search);
+      searchScores.set(exercise.id, searchScore);
+      return matchesCategory && matchesEquipment && searchScore !== null;
     });
 
     return filtered.sort((first, second) => {
+      const relevance = search
+        ? searchScores.get(first.id) - searchScores.get(second.id)
+        : 0;
+      if (relevance) return relevance;
       const firstStats = stateFor(first.id);
       const secondStats = stateFor(second.id);
       if (ui.librarySort === "popular") {
@@ -5500,7 +5526,7 @@
           </div>
         </header>
         <div class="library-toolbar">
-          <label class="search-field">${ICONS.search}<span class="sr-only">Search exercise library</span><input id="library-search" type="search" value="${escapeHtml(ui.librarySearch)}" placeholder="Search name, category, or equipment" /></label>
+          <label class="search-field">${ICONS.search}<span class="sr-only">Search exercise library</span><input id="library-search" type="search" value="${escapeHtml(ui.librarySearch)}" placeholder="Search name, alias, muscle, or equipment" /></label>
           <label class="select-field"><span>Category</span><select id="library-category">
             <option value="all">All</option>
             ${categoryOptions()
@@ -6099,6 +6125,7 @@
     const queryTokens = query.split(" ");
     const fields = [
       [exercise.name, 0],
+      [exercise.aliases.join(" "), 0.04],
       [exercise.primary_body_part, 0.18],
       [exercise.body_parts.join(" "), 0.16],
       [exercise.category, 0.24],
@@ -6112,7 +6139,14 @@
         .filter(Boolean)
         .map((token) => ({ token, fieldPenalty })),
     );
-    let score = normalizeSearchText(exercise.name).includes(query) ? -0.25 : 0;
+    const aliasContainsQuery = exercise.aliases.some((alias) =>
+      normalizeSearchText(alias).includes(query),
+    );
+    let score = normalizeSearchText(exercise.name).includes(query)
+      ? -0.25
+      : aliasContainsQuery
+        ? -0.2
+        : 0;
 
     for (const queryToken of queryTokens) {
       let best = Number.POSITIVE_INFINITY;
@@ -6159,10 +6193,10 @@
       }))
       .filter(({ exercise, searchScore }) => {
         if (
-          used.has(exercise.id) ||
           isHidden(exercise.id) ||
           isDeleted(exercise.id) ||
           exercise.id === assignment?.exerciseId ||
+          (!ui.showAllReplacements && used.has(exercise.id)) ||
           (!ui.showAllReplacements &&
             !matchesAutomaticReplacementEligibility(exercise, ui.replacement))
         ) {
@@ -6204,6 +6238,7 @@
       })
       .map(({ exercise }) => ({
         exercise,
+        alreadyUsed: used.has(exercise.id),
         eligible: matchesAutomaticReplacementEligibility(
           exercise,
           ui.replacement,
@@ -6212,19 +6247,26 @@
   }
 
   function renderReplacementResults() {
+    const target = workoutTarget(targetIdForDay(ui.replacement.dayId));
+    document.getElementById("replace-description").textContent =
+      ui.showAllReplacements
+        ? "Search or filter every active library exercise, including exercises already scheduled this week."
+        : `Showing unused exercises that target the muscles selected for this ${target.label} day.`;
     const results = replacementOptions();
     document.getElementById("replace-count").textContent =
       `${results.length} option${results.length === 1 ? "" : "s"}`;
     document.getElementById("replace-results").innerHTML = results.length
       ? results
           .map(
-            ({ exercise, eligible }) => `
+            ({ exercise, eligible, alreadyUsed }) => `
               <article class="replace-option">
                 <div class="replace-option-copy">
                   <strong>${escapeHtml(exercise.name)}</strong>
                   <small class="replace-option-details">
+                    ${exercise.aliases.length ? `<span><em>Aliases</em> ${exercise.aliases.map(escapeHtml).join(", ")}</span>` : ""}
                     <span><em>Muscles</em> ${exercise.body_parts.map(escapeHtml).join(", ")}</span>
                     <span><em>Equipment</em> ${escapeHtml(exercise.equipment_label)}</span>
+                    ${alreadyUsed ? "<span>Already scheduled elsewhere in this week</span>" : ""}
                     <span>${requiresBothSides(exercise) ? "Both sides · " : ""}Chosen ${stateFor(exercise.id).chosenCount} times${eligible ? "" : " · outside today's target muscles"}</span>
                   </small>
                 </div>
@@ -6236,7 +6278,7 @@
               </article>`,
           )
           .join("")
-      : '<div class="empty-state">No unused exercises match today\'s target muscles and the selected filters.</div>';
+      : `<div class="empty-state">${ui.showAllReplacements ? "No active library exercises match the selected search or filters." : "No unused exercises match today's target muscles and the selected filters."}</div>`;
   }
 
   function openReplacement(context) {
@@ -6594,6 +6636,7 @@
       category: exercise.primary_body_part || "Other",
       equipment: exercise.equipment_label || "User-defined",
       equipmentVarieties: exercise.equipment_varieties || [],
+      aliases: exercise.aliases || [],
       bodyParts: exercise.body_parts || [],
       instructionUrl: exercise.instruction_url || null,
       sourceRow: exercise.source_row ?? null,
@@ -6802,6 +6845,7 @@
       form.elements[name].value = value ?? "";
     };
     setValue("name", exercise.name);
+    setValue("aliases", exercise.aliases.join("\n"));
     setValue("category", exercise.primary_body_part);
     const bodyPartInputs = document
       .getElementById("exercise-body-part-options")
@@ -6880,6 +6924,7 @@
     );
     const record = {
       name,
+      aliases: normalizeExerciseAliases(data.get("aliases"), name),
       category: String(data.get("category") || "Other"),
       equipment: String(data.get("equipment") || "User-defined").trim(),
       equipmentVarieties,

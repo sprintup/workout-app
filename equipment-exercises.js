@@ -673,9 +673,24 @@
     "Smith machine + bench",
     ["Smith machine", "Bench"],
     [
-      "Smith machine bench press",
-      "Smith machine incline bench press",
-      "Smith machine decline bench press",
+      {
+        name: "Smith machine bench press",
+        aliases: ["Smith machine barbell bench press", "Smith bench press"],
+      },
+      {
+        name: "Smith machine incline bench press",
+        aliases: [
+          "Incline Smith machine barbell bench press",
+          "Smith incline bench press",
+        ],
+      },
+      {
+        name: "Smith machine decline bench press",
+        aliases: [
+          "Decline Smith machine barbell bench press",
+          "Smith decline bench press",
+        ],
+      },
     ],
   );
   add(
