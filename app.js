@@ -4411,32 +4411,6 @@
       return "An exercise is no longer in the library";
     if (ids.some((id) => isHidden(id) || isDeleted(id)))
       return "Contains a hidden or deleted exercise";
-    const usedElsewhere = new Set(
-      allAssignments()
-        .filter(
-          (assignment) =>
-            assignment.dayId !== target.dayId ||
-            Number(assignment.circuitIndex) !== Number(target.circuitIndex),
-        )
-        .map((assignment) => assignment.exerciseId),
-    );
-    if (ids.some((id) => usedElsewhere.has(id)))
-      return "One or more exercises are already used elsewhere this week";
-    const exercisesInRound = favorite.assignments.map((assignment) =>
-      exerciseById.get(assignment.exerciseId),
-    );
-    if (exercisesInRound.filter(requiresBothSides).length > 1)
-      return "Contains multiple both-sides exercises";
-    for (let index = 1; index < exercisesInRound.length; index += 1) {
-      if (
-        transitionCost(exercisesInRound[index - 1], exercisesInRound[index]) >
-          2 &&
-        !favorite.assignments[index - 1].manualOverride &&
-        !favorite.assignments[index].manualOverride
-      ) {
-        return "Contains a setup transition above 2";
-      }
-    }
     return "";
   }
 
@@ -4480,9 +4454,30 @@
     const nextIds = favorite.assignments.map(
       (assignment) => assignment.exerciseId,
     );
-    circuit.first = JSON.parse(JSON.stringify(favorite.assignments[0]));
-    circuit.second = JSON.parse(JSON.stringify(favorite.assignments[1]));
-    circuit.extras = JSON.parse(JSON.stringify(favorite.assignments.slice(2)));
+    const usedElsewhere = new Set(
+      allAssignments()
+        .filter(
+          (assignment) =>
+            assignment.dayId !== target.dayId ||
+            Number(assignment.circuitIndex) !== Number(target.circuitIndex),
+        )
+        .map((assignment) => assignment.exerciseId),
+    );
+    const seenFavoriteIds = new Set();
+    const favoriteAssignments = favorite.assignments.map((assignment) => {
+      const repeats =
+        usedElsewhere.has(assignment.exerciseId) ||
+        seenFavoriteIds.has(assignment.exerciseId);
+      seenFavoriteIds.add(assignment.exerciseId);
+      return {
+        ...JSON.parse(JSON.stringify(assignment)),
+        manualOverride: true,
+        rotationRepeat: Boolean(assignment.rotationRepeat || repeats),
+      };
+    });
+    circuit.first = favoriteAssignments[0];
+    circuit.second = favoriteAssignments[1];
+    circuit.extras = favoriteAssignments.slice(2);
     circuit.preferredExerciseCount = favorite.assignments.length;
     resetCircuitCompletion(circuit);
     const issues = validateWeek(state.week);
@@ -6457,6 +6452,13 @@
       state.week.days[ui.replacement.dayId].circuits[
         ui.replacement.circuitIndex
       ];
+    const repeatedElsewhere = allAssignments().some(
+      (item) =>
+        item.exerciseId === next.id &&
+        (item.dayId !== ui.replacement.dayId ||
+          Number(item.circuitIndex) !== Number(ui.replacement.circuitIndex) ||
+          item.position !== ui.replacement.position),
+    );
     if (ui.replacement.position === "optionalActivator") {
       const previous = exerciseById.get(assignment.exerciseId);
       stateFor(previous.id).skippedCount += 1;
@@ -6493,6 +6495,7 @@
         locked: false,
         fixed: false,
         manualOverride,
+        rotationRepeat: repeatedElsewhere,
         slotKey: "extra",
         setupScore: defaultSetupScore(next),
       });
@@ -6516,6 +6519,7 @@
     assignment.exerciseId = next.id;
     assignment.locked = false;
     assignment.manualOverride = manualOverride;
+    assignment.rotationRepeat = repeatedElsewhere;
     clearCircuitSetupScores(circuit);
     resetCircuitCompletion(circuit);
     persist();

@@ -1616,6 +1616,51 @@ async function main() {
     ),
     "changing circuit composition should restore contextual setup defaults",
   );
+  const favoriteOverlap = Object.entries(
+    interactionApp.Basement45.getState().week.days,
+  )
+    .filter(([dayId, day]) => dayId !== "monday" && !day.rest)
+    .flatMap(([dayId, day]) =>
+      day.circuits.flatMap((circuit, circuitIndex) => [
+        { dayId, circuitIndex, position: "first", assignment: circuit.first },
+        {
+          dayId,
+          circuitIndex,
+          position: "second",
+          assignment: circuit.second,
+        },
+        ...circuit.extras.map((assignment, extraIndex) => ({
+          dayId,
+          circuitIndex,
+          position: `extra-${extraIndex}`,
+          assignment,
+        })),
+      ]),
+    )
+    .find(
+      ({ assignment }) =>
+        !assignment.fixed &&
+        !assignment.locked &&
+        assignment.exerciseId !== favoriteOriginalIds[0],
+    );
+  assert.ok(favoriteOverlap);
+  clickAction(interactionApp, "replace", {
+    day: favoriteOverlap.dayId,
+    circuit: String(favoriteOverlap.circuitIndex),
+    position: favoriteOverlap.position,
+  });
+  interactionApp.document._listeners.change[0]({
+    target: {
+      id: "show-all-replacements",
+      checked: true,
+      closest() {
+        return null;
+      },
+    },
+  });
+  clickAction(interactionApp, "choose-replacement", {
+    exerciseId: favoriteOriginalIds[0],
+  });
   clickAction(interactionApp, "open-favorite-circuits", {
     day: "monday",
     circuit: "0",
@@ -1629,6 +1674,18 @@ async function main() {
     interactionApp.__elements
       .get("favorite-results")
       .innerHTML.includes(`Total score ${expectedCircuitScore}`),
+  );
+  const favoriteUseButton = interactionApp.__elements
+    .get("favorite-results")
+    .innerHTML.match(
+      new RegExp(
+        `<button[^>]+data-action="apply-favorite-circuit"[^>]+data-favorite-id="${favoriteId}"[^>]*>`,
+      ),
+    )?.[0];
+  assert.ok(favoriteUseButton);
+  assert.ok(
+    !favoriteUseButton.includes("disabled"),
+    "favorites should remain applicable when an exercise is already used elsewhere",
   );
   clickAction(interactionApp, "apply-favorite-circuit", { favoriteId });
   const favoriteRestoredCircuit =
@@ -1647,6 +1704,24 @@ async function main() {
     favoriteRestoredCircuit.first.setupScore,
     4,
     "favorites should restore per-circuit setup scores",
+  );
+  assert.equal(
+    favoriteRestoredCircuit.first.rotationRepeat,
+    true,
+    "a favorite should mark cross-circuit exercise reuse as intentional",
+  );
+  assert.equal(
+    (() => {
+      const overlapCircuit =
+        interactionApp.Basement45.getState().week.days[favoriteOverlap.dayId]
+          .circuits[favoriteOverlap.circuitIndex];
+      return favoriteOverlap.position.startsWith("extra-")
+        ? overlapCircuit.extras[Number(favoriteOverlap.position.split("-")[1])]
+            .exerciseId
+        : overlapCircuit[favoriteOverlap.position].exerciseId;
+    })(),
+    favoriteOriginalIds[0],
+    "applying a favorite should not alter the exercise already used elsewhere",
   );
   assert.deepEqual(Array.from(interactionApp.Basement45.validateWeek()), []);
   changeAction(
