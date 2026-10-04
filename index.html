@@ -158,6 +158,13 @@
             </svg>
           </button>
         </header>
+        <div
+          id="replace-dialog-message"
+          class="dialog-message"
+          role="status"
+          aria-live="polite"
+          hidden
+        ></div>
         <div class="dialog-search">
           <label class="search-field">
             <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -185,6 +192,14 @@
             ><span>Equipment</span
             ><select id="replace-equipment">
               <option value="all">All equipment</option>
+            </select></label
+          >
+          <label class="select-field"
+            ><span>Sides</span
+            ><select id="replace-sides">
+              <option value="all">All side types</option>
+              <option value="one_side">One-side</option>
+              <option value="two_side">Two-side</option>
             </select></label
           >
           <button
@@ -260,6 +275,13 @@
             </svg>
           </button>
         </header>
+        <div
+          id="exercise-dialog-message"
+          class="dialog-message"
+          role="status"
+          aria-live="polite"
+          hidden
+        ></div>
         <div class="exercise-form-body">
           <label class="form-field form-field-wide">
             <span>Name</span>
@@ -296,19 +318,12 @@
               class="exercise-body-part-options"
             ></div>
           </fieldset>
-          <label class="form-field">
-            <span>Primary setup</span>
-            <input
-              name="equipment"
-              required
-              maxlength="120"
-              placeholder="e.g. FT2 + one handle"
-            />
-          </label>
           <fieldset class="body-part-picker form-field-wide">
             <legend>
               Required equipment
-              <small>choose every item needed from your master list</small>
+              <small
+                >choose every item needed; leave blank for body weight</small
+              >
             </legend>
             <div
               id="exercise-equipment-options"
@@ -384,26 +399,18 @@
               <option value="each">Each hand / side</option>
             </select>
           </label>
-          <fieldset class="score-fields form-field-wide">
-            <legend>Exercise score</legend>
-            <label class="form-field">
-              <span>Effectiveness <small>1 low · 5 high</small></span>
-              <input
-                name="effectivenessScore"
-                type="number"
-                min="1"
-                max="5"
-                step="1"
-                value="3"
-                required
-              />
-            </label>
-            <small class="score-help"
-              >Effectiveness belongs to the exercise. Setup is scored separately
-              on each workout card because it depends on the other exercises in
-              that circuit.</small
-            >
-          </fieldset>
+          <label class="form-field form-field-wide">
+            <span>Effectiveness <small>1 low · 5 high</small></span>
+            <input
+              name="effectivenessScore"
+              type="number"
+              min="1"
+              max="5"
+              step="1"
+              value="3"
+              required
+            />
+          </label>
           <label class="form-field form-field-wide">
             <span>Demo or instruction URL <small>optional</small></span>
             <input
@@ -427,10 +434,7 @@
               ><input type="checkbox" name="totalBodyActivator" /> Total-body
               activator</label
             >
-            <label
-              ><input type="checkbox" name="bothSides" /> Perform on both
-              sides</label
-            >
+            <label><input type="checkbox" name="bothSides" /> Two-sided</label>
             <label
               ><input type="checkbox" name="shoulderCaution" />
               Shoulder-aware</label
@@ -439,6 +443,12 @@
               ><input type="checkbox" name="backCaution" /> Back-aware</label
             >
           </div>
+          <div
+            id="exercise-form-error"
+            class="exercise-form-error form-field-wide"
+            role="alert"
+            hidden
+          ></div>
         </div>
         <footer class="dialog-footer">
           <button

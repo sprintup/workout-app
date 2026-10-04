@@ -152,14 +152,6 @@ function changeAction(app, action, dataset, checked) {
   app.document._listeners.change[0]({ target });
 }
 
-function changeAssignmentSetup(app, dataset, value) {
-  const target = {
-    value,
-    dataset: { assignmentSetting: "setupScore", ...dataset },
-  };
-  app.document._listeners.change[0]({ target });
-}
-
 function changeExerciseEffectiveness(app, exerciseId, value) {
   const target = {
     value,
@@ -239,18 +231,18 @@ function selectView(app, view) {
   app.document._listeners.click[0]({ target });
 }
 
-function expectedDefaultSetup(exercise) {
+function isExpectedEquipmentFree(exercise) {
   const equipmentLabel = String(exercise.equipment_label || "").toLowerCase();
   const onlyBodyWeight =
     exercise.equipment_varieties.length > 0 &&
     exercise.equipment_varieties.every(
       (item) => item.toLowerCase() === "body weight",
     );
-  return onlyBodyWeight ||
+  return Boolean(
+    onlyBodyWeight ||
     equipmentLabel.includes("body weight or") ||
-    equipmentLabel.includes("bodyweight or")
-    ? 5
-    : 4;
+    equipmentLabel.includes("bodyweight or"),
+  );
 }
 
 function inputSetting(app, dataset, value) {
@@ -278,6 +270,7 @@ async function main() {
     );
 
     const state = app.Basement45.getState();
+    assert.equal(state.circuitRepBudget, 30);
     const catalog = app.Basement45.exercises;
     const catalogById = new Map(
       catalog.map((exercise) => [exercise.id, exercise]),
@@ -302,6 +295,14 @@ async function main() {
     assert.ok(
       catalog.every((exercise) => exercise.body_parts.length > 0),
       "every exercise should list its worked body parts",
+    );
+    assert.ok(
+      catalog.some((exercise) => exercise.body_parts.includes("Abs/core")),
+      "the canonical muscle list should include Abs/core",
+    );
+    assert.ok(
+      catalog.every((exercise) => !exercise.body_parts.includes("Core")),
+      "legacy Core values should normalize to Abs/core",
     );
     assert.ok(
       catalog.every(
@@ -442,22 +443,53 @@ async function main() {
     );
     assert.ok(
       assignments.every(
-        (assignment) =>
-          assignment.setupScore ===
-          expectedDefaultSetup(catalogById.get(assignment.exerciseId)),
+        (assignment) => !Object.hasOwn(assignment, "setupScore"),
       ),
-      "generated assignments should default setup to 5 without equipment and 4 with equipment",
+      "generated assignments should not contain setup scores",
     );
-    assert.deepEqual(
-      [
-        ...new Set(
-          days.flatMap((day) =>
-            day.circuits.map((circuit) => 2 + circuit.extras.length),
-          ),
+    assert.ok(
+      days.every((day) =>
+        day.circuits.every((circuit) =>
+          [2, 3].includes(2 + circuit.extras.length),
         ),
-      ].sort(),
-      [2, 3, 4],
-      "the generated week should mix focused, standard, and challenge circuits",
+      ),
+      "generated circuits should use either two or three exercises",
+    );
+    assert.ok(
+      days.every((day) =>
+        day.circuits.every((circuit) => {
+          const circuitAssignments = [
+            circuit.first,
+            circuit.second,
+            ...circuit.extras,
+          ];
+          const sideUnits = circuitAssignments.reduce(
+            (total, assignment) =>
+              total +
+              (catalogById.get(assignment.exerciseId).unilateral ? 2 : 1),
+            0,
+          );
+          const totalReps = circuitAssignments.reduce(
+            (total, assignment) =>
+              total +
+              Number(assignment.reps) *
+                (assignment.repBasis === "per_side" ? 2 : 1),
+            0,
+          );
+          return (
+            sideUnits === 3 &&
+            totalReps === 30 &&
+            circuitAssignments.every(
+              (assignment) =>
+                assignment.repBasis ===
+                (catalogById.get(assignment.exerciseId).unilateral
+                  ? "per_side"
+                  : "total"),
+            )
+          );
+        }),
+      ),
+      "generated circuits should contain three side-units totaling 30 reps per round",
     );
 
     const chosenCount = Object.values(state.exerciseState).reduce(
@@ -486,6 +518,23 @@ async function main() {
   }
 
   const cycleLockApp = launchApp();
+  const transitionFixture = (equipment) => ({
+    equipment_varieties: equipment,
+    bench_position: "none",
+    pulley_height: "none",
+    attachment: null,
+  });
+  assert.ok(
+    cycleLockApp.Basement45.transitionCost(
+      transitionFixture(["Dumbbells"]),
+      transitionFixture(["Kettlebell"]),
+    ) <
+      cycleLockApp.Basement45.transitionCost(
+        transitionFixture(["Dumbbells"]),
+        transitionFixture(["Dumbbells"]),
+      ),
+    "generation compatibility should prefer independent equipment setups",
+  );
   const cycleLockState = cycleLockApp.Basement45.getState();
   assert.equal(
     cycleLockState.week.days.monday.cycleId,
@@ -1046,8 +1095,42 @@ async function main() {
   );
 
   selectView(cycleSettingsApp, "settings");
+  cycleSettingsApp.document._listeners.change[0]({
+    target: {
+      id: "circuit-rep-budget",
+      value: "36",
+      dataset: {},
+      closest() {
+        return null;
+      },
+    },
+  });
+  const adjustedBudgetState = cycleSettingsApp.Basement45.getState();
+  const adjustedCatalog = new Map(
+    cycleSettingsApp.Basement45.exercises.map((exercise) => [
+      exercise.id,
+      exercise,
+    ]),
+  );
+  assert.equal(adjustedBudgetState.circuitRepBudget, 36);
+  assert.ok(
+    Object.values(adjustedBudgetState.week.days)
+      .flatMap((day) => day.circuits)
+      .every(
+        (circuit) =>
+          [circuit.first, circuit.second, ...circuit.extras].reduce(
+            (total, assignment) =>
+              total +
+              Number(assignment.reps) *
+                (assignment.repBasis === "per_side" ? 2 : 1),
+            0,
+          ) === 36,
+      ),
+    "changing the rep budget should recalculate every current circuit",
+  );
   let cycleSettingsHtml =
     cycleSettingsApp.__elements.get("settings-view").innerHTML;
+  assert.ok(cycleSettingsHtml.includes('id="circuit-rep-budget"'));
   assert.equal(
     (cycleSettingsHtml.match(/data-warmup-setting="label"/g) || []).length,
     3,
@@ -1064,9 +1147,9 @@ async function main() {
   );
   assert.ok(
     cycleSettingsHtml.includes(
-      'data-body-part-coverage="Core"><span>Core</span><strong>0</strong>',
+      'data-body-part-coverage="Abs/core"><span>Abs/core</span><strong>0</strong>',
     ),
-    "the shared Core cool-down should not be counted as a cycle target",
+    "the shared Abs/core cool-down should not be counted as a cycle target",
   );
   assert.equal(
     (cycleSettingsHtml.match(/class="settings-section-divider"/g) || []).length,
@@ -1288,7 +1371,19 @@ async function main() {
     (workoutHtml.match(/data-action="random-replace"/g) || []).length > 0,
   );
   assert.ok((workoutHtml.match(/class="exercise-note"/g) || []).length > 0);
-  assert.ok((workoutHtml.match(/class="equipment-needed"/g) || []).length > 0);
+  assert.equal(
+    (workoutHtml.match(/class="equipment-needed"/g) || []).length,
+    0,
+  );
+  assert.equal((workoutHtml.match(/class="slot-label"/g) || []).length, 0);
+  assert.ok(!workoutHtml.includes("Target Movement"));
+  assert.ok(!workoutHtml.includes("Round exercise"));
+  assert.ok(!workoutHtml.includes(">View demo"));
+  assert.ok(!workoutHtml.includes("Both sides"));
+  assert.ok(!workoutHtml.includes("Shoulder aware"));
+  assert.ok(
+    (workoutHtml.match(/class="exercise-demo-link"/g) || []).length > 0,
+  );
   assert.ok(
     (workoutHtml.match(/data-action="set-preference"/g) || []).length > 0,
   );
@@ -1303,22 +1398,68 @@ async function main() {
     (workoutHtml.match(/data-action="toggle-favorite-circuit"/g) || [])
       .length === 3,
   );
-  assert.ok(
-    (workoutHtml.match(/class="exercise-score-row"/g) || []).length > 0,
-  );
   assert.equal(
     (workoutHtml.match(/class="circuit-total-score"/g) || []).length,
+    0,
+  );
+  assert.equal(
+    (workoutHtml.match(/class="circuit-rep-total"/g) || []).length,
     3,
   );
+  assert.equal((workoutHtml.match(/is-off-target/g) || []).length, 0);
+  assert.equal((workoutHtml.match(/is-rep-goal/g) || []).length, 3);
+  assert.ok(workoutHtml.includes("30 reps / round"));
   assert.ok(
-    (workoutHtml.match(/data-assignment-setting="setupScore"/g) || []).length >
-      0,
+    (workoutHtml.match(/data-assignment-setting="reps"/g) || []).length > 0,
+  );
+  assert.ok(
+    (workoutHtml.match(/data-assignment-setting="repBasis"/g) || []).length > 0,
+  );
+  assert.ok(workoutHtml.includes(">one-side</option>"));
+  assert.ok(workoutHtml.includes(">two-side</option>"));
+  assert.ok(
+    workoutHtml.includes("basis-one-side") ||
+      workoutHtml.includes("basis-two-side"),
+  );
+  assert.ok(
+    workoutHtml.includes("basis-total") || workoutHtml.includes("basis-each"),
+  );
+  assert.ok(!workoutHtml.includes('data-assignment-setting="setupScore"'));
+  assert.ok(!workoutHtml.includes("Exercise score"));
+  assert.ok(!workoutHtml.includes("Total score"));
+  assert.ok(!workoutHtml.includes("Focused ·"));
+  assert.ok(!workoutHtml.includes("Standard ·"));
+  assert.ok(
+    workoutHtml.includes(">2 exercises</span>") ||
+      workoutHtml.includes(">3 exercises</span>"),
   );
   assert.ok(
     (workoutHtml.match(/data-exercise-setting="effectivenessScore"/g) || [])
       .length > 0,
   );
   assert.ok((workoutHtml.match(/data-setting="loadBasis"/g) || []).length > 0);
+  const firstExerciseTopline = workoutHtml.indexOf(
+    '<div class="exercise-topline">',
+  );
+  const firstExerciseTools = workoutHtml.indexOf(
+    '<span class="exercise-tools">',
+    firstExerciseTopline,
+  );
+  const firstExerciseTitle = workoutHtml.indexOf(
+    '<h3 class="exercise-name">',
+    firstExerciseTopline,
+  );
+  const firstEffectiveness = workoutHtml.indexOf(
+    '<label class="effectiveness-score effectiveness-score-field">',
+    firstExerciseTools,
+  );
+  assert.ok(
+    firstExerciseTopline >= 0 &&
+      firstExerciseTools > firstExerciseTopline &&
+      firstEffectiveness > firstExerciseTools &&
+      firstExerciseTitle > firstExerciseTools,
+    "effectiveness and exercise actions should occupy the first row before the title row",
+  );
   assert.equal(
     (workoutHtml.match(/class="exercise-divider"/g) || []).length,
     (workoutHtml.match(/class="exercise-item/g) || []).length - 3,
@@ -1332,9 +1473,19 @@ async function main() {
   assert.ok(!html.includes('name="setupDifficulty"'));
   assert.ok(html.includes('id="replace-body-part"'));
   assert.ok(html.includes('id="replace-equipment"'));
+  assert.ok(html.includes('id="replace-sides"'));
   assert.ok(html.includes('data-action="add-exercise-from-replacement"'));
   assert.ok(html.includes('id="exercise-body-part-options"'));
   assert.ok(html.includes('id="exercise-equipment-options"'));
+  assert.ok(html.includes('id="exercise-form-error"'));
+  assert.ok(html.includes('id="replace-dialog-message"'));
+  assert.ok(html.includes('id="exercise-dialog-message"'));
+  assert.ok(!html.includes("Primary setup"));
+  assert.ok(!html.includes('name="equipment"'));
+  assert.ok(html.includes('name="bothSides" /> Two-sided</label'));
+  assert.ok(
+    !html.includes("Two-sided exercise (listed reps apply to each side)"),
+  );
   assert.ok(html.includes('id="equipment-dialog"'));
   assert.ok(html.includes('id="equipment-form"'));
   assert.ok(!html.includes('textarea name="bodyParts"'));
@@ -1368,13 +1519,62 @@ async function main() {
     /\.round-check\.is-overdue:not\(:has\(input:checked\)\)/,
   );
   assert.match(styles, /\.compact-field\.has-recommended-weight/);
-  assert.match(
-    styles,
-    /\.exercise-score-row\s*{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/s,
-  );
-  assert.match(styles, /\.exercise-total-score\s*{[^}]*background:\s*#e8f3ee/s);
+  assert.doesNotMatch(styles, /\.exercise-score-row\s*{/);
+  assert.doesNotMatch(styles, /\.exercise-total-score\s*{/);
+  assert.match(styles, /\.circuit-scaling\s*{[^}]*flex-wrap:\s*nowrap/s);
   assert.match(styles, /\.replace-option\s*{[^}]*min-height:\s*76px/s);
   assert.match(styles, /\.library-list\s*{[^}]*overflow-y:\s*auto/s);
+
+  interactionApp.document._listeners.change[0]({
+    target: {
+      value: "17",
+      dataset: {
+        assignmentSetting: "reps",
+        day: "monday",
+        circuit: "0",
+        position: "first",
+      },
+      closest() {
+        return null;
+      },
+    },
+  });
+  assert.equal(
+    interactionApp.Basement45.getState().week.days.monday.circuits[0].first
+      .reps,
+    "17",
+  );
+  const offTargetWorkoutHtml =
+    interactionApp.__elements.get("workout-view").innerHTML;
+  assert.ok(offTargetWorkoutHtml.includes("circuit-rep-total is-off-target"));
+  assert.equal((offTargetWorkoutHtml.match(/is-rep-goal/g) || []).length, 2);
+  const firstRepBasis =
+    interactionApp.Basement45.getState().week.days.monday.circuits[0].first
+      .repBasis;
+  const changedRepBasis = firstRepBasis === "per_side" ? "total" : "per_side";
+  interactionApp.document._listeners.change[0]({
+    target: {
+      value: changedRepBasis,
+      dataset: {
+        assignmentSetting: "repBasis",
+        day: "monday",
+        circuit: "0",
+        position: "first",
+      },
+      closest() {
+        return null;
+      },
+    },
+  });
+  const changedRepAssignment =
+    interactionApp.Basement45.getState().week.days.monday.circuits[0].first;
+  assert.equal(changedRepAssignment.reps, "17");
+  assert.equal(changedRepAssignment.repBasis, changedRepBasis);
+  assert.deepEqual(
+    Array.from(interactionApp.Basement45.validateWeek()),
+    [],
+    "manual rep edits should remain valid even when they exceed the generation budget",
+  );
 
   const equipmentEligibilityApp = launchApp();
   const targetMusclesByDay = {
@@ -1496,7 +1696,7 @@ async function main() {
     ).length,
     1,
   );
-  assert.ok(expandedActivatorHtml.includes("Independent of circuit score"));
+  assert.ok(!expandedActivatorHtml.includes("Independent of circuit score"));
   changeAction(
     interactionApp,
     "complete-optional-activator",
@@ -1520,14 +1720,8 @@ async function main() {
       .innerHTML.includes("optional-activator-panel is-complete is-expanded"),
   );
 
-  changeAssignmentSetup(
-    interactionApp,
-    { day: "monday", circuit: "0", position: "first" },
-    "4",
-  );
   const scoredCircuit =
     interactionApp.Basement45.getState().week.days.monday.circuits[0];
-  assert.equal(scoredCircuit.first.setupScore, 4);
   const scoredExerciseId = scoredCircuit.first.exerciseId;
   const priorEffectiveness = interactionApp.Basement45.exercises.find(
     (exercise) => exercise.id === scoredExerciseId,
@@ -1550,23 +1744,10 @@ async function main() {
       .effectivenessScore,
     updatedEffectiveness,
   );
-  const expectedCircuitScore = [
-    scoredCircuit.first,
-    scoredCircuit.second,
-    ...scoredCircuit.extras,
-  ].reduce(
-    (total, assignment) =>
-      total +
-      interactionApp.Basement45.exercises.find(
-        (exercise) => exercise.id === assignment.exerciseId,
-      ).effectiveness_score +
-      (assignment.setupScore || 0),
-    0,
-  );
   assert.ok(
-    interactionApp.__elements
+    !interactionApp.__elements
       .get("workout-view")
-      .innerHTML.includes(`Total score ${expectedCircuitScore}`),
+      .innerHTML.includes("Total score"),
   );
 
   const favoriteOriginalIds = [
@@ -1589,10 +1770,21 @@ async function main() {
     interactionApp.Basement45.getState().favoriteCircuits[0].name,
     "Test favorite circuit",
   );
+  assert.ok(
+    !Object.hasOwn(
+      interactionApp.Basement45.getState().favoriteCircuits[0].assignments[0],
+      "setupScore",
+    ),
+  );
   assert.equal(
     interactionApp.Basement45.getState().favoriteCircuits[0].assignments[0]
-      .setupScore,
-    4,
+      .reps,
+    "17",
+  );
+  assert.equal(
+    interactionApp.Basement45.getState().favoriteCircuits[0].assignments[0]
+      .repBasis,
+    changedRepBasis,
   );
   clickAction(interactionApp, "delete-circuit-exercise", {
     day: "monday",
@@ -1605,16 +1797,8 @@ async function main() {
       interactionApp.Basement45.getState().week.days.monday.circuits[0].second,
       ...interactionApp.Basement45.getState().week.days.monday.circuits[0]
         .extras,
-    ].every(
-      (assignment) =>
-        assignment.setupScore ===
-        expectedDefaultSetup(
-          interactionApp.Basement45.exercises.find(
-            (exercise) => exercise.id === assignment.exerciseId,
-          ),
-        ),
-    ),
-    "changing circuit composition should restore contextual setup defaults",
+    ].every((assignment) => !Object.hasOwn(assignment, "setupScore")),
+    "changing circuit composition should not add setup scores",
   );
   const favoriteOverlap = Object.entries(
     interactionApp.Basement45.getState().week.days,
@@ -1671,9 +1855,9 @@ async function main() {
       .innerHTML.includes("Use circuit"),
   );
   assert.ok(
-    interactionApp.__elements
+    !interactionApp.__elements
       .get("favorite-results")
-      .innerHTML.includes(`Total score ${expectedCircuitScore}`),
+      .innerHTML.includes("Total score"),
   );
   const favoriteUseButton = interactionApp.__elements
     .get("favorite-results")
@@ -1700,11 +1884,12 @@ async function main() {
     ],
     favoriteOriginalIds,
   );
-  assert.equal(
-    favoriteRestoredCircuit.first.setupScore,
-    4,
-    "favorites should restore per-circuit setup scores",
+  assert.ok(
+    !Object.hasOwn(favoriteRestoredCircuit.first, "setupScore"),
+    "favorites should not restore removed setup scores",
   );
+  assert.equal(favoriteRestoredCircuit.first.reps, "17");
+  assert.equal(favoriteRestoredCircuit.first.repBasis, changedRepBasis);
   assert.equal(
     favoriteRestoredCircuit.first.rotationRepeat,
     true,
@@ -1891,6 +2076,14 @@ async function main() {
     interactionApp.Basement45.getState().exerciseState[noteExerciseId]
       .loadBasis,
     "each",
+  );
+  assert.ok(
+    interactionApp.__elements
+      .get("workout-view")
+      .innerHTML.includes(
+        `load-basis-select basis-each" data-setting="loadBasis" data-exercise-id="${noteExerciseId}"`,
+      ),
+    "changing the load basis should apply the distinct each-side color class",
   );
   clickAction(interactionApp, "set-preference", {
     exerciseId: noteExerciseId,
@@ -2147,6 +2340,59 @@ async function main() {
   interactionApp.document._listeners.change[0]({
     target: {
       id: "replace-equipment",
+      value: "all",
+      dataset: {},
+      closest() {
+        return null;
+      },
+    },
+  });
+  const selectedSideType =
+    filterExercise.unilateral ||
+    /both sides|per side|\/ side/i.test(
+      `${filterExercise.name} ${filterExercise.default_reps}`,
+    )
+      ? "two_side"
+      : "one_side";
+  interactionApp.document._listeners.change[0]({
+    target: {
+      id: "replace-sides",
+      value: selectedSideType,
+      dataset: {},
+      closest() {
+        return null;
+      },
+    },
+  });
+  const sideFilteredHtml =
+    interactionApp.__elements.get("replace-results").innerHTML;
+  const sideFilteredIds = [
+    ...sideFilteredHtml.matchAll(/data-exercise-id="([^"]+)"/g),
+  ].map((match) => match[1]);
+  assert.ok(sideFilteredIds.length > 0);
+  assert.ok(
+    sideFilteredIds.every((id) => {
+      const exercise = interactionApp.Basement45.exercises.find(
+        (item) => item.id === id,
+      );
+      const isTwoSide = Boolean(
+        exercise.unilateral ||
+        /both sides|per side|\/ side/i.test(
+          `${exercise.name} ${exercise.default_reps}`,
+        ),
+      );
+      return selectedSideType === "two_side" ? isTwoSide : !isTwoSide;
+    }),
+    "the replacement side filter should return only the selected side type",
+  );
+  assert.ok(
+    sideFilteredHtml.includes(
+      selectedSideType === "two_side" ? "Two-side" : "One-side",
+    ),
+  );
+  interactionApp.document._listeners.change[0]({
+    target: {
+      id: "replace-sides",
       value: "all",
       dataset: {},
       closest() {
@@ -2460,6 +2706,15 @@ async function main() {
     "Test supported row",
     "the returned swap should focus the newly added exercise",
   );
+  assert.equal(
+    interactionApp.__elements.get("replace-dialog-message").textContent,
+    "Test supported row added and ready to use as the replacement.",
+    "messages produced after adding from the swap should render inside the active dialog",
+  );
+  assert.equal(
+    interactionApp.__elements.get("replace-dialog-message").hidden,
+    false,
+  );
   assert.ok(
     interactionApp.__elements
       .get("replace-results")
@@ -2494,6 +2749,13 @@ async function main() {
       ).equipment_varieties,
     ),
     ["Bench", "D-handles", "Dumbbells"],
+  );
+  assert.equal(
+    interactionApp.Basement45.exercises.find(
+      (exercise) => exercise.id === "test-supported-row",
+    ).equipment_label,
+    "Bench + D-handles + Dumbbells",
+    "the equipment selector should be the source of the displayed setup",
   );
   assert.deepEqual(
     Array.from(
@@ -2601,6 +2863,50 @@ async function main() {
       .equipment_varieties.includes("D-handles"),
   );
 
+  const formErrorApp = launchApp();
+  clickAction(formErrorApp, "open-add-exercise");
+  const bodyWeightForm = formErrorApp.__elements.get("exercise-form");
+  bodyWeightForm._formData = new Map([
+    ["name", "Test no-equipment press"],
+    ["category", "Chest"],
+    ["bodyParts", "Chest\nTriceps"],
+    ["movementPattern", "push"],
+    ["movementRole", "compound"],
+    ["forceType", "push"],
+    ["defaultReps", "10"],
+    ["measureType", "reps"],
+    ["effectivenessScore", "3"],
+  ]);
+  bodyWeightForm._listeners.submit[0]({
+    preventDefault() {},
+    currentTarget: bodyWeightForm,
+  });
+  const bodyWeightExercise = formErrorApp.Basement45.exercises.find(
+    (exercise) => exercise.id === "test-no-equipment-press",
+  );
+  assert.deepEqual(Array.from(bodyWeightExercise.equipment_varieties), [
+    "Body weight",
+  ]);
+  assert.equal(bodyWeightExercise.equipment_label, "Body weight");
+  clickAction(formErrorApp, "open-add-exercise");
+  bodyWeightForm._formData = new Map([
+    ["name", "Test no-equipment press"],
+    ["category", "Chest"],
+  ]);
+  bodyWeightForm._listeners.submit[0]({
+    preventDefault() {},
+    currentTarget: bodyWeightForm,
+  });
+  assert.equal(
+    formErrorApp.__elements.get("exercise-form-error").textContent,
+    "An exercise with that name already exists.",
+    "exercise form errors should be visible inside the active dialog",
+  );
+  assert.equal(
+    formErrorApp.__elements.get("exercise-form-error").hidden,
+    false,
+  );
+
   interactionApp.document._listeners.click[0]({
     target: {
       dataset: { view: "library" },
@@ -2609,6 +2915,13 @@ async function main() {
       },
     },
   });
+  const fullLibraryHtml =
+    interactionApp.__elements.get("library-view").innerHTML;
+  assert.ok(fullLibraryHtml.includes(">One-sided</span>"));
+  assert.ok(fullLibraryHtml.includes(">Two-sided</span>"));
+  assert.ok(fullLibraryHtml.includes("side-count one-sided"));
+  assert.ok(fullLibraryHtml.includes("side-count two-sided"));
+  assert.ok(!fullLibraryHtml.includes(">Both sides</span>"));
   interactionApp.document._listeners.change[0]({
     target: {
       id: "library-equipment",
@@ -2869,15 +3182,15 @@ async function main() {
         (item) => item.id === assignment.exerciseId,
       );
       assert.equal(
-        expectedDefaultSetup(exercise),
-        5,
+        isExpectedEquipmentFree(exercise),
+        true,
         `${exercise.name} should not require equipment in the no-equipment target`,
       );
     }
   }
   assert.deepEqual(Array.from(noEquipmentApp.Basement45.validateWeek()), []);
   const selectedSaturdayBodyParts = [
-    "Core",
+    "Abs/core",
     "Chest",
     "Quadriceps",
     "Hamstrings",
@@ -3372,7 +3685,7 @@ async function main() {
   );
 
   console.log(
-    "Smoke test passed randomized starts, 140 continuous cycle weeks, rest-day shifting, cross-week continuation, cycle locks and management, target/body-part generation, replacement filters and fuzzy search, fresh-v18 and portable JSON handling, favorites with circuit setup scores, effectiveness scoring, expandable optional activators, load basis and progression, master equipment, equipment varieties, recommendation feedback, automatic/adjustable workout timing, direct-file save, editing, and settings.",
+    "Smoke test passed randomized starts, 140 continuous cycle weeks, rest-day shifting, cross-week continuation, cycle locks and management, target/body-part generation, replacement filters and fuzzy search, fresh-v18 and portable JSON handling, circuit favorites, effectiveness scoring, expandable optional activators, rep/load basis and progression, master equipment, equipment varieties, recommendation feedback, automatic/adjustable workout timing, direct-file save, editing, and settings.",
   );
 }
 

@@ -5,6 +5,9 @@
   const STORAGE_KEY = "basement45-state-v2";
   const ACTIVATOR_LABEL = "Total Body activator";
   const DEFAULT_WORKOUT_DURATION_MS = 45 * 60 * 1000;
+  const DEFAULT_CIRCUIT_REP_BUDGET = 30;
+  const MIN_CIRCUIT_REP_BUDGET = 6;
+  const MAX_CIRCUIT_REP_BUDGET = 120;
   const MIN_WORKOUT_DURATION_MS = 15 * 60 * 1000;
   const MAX_WORKOUT_DURATION_MS = 120 * 60 * 1000;
   const TIMER_ADJUSTMENT_MS = 5 * 60 * 1000;
@@ -74,7 +77,7 @@
     "Glutes",
     "Hips",
     "Calves",
-    "Core",
+    "Abs/core",
     "Full body",
   ];
   const TARGET_BODY_PARTS = {
@@ -526,6 +529,12 @@
     return cycle?.kind === "rest" || cycle?.rest === true;
   }
 
+  function assignmentWithoutSetupScore(assignment) {
+    const cleaned = { ...(assignment || {}) };
+    delete cleaned.setupScore;
+    return cleaned;
+  }
+
   function normalizeCycles(values) {
     const source = Array.isArray(values)
       ? values
@@ -593,7 +602,7 @@
                   circuitIndex: Number(lock.circuitIndex),
                   position: lock.position,
                   assignment: {
-                    ...lock.assignment,
+                    ...assignmentWithoutSetupScore(lock.assignment),
                     locked: true,
                     cycleLock: true,
                   },
@@ -791,6 +800,22 @@
   function exerciseEquipmentCatalog() {
     return normalizeEquipmentCatalog(
       exercises.flatMap((exercise) => exercise.equipment_varieties),
+    );
+  }
+
+  function equipmentLabelFromVarieties(values) {
+    const varieties = normalizeEquipmentCatalog(values);
+    return varieties.length ? varieties.join(" + ") : "Body weight";
+  }
+
+  function requiredEquipmentKeys(exercise) {
+    const varieties = Array.isArray(exercise?.equipment_varieties)
+      ? exercise.equipment_varieties
+      : [];
+    return new Set(
+      varieties
+        .map(equipmentFilterKey)
+        .filter((key) => key && key !== "body_weight"),
     );
   }
 
@@ -1125,6 +1150,9 @@
     const canonical = new Map(
       BODY_PART_OPTIONS.map((part) => [part.toLowerCase(), part]),
     );
+    ["abs", "abdominals", "abdominal", "core", "abs and core"].forEach(
+      (alias) => canonical.set(alias, "Abs/core"),
+    );
     return [
       ...new Set(
         items
@@ -1170,8 +1198,8 @@
       Hamstrings: ["Hamstrings"],
       "Glutes and Hips": ["Glutes", "Hips"],
       "Calves and Lower Legs": ["Calves"],
-      Core: ["Core"],
-      "Full Body and Golf Support": ["Full body", "Core"],
+      Core: ["Abs/core"],
+      "Full Body and Golf Support": ["Full body", "Abs/core"],
       "User-defined PT": ["Full body"],
     };
     const parts = [...(categoryParts[record.category] || [])];
@@ -1199,7 +1227,7 @@
       movementPattern === "squat" ||
       includesAny(value, ["squat", "lunge", "step-up", "step up", "wall sit"])
     )
-      add("Quadriceps", "Glutes", "Hips", "Core");
+      add("Quadriceps", "Glutes", "Hips", "Abs/core");
     if (
       movementPattern === "hinge" ||
       includesAny(value, [
@@ -1210,8 +1238,9 @@
         "pull-through",
       ])
     )
-      add("Hamstrings", "Glutes", "Hips", "Core");
-    if (movementPattern === "carry") add("Full body", "Core", "Grip", "Traps");
+      add("Hamstrings", "Glutes", "Hips", "Abs/core");
+    if (movementPattern === "carry")
+      add("Full body", "Abs/core", "Grip", "Traps");
     if (
       includesAny(value, [
         "plank",
@@ -1223,7 +1252,7 @@
         "bird dog",
       ])
     )
-      add("Core");
+      add("Abs/core");
     if (includesAny(value, ["calf", "toe raise", "tibialis"])) add("Calves");
     if (
       includesAny(value, [
@@ -2024,8 +2053,8 @@
   const totalBodyNamePools = Array.from({ length: 6 }, (_, pool) =>
     totalBodyRoundNames.filter((_, index) => index % 6 === pool),
   );
-  const totalBodyNoEquipmentNames = totalBodyRoundNames.filter(
-    (name) => defaultSetupScore(exerciseById.get(idFor(name))) === 5,
+  const totalBodyNoEquipmentNames = totalBodyRoundNames.filter((name) =>
+    isEquipmentFreeExercise(exerciseById.get(idFor(name))),
   );
   SLOTS.total_body = [
     "Strength + movement",
@@ -2402,6 +2431,7 @@
     showAllReplacements: false,
     replaceBodyPart: "all",
     replaceEquipment: "all",
+    replaceSides: "all",
     returnToReplacementAfterExerciseAdd: false,
     editingExerciseId: null,
     favoriteTarget: null,
@@ -2583,6 +2613,7 @@
       version: APP_VERSION,
       weekNumber: 1,
       weekStartedAt: new Date().toISOString(),
+      circuitRepBudget: DEFAULT_CIRCUIT_REP_BUDGET,
       exerciseState: initialExerciseState(),
       customExercises: [],
       exerciseEdits: {},
@@ -2605,7 +2636,8 @@
   }
 
   function matchesSlot(exercise, slot) {
-    if (slot.noEquipmentOnly && defaultSetupScore(exercise) !== 5) return false;
+    if (slot.noEquipmentOnly && !isEquipmentFreeExercise(exercise))
+      return false;
     if (
       slot.bodyPartFilter?.length &&
       !exercise.body_parts.some((part) => slot.bodyPartFilter.includes(part))
@@ -2705,26 +2737,22 @@
   function transitionCost(first, second) {
     if (!first || !second) return 5;
 
-    const firstEquipment = new Set(first.equipment);
-    const secondEquipment = new Set(second.equipment);
-    const shares = (name) =>
-      firstEquipment.has(name) && secondEquipment.has(name);
-    const firstBodyweight =
-      firstEquipment.has("body weight") ||
-      first.equipment[0] === "user-defined";
-    const secondBodyweight =
-      secondEquipment.has("body weight") ||
-      second.equipment[0] === "user-defined";
+    const firstEquipment = requiredEquipmentKeys(first);
+    const secondEquipment = requiredEquipmentKeys(second);
+    const shared = [...firstEquipment].filter((key) =>
+      secondEquipment.has(key),
+    );
+    const sameSetup =
+      firstEquipment.size === secondEquipment.size &&
+      shared.length === firstEquipment.size;
 
-    let cost;
-    if (firstBodyweight && secondBodyweight) cost = 0;
-    else if (shares("dumbbells")) cost = 0;
-    else if (shares("FT2")) cost = 1;
-    else if (shares("barbell")) cost = 1;
-    else if (shares("physio ball")) cost = 0;
-    else if (firstBodyweight || secondBodyweight) cost = 1;
-    else if (first.setup_location === second.setup_location) cost = 2;
-    else cost = 3;
+    // Independent equipment can stay set up at the same time, so generation
+    // favors a varied circuit over one that repeatedly reconfigures a machine.
+    let cost = 0;
+    if (!firstEquipment.size || !secondEquipment.size) cost = 0;
+    else if (!shared.length) cost = 0;
+    else if (sameSetup) cost = 1;
+    else cost = 2;
 
     if (
       first.bench_position !== "none" &&
@@ -2734,7 +2762,7 @@
       cost += 1;
     }
 
-    if (shares("FT2")) {
+    if (shared.includes("functional_trainer")) {
       if (
         first.attachment &&
         second.attachment &&
@@ -2750,7 +2778,10 @@
       }
     }
 
-    if (shares("dumbbells") && first.bench_position !== second.bench_position)
+    if (
+      shared.includes("dumbbells") &&
+      first.bench_position !== second.bench_position
+    )
       cost += 1;
     return Math.min(5, cost);
   }
@@ -2762,6 +2793,84 @@
         `${exercise?.name || ""} ${exercise?.default_reps || ""}`,
       ),
     );
+  }
+
+  function exerciseSideMultiplier(exercise) {
+    return requiresBothSides(exercise) ? 2 : 1;
+  }
+
+  function normalizeCircuitRepBudget(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return DEFAULT_CIRCUIT_REP_BUDGET;
+    const bounded = Math.max(
+      MIN_CIRCUIT_REP_BUDGET,
+      Math.min(MAX_CIRCUIT_REP_BUDGET, Math.round(numeric)),
+    );
+    return Math.max(3, Math.round(bounded / 3) * 3);
+  }
+
+  function normalizePerSideReps(value, fallback = 10) {
+    const match = String(value ?? "").match(/\d+/);
+    const numeric = match ? Number(match[0]) : Number(fallback);
+    return Math.max(1, Math.min(120, Math.round(numeric) || 10));
+  }
+
+  function assignmentReps(assignment) {
+    const exercise = exerciseById.get(assignment?.exerciseId);
+    return normalizePerSideReps(
+      assignment?.reps,
+      stateFor(exercise?.id).reps || exercise?.default_reps || 10,
+    );
+  }
+
+  function defaultAssignmentRepBasis(exercise) {
+    return requiresBothSides(exercise) ? "per_side" : "total";
+  }
+
+  function assignmentRepBasis(assignment) {
+    return ["per_side", "total"].includes(assignment?.repBasis)
+      ? assignment.repBasis
+      : defaultAssignmentRepBasis(exerciseById.get(assignment?.exerciseId));
+  }
+
+  function assignmentTotalReps(assignment) {
+    return (
+      assignmentReps(assignment) *
+      (assignmentRepBasis(assignment) === "per_side" ? 2 : 1)
+    );
+  }
+
+  function circuitTotalReps(circuit) {
+    return mainAssignments(circuit).reduce(
+      (total, assignment) => total + assignmentTotalReps(assignment),
+      0,
+    );
+  }
+
+  function assignCircuitRepBudget(
+    circuit,
+    budget = state?.circuitRepBudget || DEFAULT_CIRCUIT_REP_BUDGET,
+  ) {
+    const assignments = mainAssignments(circuit);
+    const multipliers = assignments.map((assignment) =>
+      exerciseSideMultiplier(exerciseById.get(assignment.exerciseId)),
+    );
+    const sideUnits = multipliers.reduce((total, value) => total + value, 0);
+    if (!sideUnits) return;
+    const target = normalizeCircuitRepBudget(budget);
+    const base = Math.max(1, Math.floor(target / sideUnits));
+    let remaining = Math.max(0, target - base * sideUnits);
+    assignments.forEach((assignment, index) => {
+      let reps = base;
+      if (remaining >= multipliers[index]) {
+        reps += 1;
+        remaining -= multipliers[index];
+      }
+      assignment.reps = String(reps);
+      assignment.repBasis = defaultAssignmentRepBasis(
+        exerciseById.get(assignment.exerciseId),
+      );
+    });
   }
 
   function canCombine(first, second) {
@@ -2905,7 +3014,7 @@
         if (
           used.has(second.id) ||
           first.id === second.id ||
-          !canCombine(first, second)
+          (!canCombine(first, second) && !(preservedFirst && preservedSecond))
         )
           continue;
         const cost = transitionCost(first, second);
@@ -2937,7 +3046,6 @@
       manualOverride: Boolean(preserved?.manualOverride),
       cycleLock: Boolean(preserved?.cycleLock || slot.alwaysLocked),
       slotKey: preserved?.slotKey || null,
-      setupScore: defaultSetupScore(exercise),
     });
 
     return {
@@ -2953,6 +3061,7 @@
     previousExercise,
     circuitExercises,
     oldAssignment = null,
+    remainingSideUnits = Number.POSITIVE_INFINITY,
   ) {
     const recent = recentIds();
     const preserved = preservedAssignment(
@@ -2969,13 +3078,15 @@
       .filter(
         (exercise) =>
           exercise &&
-          canCombine(previousExercise, exercise) &&
-          !(
-            requiresBothSides(exercise) &&
-            circuitExercises.some(requiresBothSides)
-          ) &&
-          (preserved?.manualOverride ||
-            transitionCost(previousExercise, exercise) <= 2),
+          (preserved ||
+            exerciseSideMultiplier(exercise) <= remainingSideUnits) &&
+          (preserved || canCombine(previousExercise, exercise)) &&
+          (preserved ||
+            !(
+              requiresBothSides(exercise) &&
+              circuitExercises.some(requiresBothSides)
+            )) &&
+          (preserved || transitionCost(previousExercise, exercise) <= 2),
       )
       .sort(
         (first, second) =>
@@ -2996,7 +3107,6 @@
       manualOverride: Boolean(preserved?.manualOverride),
       cycleLock: Boolean(preserved?.cycleLock),
       slotKey: "extra",
-      setupScore: defaultSetupScore(selected),
     };
   }
 
@@ -3007,7 +3117,7 @@
   function qualifiesAsOptionalActivator(exercise, targetId) {
     return Boolean(
       exercise?.total_body_activator &&
-      (!isNoEquipmentTarget(targetId) || defaultSetupScore(exercise) === 5),
+      (!isNoEquipmentTarget(targetId) || isEquipmentFreeExercise(exercise)),
     );
   }
 
@@ -3176,13 +3286,16 @@
       const lockedExtraCount = oldExtras.filter(
         (assignment) => assignment?.locked,
       ).length;
+      const pairSideUnits = [pair.first, pair.second].reduce(
+        (total, assignment) =>
+          total +
+          exerciseSideMultiplier(exerciseById.get(assignment.exerciseId)),
+        0,
+      );
+      const generatedCount = pairSideUnits < 3 ? 3 : 2;
       const desiredCount = Math.min(
         4,
-        Math.max(
-          2,
-          Number(oldCircuit?.preferredExerciseCount) || definition.defaultCount,
-          2 + lockedExtraCount,
-        ),
+        Math.max(2, generatedCount, 2 + lockedExtraCount),
       );
       const extras = [];
       let previousExercise = exerciseById.get(pair.second.exerciseId);
@@ -3192,6 +3305,10 @@
       ];
       for (let extraIndex = 0; extraIndex < desiredCount - 2; extraIndex += 1) {
         let extra;
+        const currentSideUnits = circuitExercises.reduce(
+          (total, exercise) => total + exerciseSideMultiplier(exercise),
+          0,
+        );
         try {
           extra = chooseExtra(
             definition.extra,
@@ -3199,6 +3316,7 @@
             previousExercise,
             circuitExercises,
             oldExtras[extraIndex],
+            Math.max(1, 3 - currentSideUnits),
           );
         } catch (error) {
           throw new Error(`${day.name} circuit ${index + 1}: ${error.message}`);
@@ -3208,7 +3326,7 @@
         previousExercise = exerciseById.get(extra.exerciseId);
         circuitExercises.push(previousExercise);
       }
-      return {
+      const circuit = {
         number: index + 1,
         category: definition.category,
         first: pair.first,
@@ -3220,6 +3338,8 @@
         optionalActivatorCompleted: false,
         completionCredited: false,
       };
+      assignCircuitRepBudget(circuit);
+      return circuit;
     });
   }
 
@@ -3533,8 +3653,39 @@
       selectionUsed.add(pair.second.id);
 
       const manualOverride = pair.cost > 2;
+      const extras = [];
+      const pairSideUnits =
+        exerciseSideMultiplier(pair.first) +
+        exerciseSideMultiplier(pair.second);
+      if (pairSideUnits < 3) {
+        const extraExercise = candidatesForMissingSlot(definition.extra)
+          .filter(
+            (exercise) =>
+              exerciseSideMultiplier(exercise) === 1 &&
+              canCombine(pair.second, exercise),
+          )
+          .sort(
+            (first, second) =>
+              transitionCost(pair.second, first) -
+                transitionCost(pair.second, second) ||
+              first.name.localeCompare(second.name),
+          )[0];
+        if (!extraExercise)
+          throw new Error(
+            `No single-sided exercise remains while adding ${day.name} circuit ${index + 1}.`,
+          );
+        selectionUsed.add(extraExercise.id);
+        extras.push({
+          exerciseId: extraExercise.id,
+          slotLabel: definition.extra.label,
+          locked: false,
+          fixed: false,
+          manualOverride: transitionCost(pair.second, extraExercise) > 2,
+          slotKey: "extra",
+        });
+      }
 
-      return {
+      const circuit = {
         number: index + 1,
         category: definition.category,
         first: {
@@ -3544,7 +3695,6 @@
           fixed: false,
           manualOverride,
           slotKey: "first",
-          setupScore: defaultSetupScore(pair.first),
         },
         second: {
           exerciseId: pair.second.id,
@@ -3553,15 +3703,16 @@
           fixed: false,
           manualOverride,
           slotKey: "second",
-          setupScore: defaultSetupScore(pair.second),
         },
-        extras: [],
+        extras,
         rounds: 3,
-        preferredExerciseCount: 2,
+        preferredExerciseCount: 2 + extras.length,
         roundsCompleted: [false, false, false],
         optionalActivatorCompleted: false,
         completionCredited: false,
       };
+      assignCircuitRepBudget(circuit);
+      return circuit;
     });
 
     if (selectionUsed !== used) {
@@ -3776,6 +3927,9 @@
       candidate.weekStartedAt ||
       candidate.week?.startedAt ||
       new Date().toISOString();
+    normalized.circuitRepBudget = normalizeCircuitRepBudget(
+      candidate.circuitRepBudget,
+    );
     normalized.customExercises = Array.isArray(candidate.customExercises)
       ? candidate.customExercises
       : [];
@@ -3879,12 +4033,19 @@
           .map((favorite) => {
             const assignments = favorite.assignments
               .slice(0, 4)
-              .map((assignment) => ({
-                ...assignment,
-                setupScore:
-                  normalizeSetupScore(assignment.setupScore) ??
-                  defaultSetupScore(exerciseById.get(assignment.exerciseId)),
-              }));
+              .map((assignment) => {
+                const normalizedAssignment = {
+                  ...assignmentWithoutSetupScore(assignment),
+                  reps: String(
+                    normalizePerSideReps(
+                      assignment.reps,
+                      exerciseById.get(assignment.exerciseId)?.default_reps,
+                    ),
+                  ),
+                  repBasis: assignmentRepBasis(assignment),
+                };
+                return normalizedAssignment;
+              });
             const exerciseNames = assignments
               .map(
                 (assignment) => exerciseById.get(assignment.exerciseId)?.name,
@@ -3894,18 +4055,14 @@
               ...favorite,
               assignments,
               exerciseNames,
-              totalScore: assignments.reduce(
-                (total, assignment) =>
-                  total + assignmentExerciseScore(assignment),
-                0,
-              ),
               signature: assignments
                 .map(
                   (assignment) =>
-                    `${assignment.exerciseId}:${normalizeSetupScore(assignment.setupScore) ?? ""}`,
+                    `${assignment.exerciseId}:${assignment.reps}:${assignment.repBasis}`,
                 )
                 .join("|"),
             };
+            delete migrated.totalScore;
             delete migrated.bridge;
             return migrated;
           })
@@ -4090,11 +4247,24 @@
         circuit.extras.forEach((assignment) => {
           assignment.slotKey ||= "extra";
         });
-        mainAssignments(circuit).forEach((assignment) => {
-          assignment.setupScore =
-            normalizeSetupScore(assignment.setupScore) ??
-            defaultSetupScore(exerciseById.get(assignment.exerciseId));
+        const loadedAssignments = mainAssignments(circuit);
+        const needsRepPrescription = loadedAssignments.some(
+          (assignment) => assignment.reps === undefined,
+        );
+        loadedAssignments.forEach((assignment) => {
+          delete assignment.setupScore;
+          assignment.repBasis = assignmentRepBasis(assignment);
+          if (!needsRepPrescription) {
+            assignment.reps = String(
+              normalizePerSideReps(
+                assignment.reps,
+                DEFAULT_CIRCUIT_REP_BUDGET / 3,
+              ),
+            );
+          }
         });
+        if (needsRepPrescription)
+          assignCircuitRepBudget(circuit, normalized.circuitRepBudget);
         circuit.preferredExerciseCount = Math.min(
           4,
           Math.max(
@@ -4263,16 +4433,8 @@
     );
   }
 
-  function normalizeSetupScore(value) {
-    if (value === null || value === undefined || value === "") return null;
-    const score = Number(value);
-    return Number.isFinite(score)
-      ? Math.max(0, Math.min(5, Math.round(score)))
-      : null;
-  }
-
-  function defaultSetupScore(exercise) {
-    if (!exercise) return 4;
+  function isEquipmentFreeExercise(exercise) {
+    if (!exercise) return false;
     const equipmentLabel = String(exercise.equipment_label || "").toLowerCase();
     const varieties = Array.isArray(exercise.equipment_varieties)
       ? exercise.equipment_varieties
@@ -4287,32 +4449,7 @@
       "no equipment",
       "none required",
     ]);
-    return onlyBodyWeight || bodyWeightOption || explicitlyEquipmentFree
-      ? 5
-      : 4;
-  }
-
-  function assignmentExerciseScore(assignment) {
-    const exercise = exerciseById.get(assignment.exerciseId);
-    return (
-      exerciseEffectivenessScore(exercise) +
-      (normalizeSetupScore(assignment.setupScore) ?? 0)
-    );
-  }
-
-  function circuitTotalScore(circuit) {
-    return mainAssignments(circuit).reduce(
-      (total, assignment) => total + assignmentExerciseScore(assignment),
-      0,
-    );
-  }
-
-  function clearCircuitSetupScores(circuit) {
-    mainAssignments(circuit).forEach((assignment) => {
-      assignment.setupScore = defaultSetupScore(
-        exerciseById.get(assignment.exerciseId),
-      );
-    });
+    return onlyBodyWeight || bodyWeightOption || explicitlyEquipmentFree;
   }
 
   function isCircuitComplete(circuit) {
@@ -4323,13 +4460,6 @@
     );
   }
 
-  function difficultyFor(circuit) {
-    const count = mainAssignments(circuit).length;
-    if (count === 2) return "Focused";
-    if (count === 3) return "Standard";
-    return "Challenge";
-  }
-
   function circuitExerciseIds(circuit) {
     return mainAssignments(circuit).map((assignment) => assignment.exerciseId);
   }
@@ -4338,7 +4468,7 @@
     return mainAssignments(circuit)
       .map(
         (assignment) =>
-          `${assignment.exerciseId}:${normalizeSetupScore(assignment.setupScore) ?? ""}`,
+          `${assignment.exerciseId}:${assignmentReps(assignment)}:${assignmentRepBasis(assignment)}`,
       )
       .join("|");
   }
@@ -4394,7 +4524,6 @@
         exerciseNames,
         signature,
         assignments: JSON.parse(JSON.stringify(mainAssignments(circuit))),
-        totalScore: circuitTotalScore(circuit),
         savedAt: new Date().toISOString(),
       });
       state.favoriteCircuits = state.favoriteCircuits.slice(-30);
@@ -4423,7 +4552,7 @@
           .map((favorite) => {
             const reason = favoriteUnavailableReason(favorite, target);
             return `<article class="favorite-option">
-              <div><strong>${escapeHtml(favorite.name)}</strong><small>Total score ${favorite.assignments.reduce((total, assignment) => total + assignmentExerciseScore(assignment), 0)} · ${favorite.exerciseNames.map(escapeHtml).join(" · ")}</small>${reason ? `<span class="favorite-warning">${escapeHtml(reason)}</span>` : ""}</div>
+              <div><strong>${escapeHtml(favorite.name)}</strong><small>${favorite.exerciseNames.map(escapeHtml).join(" · ")}</small>${reason ? `<span class="favorite-warning">${escapeHtml(reason)}</span>` : ""}</div>
               <button class="library-action" type="button" data-action="apply-favorite-circuit" data-favorite-id="${favorite.id}" ${reason ? "disabled" : ""}>Use circuit</button>
               <button class="library-action delete" type="button" data-action="delete-favorite-circuit" data-favorite-id="${favorite.id}">Remove</button>
             </article>`;
@@ -4604,29 +4733,7 @@
         if (mainExercises.some((exercise) => !exercise)) {
           issues.push(`${day.name} references an unknown exercise.`);
         }
-        const bothSidesAssignments = assignments.filter((assignment, index) =>
-          requiresBothSides(mainExercises[index]),
-        );
-        if (
-          bothSidesAssignments.length > 1 &&
-          !bothSidesAssignments.some((assignment) => assignment.manualOverride)
-        ) {
-          issues.push(
-            `${day.name} circuit ${circuit.number} combines multiple both-sides exercises.`,
-          );
-        }
         for (let index = 1; index < mainExercises.length; index += 1) {
-          if (
-            mainExercises[index - 1] &&
-            mainExercises[index] &&
-            !canCombine(mainExercises[index - 1], mainExercises[index]) &&
-            !assignments[index - 1].manualOverride &&
-            !assignments[index].manualOverride
-          ) {
-            issues.push(
-              `${day.name} circuit ${circuit.number} combines two both-sides exercises.`,
-            );
-          }
           if (
             mainExercises[index - 1] &&
             mainExercises[index] &&
@@ -4636,7 +4743,7 @@
             !assignments[index].manualOverride
           ) {
             issues.push(
-              `${day.name} circuit ${circuit.number} has a setup score above 2.`,
+              `${day.name} circuit ${circuit.number} has a transition cost above 2.`,
             );
           }
         }
@@ -5011,12 +5118,8 @@
     const exercise = exerciseById.get(assignment.exerciseId);
     const settings = stateFor(exercise.id);
     const fixed = assignment.fixed || exercise.always_locked;
-    const caution = cautionText(exercise);
     const isOptionalActivator = context.position === "optionalActivator";
     const itemClass = `${isOptionalActivator ? "exercise-item activator-item" : "exercise-item"}${isHidden(exercise.id) ? " is-hidden" : ""}`;
-    const slotLabel = isOptionalActivator
-      ? ACTIVATOR_LABEL
-      : assignment.slotLabel;
     const loadProgressMarkup = `<div class="load-progression" aria-label="${settings.loadProgressCount} of 4 workouts completed at this load">
       <span class="load-progress-marks" aria-hidden="true">
         ${[0, 1, 2, 3]
@@ -5032,23 +5135,33 @@
       <span>Effectiveness</span>
       <input type="number" min="1" max="5" step="1" value="${exerciseEffectivenessScore(exercise)}" data-exercise-setting="effectivenessScore" data-exercise-id="${exercise.id}" aria-label="Effectiveness score from 1 to 5 for ${escapeHtml(exercise.name)}" />
     </label>`;
-    const scoreMarkup = isOptionalActivator
-      ? `<div class="activator-score-row">${effectivenessFieldMarkup}<span>Independent of circuit score</span></div>`
-      : `<div class="exercise-score-row">
-          ${effectivenessFieldMarkup}
-          <label class="setup-score-field">
-            <span>Setup</span>
-            <input type="number" min="0" max="5" step="1" value="${normalizeSetupScore(assignment.setupScore) ?? ""}" placeholder="0" data-assignment-setting="setupScore" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" data-position="${context.position}" aria-label="Manual setup ease score from 0 to 5 for ${escapeHtml(exercise.name)}" />
-            <small>/ 5</small>
-          </label>
-          <span class="exercise-total-score">Exercise score <strong>${assignmentExerciseScore(assignment)}</strong></span>
-        </div>`;
+    const reps = assignmentReps(assignment);
+    const repBasis = assignmentRepBasis(assignment);
+    const repFieldMarkup = isOptionalActivator
+      ? `<label class="compact-field measure-field">
+          <select data-setting="measureType" data-exercise-id="${exercise.id}" aria-label="Measure repetitions or seconds for ${escapeHtml(exercise.name)}">
+            <option value="reps" ${settings.measureType === "reps" ? "selected" : ""}>Reps</option>
+            <option value="seconds" ${settings.measureType === "seconds" ? "selected" : ""}>Seconds</option>
+          </select>
+          <input data-setting="reps" data-exercise-id="${exercise.id}" value="${escapeHtml(settings.reps)}" aria-label="Repetitions for ${escapeHtml(exercise.name)}" />
+        </label>`
+      : `<label class="compact-field measure-field circuit-rep-field">
+          <span>Reps</span>
+          <input type="number" min="1" max="120" step="1" inputmode="numeric" data-assignment-setting="reps" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" data-position="${context.position}" value="${reps}" aria-label="Repetitions for ${escapeHtml(exercise.name)}" />
+          <select class="rep-basis-select ${repBasis === "per_side" ? "basis-two-side" : "basis-one-side"}" data-assignment-setting="repBasis" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" data-position="${context.position}" aria-label="Whether repetitions for ${escapeHtml(exercise.name)} are one-side or two-side">
+            <option value="total" ${repBasis === "total" ? "selected" : ""}>one-side</option>
+            <option value="per_side" ${repBasis === "per_side" ? "selected" : ""}>two-side</option>
+          </select>
+        </label>`;
+    const exerciseTitleMarkup = exercise.instruction_url
+      ? `<a class="exercise-demo-link" href="${escapeHtml(exercise.instruction_url)}" target="_blank" rel="noreferrer" title="View demo for ${escapeHtml(exercise.name)}">${escapeHtml(exercise.name)} ${ICONS.external}</a>`
+      : escapeHtml(exercise.name);
 
     return `
       <div class="${itemClass}">
         <div class="exercise-topline">
-          <span class="slot-label">${escapeHtml(slotLabel)}</span>
           <span class="exercise-tools">
+            ${effectivenessFieldMarkup}
             ${
               isOptionalActivator
                 ? `<label class="bridge-check" title="Mark the optional total-body activator complete">
@@ -5063,6 +5176,10 @@
                    <button class="mini-button" type="button" data-action="move-exercise" data-direction="1" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" data-position="${context.position}" title="Move exercise down" aria-label="Move ${escapeHtml(exercise.name)} down" ${context.orderIndex === context.exerciseCount - 1 ? "disabled" : ""}>↓</button>`
                 : ""
             }
+            <span class="preference-controls" aria-label="Recommendation preference for ${escapeHtml(exercise.name)}">
+              <button class="feedback-button ${settings.preference === 1 ? "active" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-value="1" title="Recommend more often" aria-label="Recommend ${escapeHtml(exercise.name)} more often">${ICONS.thumbUp}</button>
+              <button class="feedback-button ${settings.preference === -1 ? "active negative" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-value="-1" title="Recommend less often" aria-label="Recommend ${escapeHtml(exercise.name)} less often">${ICONS.thumbDown}</button>
+            </span>
             <button
               class="mini-button ${assignment.locked ? "active" : ""}"
               type="button"
@@ -5122,39 +5239,16 @@
                 : ""
             }
           </span>
+          <h3 class="exercise-name">${exerciseTitleMarkup}</h3>
         </div>
-        <h3 class="exercise-name">${escapeHtml(exercise.name)}</h3>
-        <div class="exercise-meta">
-          ${
-            exercise.instruction_url
-              ? `<a href="${escapeHtml(exercise.instruction_url)}" target="_blank" rel="noreferrer">View demo ${ICONS.external}</a>`
-              : `<span>Edit this exercise to add its instructions</span>`
-          }
-          ${requiresBothSides(exercise) ? '<span class="both-sides-label">• Both sides</span>' : ""}
-          ${caution ? `<span title="${escapeHtml(exercise.notes)}">• ${escapeHtml(caution)}</span>` : ""}
-        </div>
-        <div class="exercise-support-row">
-          <div class="equipment-needed"><span>Equipment</span><strong>${escapeHtml(exercise.equipment_label)}</strong></div>
-          <div class="preference-controls" aria-label="Recommendation preference for ${escapeHtml(exercise.name)}">
-            <button class="feedback-button ${settings.preference === 1 ? "active" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-value="1" title="Recommend more often" aria-label="Recommend ${escapeHtml(exercise.name)} more often">${ICONS.thumbUp}</button>
-            <button class="feedback-button ${settings.preference === -1 ? "active negative" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-value="-1" title="Recommend less often" aria-label="Recommend ${escapeHtml(exercise.name)} less often">${ICONS.thumbDown}</button>
-          </div>
-        </div>
-        ${scoreMarkup}
         <div class="exercise-fields">
-          <label class="compact-field measure-field">
-            <select data-setting="measureType" data-exercise-id="${exercise.id}" aria-label="Measure repetitions or seconds for ${escapeHtml(exercise.name)}">
-              <option value="reps" ${settings.measureType === "reps" ? "selected" : ""}>Reps</option>
-              <option value="seconds" ${settings.measureType === "seconds" ? "selected" : ""}>Seconds</option>
-            </select>
-            <input data-setting="reps" data-exercise-id="${exercise.id}" value="${escapeHtml(settings.reps)}" aria-label="Repetitions for ${escapeHtml(exercise.name)}" />
-          </label>
+          ${repFieldMarkup}
           <div class="load-control">
             <label class="compact-field load-field ${String(settings.weight).trim() ? "has-recommended-weight" : ""}">
               <span>Load</span>
               <input data-setting="weight" data-exercise-id="${exercise.id}" value="${escapeHtml(settings.weight)}" placeholder="—" inputmode="decimal" aria-label="Weight for ${escapeHtml(exercise.name)}" />
               <small>lb</small>
-              <select class="load-basis-select" data-setting="loadBasis" data-exercise-id="${exercise.id}" aria-label="Whether the load for ${escapeHtml(exercise.name)} is total or for each side">
+              <select class="load-basis-select ${settings.loadBasis === "each" ? "basis-each" : "basis-total"}" data-setting="loadBasis" data-exercise-id="${exercise.id}" aria-label="Whether the load for ${escapeHtml(exercise.name)} is total or for each side">
                 <option value="total" ${settings.loadBasis === "total" ? "selected" : ""}>total</option>
                 <option value="each" ${settings.loadBasis === "each" ? "selected" : ""}>each</option>
               </select>
@@ -5180,6 +5274,8 @@
 
   function renderCircuit(dayId, circuit, circuitIndex) {
     const assignments = mainAssignments(circuit);
+    const totalReps = circuitTotalReps(circuit);
+    const meetsRepGoal = totalReps === DEFAULT_CIRCUIT_REP_BUDGET;
     const circuitMuscles = circuitTargetMuscles(dayId, circuit);
     const elapsed = timerElapsed(state.week.days[dayId]);
     const exerciseItems = assignments
@@ -5200,13 +5296,21 @@
     const complete = isCircuitComplete(circuit);
     const activatorKey = `${dayId}-${circuitIndex}`;
     const activatorExpanded = ui.expandedActivators.has(activatorKey);
+    const optionalActivatorClass = [
+      "optional-activator-panel",
+      circuit.optionalActivatorCompleted && "is-complete",
+      meetsRepGoal && "is-rep-goal",
+      activatorExpanded && "is-expanded",
+    ]
+      .filter(Boolean)
+      .join(" ");
     const activatorExercise = exerciseById.get(
       circuit.optionalActivator.exerciseId,
     );
-    const optionalActivatorMarkup = `<section class="optional-activator-panel ${circuit.optionalActivatorCompleted ? "is-complete" : ""} ${activatorExpanded ? "is-expanded" : ""}">
+    const optionalActivatorMarkup = `<section class="${optionalActivatorClass}">
       <button class="optional-activator-toggle" type="button" data-action="toggle-optional-activator-pane" data-day="${dayId}" data-circuit="${circuitIndex}" aria-expanded="${activatorExpanded}" aria-controls="optional-activator-${dayId}-${circuitIndex}">
         <span class="optional-activator-status" aria-hidden="true">${circuit.optionalActivatorCompleted ? "✓" : ""}</span>
-        <span class="optional-activator-copy"><strong>Optional total-body activator</strong><small>${escapeHtml(activatorExercise.name)} · If time remains</small></span>
+        <span class="optional-activator-copy"><strong>Optional total-body activator</strong><small>${escapeHtml(activatorExercise.name)}</small></span>
         <span class="optional-activator-chevron">${ICONS.arrow}</span>
       </button>
       ${
@@ -5244,8 +5348,8 @@
           <div class="circuit-scaling">
             <button class="favorite-button ${isFavoriteCircuit(dayId, circuitIndex, circuit) ? "active" : ""}" type="button" data-action="toggle-favorite-circuit" data-day="${dayId}" data-circuit="${circuitIndex}" title="${isFavoriteCircuit(dayId, circuitIndex, circuit) ? "Remove this circuit from favorites" : "Save this circuit as a favorite"}" aria-label="${isFavoriteCircuit(dayId, circuitIndex, circuit) ? "Remove circuit from favorites" : "Favorite this circuit"}">${ICONS.star}</button>
             <button class="favorite-button" type="button" data-action="open-favorite-circuits" data-day="${dayId}" data-circuit="${circuitIndex}" title="Substitute a saved favorite circuit" aria-label="Substitute a favorite circuit" ${favoritesForSlot(dayId, circuitIndex).length ? "" : "disabled"}>${ICONS.favorites}</button>
-            <span class="circuit-total-score">Total score ${circuitTotalScore(circuit)}</span>
-            <span class="rounds-badge">${difficultyFor(circuit)} · ${assignments.length} exercises</span>
+            <span class="circuit-rep-total${meetsRepGoal ? "" : " is-off-target"}" title="${meetsRepGoal ? "Circuit meets the 30-rep goal" : "Adjust this circuit to 30 reps per round"}">${totalReps} reps / round &middot; ${totalReps * 3} total</span>
+            <span class="rounds-badge">${assignments.length} exercises</span>
             <span class="scale-buttons">
               <button type="button" data-action="remove-round-exercise" data-day="${dayId}" data-circuit="${circuitIndex}" aria-label="Remove the last round exercise" title="Remove the last round exercise" ${canRemove ? "" : "disabled"}>−</button>
               <button type="button" data-action="add-round-exercise" data-day="${dayId}" data-circuit="${circuitIndex}" aria-label="Add a round exercise" title="Add a compatible round exercise" ${assignments.length >= 4 ? "disabled" : ""}>+</button>
@@ -5474,7 +5578,7 @@
             <span class="tag">${escapeHtml(exercise.movement_role.replace("_", " "))}</span>
             <span class="tag">${escapeHtml(exercise.force_type.replace("_", " "))}</span>
             <span class="tag score">Effectiveness ${exerciseEffectivenessScore(exercise)}</span>
-            ${requiresBothSides(exercise) ? '<span class="tag both-sides">Both sides</span>' : ""}
+            <span class="tag side-count ${requiresBothSides(exercise) ? "two-sided" : "one-sided"}">${requiresBothSides(exercise) ? "Two-sided" : "One-sided"}</span>
             ${caution ? `<span class="tag caution">${escapeHtml(caution)}</span>` : ""}
             ${exercise.total_body_activator ? '<span class="tag activator">Total-body activator</span>' : ""}
           </div>
@@ -5800,6 +5904,16 @@
             <p class="view-subtitle">Choose a split, define its reusable cycles, and arrange a 1&ndash;16 day rotation independent of weekdays. Scheduled rest entries advance the rotation; calendar rest days defer the pending entry.</p>
           </div>
         </header>
+        <section class="rep-budget-settings" aria-labelledby="rep-budget-title">
+          <div>
+            <strong id="rep-budget-title">Circuit rep budget</strong>
+            <span>Used when workouts are generated. Two-sided exercises count once for each side; manual circuit edits remain flexible.</span>
+          </div>
+          <label>
+            <span>Reps per round</span>
+            <input id="circuit-rep-budget" type="number" min="${MIN_CIRCUIT_REP_BUDGET}" max="${MAX_CIRCUIT_REP_BUDGET}" step="3" value="${state.circuitRepBudget}" />
+          </label>
+        </section>
         ${renderRoutineSettingsPanel("warmup", state.warmupExercises)}
         <hr class="settings-section-divider" aria-hidden="true" />
         <div class="cycle-section-heading">
@@ -5868,9 +5982,40 @@
     updateWorkoutTimer();
   }
 
+  function clearDialogMessage(messageId) {
+    const message = document.getElementById(messageId);
+    if (!message) return;
+    message.textContent = "";
+    message.className = "dialog-message";
+    message.hidden = true;
+  }
+
+  function activeDialogMessage() {
+    const dialogMessages = [
+      ["exercise-dialog", "exercise-dialog-message"],
+      ["replace-dialog", "replace-dialog-message"],
+    ];
+    const active = dialogMessages.find(
+      ([dialogId]) => document.getElementById(dialogId)?.open,
+    );
+    return active ? document.getElementById(active[1]) : null;
+  }
+
   function showToast(message, type = "success") {
     const toast = document.getElementById("toast");
     clearTimeout(toastTimer);
+    toast.className = "toast";
+    const dialogMessage = activeDialogMessage();
+    if (dialogMessage) {
+      dialogMessage.textContent = message;
+      dialogMessage.className = `dialog-message${type === "error" ? " error" : ""}`;
+      dialogMessage.hidden = false;
+      toastTimer = setTimeout(() => {
+        dialogMessage.className = "dialog-message";
+        dialogMessage.hidden = true;
+      }, 5000);
+      return;
+    }
     toast.textContent = message;
     toast.className = `toast visible ${type === "error" ? "error" : ""}`;
     toastTimer = setTimeout(() => {
@@ -5974,26 +6119,9 @@
       assignments[nextIndex],
       assignments[index],
     ];
-    const reorderedExercises = assignments.map((assignment) =>
-      exerciseById.get(assignment.exerciseId),
-    );
-    if (
-      reorderedExercises.some(
-        (exercise, itemIndex) =>
-          itemIndex > 0 &&
-          !canCombine(reorderedExercises[itemIndex - 1], exercise),
-      )
-    ) {
-      showToast(
-        "Two exercises that require both sides cannot be placed together.",
-        "error",
-      );
-      return;
-    }
     markManualSetupTransitions(assignments);
     writeMainAssignments(circuit, assignments);
     syncCycleTemplateFromDay(context.dayId);
-    clearCircuitSetupScores(circuit);
     resetCircuitCompletion(circuit);
     persist();
     render();
@@ -6017,26 +6145,9 @@
         promoted.manualOverride = true;
       }
     }
-    const remainingExercises = assignments.map((assignment) =>
-      exerciseById.get(assignment.exerciseId),
-    );
-    if (
-      remainingExercises.some(
-        (exercise, itemIndex) =>
-          itemIndex > 0 &&
-          !canCombine(remainingExercises[itemIndex - 1], exercise),
-      )
-    ) {
-      showToast(
-        "Removing that exercise would combine two both-sides movements.",
-        "error",
-      );
-      return;
-    }
     markManualSetupTransitions(assignments);
     writeMainAssignments(circuit, assignments);
     syncCycleTemplateFromDay(context.dayId);
-    clearCircuitSetupScores(circuit);
     stateFor(removed.exerciseId).skippedCount += 1;
     resetCircuitCompletion(circuit);
     persist();
@@ -6167,7 +6278,7 @@
     }
     if (
       isNoEquipmentTarget(targetIdForDay(context.dayId)) &&
-      defaultSetupScore(exercise) !== 5
+      !isEquipmentFreeExercise(exercise)
     ) {
       return false;
     }
@@ -6206,6 +6317,11 @@
         if (
           ui.replaceEquipment !== "all" &&
           !matchesEquipmentSelection(exercise, ui.replaceEquipment)
+        )
+          return false;
+        if (
+          (ui.replaceSides === "one_side" && requiresBothSides(exercise)) ||
+          (ui.replaceSides === "two_side" && !requiresBothSides(exercise))
         )
           return false;
         return true;
@@ -6262,7 +6378,7 @@
                     <span><em>Muscles</em> ${exercise.body_parts.map(escapeHtml).join(", ")}</span>
                     <span><em>Equipment</em> ${escapeHtml(exercise.equipment_label)}</span>
                     ${alreadyUsed ? "<span>Already scheduled elsewhere in this week</span>" : ""}
-                    <span>${requiresBothSides(exercise) ? "Both sides · " : ""}Chosen ${stateFor(exercise.id).chosenCount} times${eligible ? "" : " · outside today's target muscles"}</span>
+                    <span>${requiresBothSides(exercise) ? "Two-side" : "One-side"} · Chosen ${stateFor(exercise.id).chosenCount} times${eligible ? "" : " · outside today's target muscles"}</span>
                   </small>
                 </div>
                 <div class="replace-option-actions">
@@ -6279,12 +6395,14 @@
   function openReplacement(context) {
     const assignment = assignmentFor(context);
     if (assignment.locked) return;
+    clearDialogMessage("replace-dialog-message");
     const exercise = exerciseById.get(assignment.exerciseId);
     ui.replacement = context;
     ui.replaceSearch = "";
     ui.showAllReplacements = false;
     ui.replaceBodyPart = "all";
     ui.replaceEquipment = "all";
+    ui.replaceSides = "all";
     document.getElementById("replace-title").textContent =
       `Replace ${exercise.name}`;
     const target = workoutTarget(targetIdForDay(context.dayId));
@@ -6293,6 +6411,7 @@
       `Showing unused exercises that target the muscles selected for this ${target.label} day.`;
     document.getElementById("replace-search").value = "";
     document.getElementById("show-all-replacements").checked = false;
+    document.getElementById("replace-sides").value = "all";
     document.getElementById("replace-body-part").innerHTML =
       `<option value="all">All body parts</option>${bodyPartOptions()
         .map(
@@ -6325,6 +6444,9 @@
     };
     ui.replaceSearch = "";
     ui.showAllReplacements = false;
+    ui.replaceBodyPart = "all";
+    ui.replaceEquipment = "all";
+    ui.replaceSides = "all";
     const recommended = replacementOptions()[0]?.exercise;
     if (!recommended) {
       ui.replacement = null;
@@ -6365,6 +6487,7 @@
     ui.showAllReplacements = false;
     ui.replaceBodyPart = "all";
     ui.replaceEquipment = "all";
+    ui.replaceSides = "all";
     const eligible = replacementOptions().map((option) => option.exercise);
     const unseenEligible = eligible.filter(
       (exercise) => stateFor(exercise.id).chosenCount === 0,
@@ -6392,7 +6515,7 @@
           return false;
         if (
           isNoEquipmentTarget(targetIdForDay(context.dayId)) &&
-          defaultSetupScore(exercise) !== 5
+          !isEquipmentFreeExercise(exercise)
         )
           return false;
         if (
@@ -6497,11 +6620,11 @@
         manualOverride,
         rotationRepeat: repeatedElsewhere,
         slotKey: "extra",
-        setupScore: defaultSetupScore(next),
+        reps: String(normalizePerSideReps(stateFor(next.id).reps, 10)),
+        repBasis: defaultAssignmentRepBasis(next),
       });
       circuit.preferredExerciseCount = mainAssignments(circuit).length;
       syncCycleTemplateFromDay(ui.replacement.dayId);
-      clearCircuitSetupScores(circuit);
       stateFor(next.id).chosenCount += 1;
       resetCircuitCompletion(circuit);
       persist();
@@ -6520,7 +6643,7 @@
     assignment.locked = false;
     assignment.manualOverride = manualOverride;
     assignment.rotationRepeat = repeatedElsewhere;
-    clearCircuitSetupScores(circuit);
+    assignment.repBasis = defaultAssignmentRepBasis(next);
     resetCircuitCompletion(circuit);
     persist();
     if (document.getElementById("replace-dialog").open)
@@ -6798,11 +6921,30 @@
     form.elements.equipmentName.focus();
   }
 
+  function clearExerciseFormError() {
+    const error = document.getElementById("exercise-form-error");
+    if (!error) return;
+    error.textContent = "";
+    error.hidden = true;
+  }
+
+  function showExerciseFormError(message) {
+    const error = document.getElementById("exercise-form-error");
+    if (error) {
+      error.textContent = message;
+      error.hidden = false;
+      error.scrollIntoView?.({ block: "nearest" });
+    }
+    showToast(message, "error");
+  }
+
   function openExerciseDialog(options = {}) {
     const form = document.getElementById("exercise-form");
+    clearDialogMessage("exercise-dialog-message");
     ui.editingExerciseId = null;
     ui.returnToReplacementAfterExerciseAdd = Boolean(options.fromReplacement);
     form.reset();
+    clearExerciseFormError();
     const categories = categoryOptions();
     document.getElementById("custom-category").innerHTML = categories
       .map(
@@ -6857,7 +6999,6 @@
     bodyPartInputs?.forEach((input) => {
       input.checked = exercise.body_parts.includes(input.value);
     });
-    setValue("equipment", exercise.equipment_label);
     const equipmentInputs = document
       .getElementById("exercise-equipment-options")
       .querySelectorAll?.('input[name="equipmentVarieties"]');
@@ -6892,7 +7033,11 @@
   function saveExerciseForm(event) {
     event.preventDefault();
     const form = event.currentTarget;
-    if (!form.reportValidity()) return;
+    clearExerciseFormError();
+    if (!form.reportValidity()) {
+      showExerciseFormError("Complete the highlighted required fields.");
+      return;
+    }
     const data = new FormData(form);
     const name = String(data.get("name") || "").trim();
     const exerciseId = idFor(name);
@@ -6914,11 +7059,11 @@
       !ui.editingExerciseId &&
       (!exerciseId || exerciseById.has(exerciseId))
     ) {
-      showToast("An exercise with that name already exists.", "error");
+      showExerciseFormError("An exercise with that name already exists.");
       return;
     }
 
-    const equipmentVarieties = normalizeEquipmentCatalog(
+    const selectedEquipment = normalizeEquipmentCatalog(
       typeof data.getAll === "function"
         ? data.getAll("equipmentVarieties")
         : String(data.get("equipmentVarieties") || "")
@@ -6926,11 +7071,14 @@
             .map((item) => item.trim())
             .filter(Boolean),
     );
+    const equipmentVarieties = selectedEquipment.length
+      ? selectedEquipment
+      : ["Body weight"];
     const record = {
       name,
       aliases: normalizeExerciseAliases(data.get("aliases"), name),
       category: String(data.get("category") || "Other"),
-      equipment: String(data.get("equipment") || "User-defined").trim(),
+      equipment: equipmentLabelFromVarieties(equipmentVarieties),
       equipmentVarieties,
       bodyParts: normalizeBodyParts(
         typeof data.getAll === "function"
@@ -6972,9 +7120,8 @@
         if (previousEdit) state.exerciseEdits[editingId] = previousEdit;
         else delete state.exerciseEdits[editingId];
         rebuildExerciseCatalog(state.customExercises, state.exerciseEdits);
-        showToast(
+        showExerciseFormError(
           `That edit conflicts with the current plan: ${issues[0]}`,
-          "error",
         );
         return;
       }
@@ -8061,6 +8208,19 @@
   }
 
   function handleChange(event) {
+    if (event.target.id === "circuit-rep-budget") {
+      state.circuitRepBudget = normalizeCircuitRepBudget(event.target.value);
+      for (const day of DAY_CONFIG) {
+        for (const circuit of state.week.days[day.id].circuits || [])
+          assignCircuitRepBudget(circuit, state.circuitRepBudget);
+      }
+      persist();
+      render();
+      showToast(
+        `Generated circuits now target ${state.circuitRepBudget} reps per round.`,
+      );
+      return;
+    }
     if (event.target.id === "split-week-start") {
       ui.splitWeekStartDay = DAY_CONFIG.some(
         (day) => day.id === event.target.value,
@@ -8235,14 +8395,31 @@
       render();
       return;
     }
-    if (event.target.dataset?.assignmentSetting === "setupScore") {
+    if (event.target.dataset?.assignmentSetting === "reps") {
       const assignment = assignmentFor({
         dayId: event.target.dataset.day,
         circuitIndex: Number(event.target.dataset.circuit),
         position: event.target.dataset.position,
       });
       if (assignment) {
-        assignment.setupScore = normalizeSetupScore(event.target.value);
+        assignment.reps = String(
+          normalizePerSideReps(event.target.value, assignment.reps),
+        );
+        persist();
+        render();
+      }
+      return;
+    }
+    if (event.target.dataset?.assignmentSetting === "repBasis") {
+      const assignment = assignmentFor({
+        dayId: event.target.dataset.day,
+        circuitIndex: Number(event.target.dataset.circuit),
+        position: event.target.dataset.position,
+      });
+      if (assignment) {
+        assignment.repBasis = ["per_side", "total"].includes(event.target.value)
+          ? event.target.value
+          : assignmentRepBasis(assignment);
         persist();
         render();
       }
@@ -8255,6 +8432,7 @@
       stateFor(event.target.dataset.exerciseId)[event.target.dataset.setting] =
         event.target.value;
       persist();
+      if (event.target.dataset.setting === "loadBasis") render();
       return;
     }
     const round = event.target.closest('[data-action="complete-round"]');
@@ -8351,6 +8529,10 @@
       ui.replaceEquipment = event.target.value;
       renderReplacementResults();
     }
+    if (event.target.id === "replace-sides") {
+      ui.replaceSides = event.target.value;
+      renderReplacementResults();
+    }
   }
 
   function handleInput(event) {
@@ -8414,6 +8596,7 @@
     ) {
       stateFor(exerciseId)[setting] = event.target.value;
       persist();
+      if (setting === "loadBasis") render();
       return;
     }
     if (
