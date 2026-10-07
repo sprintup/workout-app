@@ -1290,6 +1290,30 @@
     return clampRating(exercise?.effectiveness_score, 3);
   }
 
+  function updateExerciseEffectiveness(
+    exerciseId,
+    value,
+    clearFeedback = false,
+  ) {
+    const exercise = exerciseById.get(exerciseId);
+    if (!exercise) return null;
+    const effectivenessScore = clampRating(
+      value,
+      exerciseEffectivenessScore(exercise),
+    );
+    state.exerciseEdits[exerciseId] = {
+      ...(state.exerciseEdits[exerciseId] || {}),
+      effectivenessScore,
+    };
+    if (clearFeedback) {
+      const settings = stateFor(exerciseId);
+      settings.preference = 0;
+      settings.effectivenessFeedbackBase = null;
+    }
+    rebuildExerciseCatalog(state.customExercises, state.exerciseEdits);
+    return effectivenessScore;
+  }
+
   function demoSearchUrl(name) {
     return `https://www.youtube.com/results?search_query=${encodeURIComponent(`${name} exercise proper form`)}`;
   }
@@ -2596,6 +2620,7 @@
           chosenCount: 0,
           skippedCount: 0,
           preference: 0,
+          effectivenessFeedbackBase: null,
           loadProgressCount: 0,
           reps: cleanRepValue(exercise.default_reps),
           measureType: defaultMeasureType(exercise),
@@ -2683,6 +2708,7 @@
         chosenCount: 0,
         skippedCount: 0,
         preference: 0,
+        effectivenessFeedbackBase: null,
         loadProgressCount: 0,
         reps: cleanRepValue(exercise?.default_reps || "10"),
         measureType: defaultMeasureType(exercise),
@@ -2890,10 +2916,7 @@
     );
     const preferredIndex = listedIndex >= 0 ? listedIndex : slot.names.length;
     let score =
-      Math.random() * 16 +
-      preferredIndex * 0.8 +
-      stats.chosenCount * 0.35 -
-      stats.preference * 14;
+      Math.random() * 16 + preferredIndex * 0.8 + stats.chosenCount * 0.35;
     if (recent.has(exercise.id)) score += 28;
     if (slot.defaultName && exercise.id === idFor(slot.defaultName))
       score -= 18;
@@ -3885,7 +3908,14 @@
       const stored = localStorage.getItem(STORAGE_KEY);
       if (!stored) return null;
       const parsed = JSON.parse(stored);
-      if (parsed.version !== APP_VERSION || !parsed.week?.days) return null;
+      if (!parsed || typeof parsed !== "object" || !parsed.week?.days)
+        return null;
+      if (Number(parsed.version) > APP_VERSION) {
+        console.warn(
+          `The browser data was saved by a newer Basement 45 version (${parsed.version}).`,
+        );
+        return null;
+      }
       rebuildExerciseCatalog(
         parsed.customExercises || [],
         parsed.exerciseEdits || {},
@@ -4089,10 +4119,36 @@
       for (const exercise of exercises) {
         const loaded = candidate.exerciseState[exercise.id];
         if (!loaded) continue;
+        const loadedPreference = Math.max(
+          -1,
+          Math.min(1, Number(loaded.preference) || 0),
+        );
+        const loadedFeedbackBase = Number(loaded.effectivenessFeedbackBase);
+        const hasExplicitFeedbackBase =
+          loaded.effectivenessFeedbackBase !== null &&
+          loaded.effectivenessFeedbackBase !== undefined &&
+          Number.isFinite(loadedFeedbackBase);
+        const hasEffectivenessOverride = Object.hasOwn(
+          candidate.exerciseEdits?.[exercise.id] || {},
+          "effectivenessScore",
+        );
+        const preference =
+          loadedPreference &&
+          (hasExplicitFeedbackBase || hasEffectivenessOverride)
+            ? loadedPreference
+            : 0;
         normalized.exerciseState[exercise.id] = {
           chosenCount: Math.max(0, Number(loaded.chosenCount) || 0),
           skippedCount: Math.max(0, Number(loaded.skippedCount) || 0),
-          preference: Math.max(-1, Math.min(1, Number(loaded.preference) || 0)),
+          preference,
+          effectivenessFeedbackBase: preference
+            ? hasExplicitFeedbackBase
+              ? clampRating(loadedFeedbackBase, 3)
+              : clampRating(
+                  exerciseEffectivenessScore(exercise) - preference,
+                  3,
+                )
+            : null,
           loadProgressCount: Math.max(
             0,
             Math.min(4, Math.floor(Number(loaded.loadProgressCount) || 0)),
@@ -5176,9 +5232,9 @@
                    <button class="mini-button" type="button" data-action="move-exercise" data-direction="1" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" data-position="${context.position}" title="Move exercise down" aria-label="Move ${escapeHtml(exercise.name)} down" ${context.orderIndex === context.exerciseCount - 1 ? "disabled" : ""}>↓</button>`
                 : ""
             }
-            <span class="preference-controls" aria-label="Recommendation preference for ${escapeHtml(exercise.name)}">
-              <button class="feedback-button ${settings.preference === 1 ? "active" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-value="1" title="Recommend more often" aria-label="Recommend ${escapeHtml(exercise.name)} more often">${ICONS.thumbUp}</button>
-              <button class="feedback-button ${settings.preference === -1 ? "active negative" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-value="-1" title="Recommend less often" aria-label="Recommend ${escapeHtml(exercise.name)} less often">${ICONS.thumbDown}</button>
+            <span class="preference-controls" aria-label="Reversible effectiveness adjustment for ${escapeHtml(exercise.name)}">
+              <button class="feedback-button ${settings.preference === 1 ? "active" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-value="1" title="${settings.preference === 1 ? "Remove the +1 effectiveness adjustment" : "Apply a +1 effectiveness adjustment"}" aria-label="${settings.preference === 1 ? `Remove the effectiveness increase from ${escapeHtml(exercise.name)}` : `Increase ${escapeHtml(exercise.name)} effectiveness by 1`}" aria-pressed="${settings.preference === 1}">${ICONS.thumbUp}</button>
+              <button class="feedback-button ${settings.preference === -1 ? "active negative" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-value="-1" title="${settings.preference === -1 ? "Remove the -1 effectiveness adjustment" : "Apply a -1 effectiveness adjustment"}" aria-label="${settings.preference === -1 ? `Remove the effectiveness decrease from ${escapeHtml(exercise.name)}` : `Decrease ${escapeHtml(exercise.name)} effectiveness by 1`}" aria-pressed="${settings.preference === -1}">${ICONS.thumbDown}</button>
             </span>
             <button
               class="mini-button ${assignment.locked ? "active" : ""}"
@@ -6340,8 +6396,6 @@
           firstCost - secondCost ||
           exerciseEffectivenessScore(second.exercise) -
             exerciseEffectivenessScore(first.exercise) ||
-          stateFor(second.exercise.id).preference -
-            stateFor(first.exercise.id).preference ||
           stateFor(second.exercise.id).chosenCount -
             stateFor(first.exercise.id).chosenCount ||
           first.exercise.name.localeCompare(second.exercise.name)
@@ -6462,11 +6516,11 @@
   function weightedRandomExercise(options) {
     const weighted = options.map((exercise) => {
       const stats = stateFor(exercise.id);
-      const preferenceWeight =
-        stats.preference === 1 ? 4 : stats.preference === -1 ? 0.25 : 1;
       return {
         exercise,
-        weight: preferenceWeight / Math.max(1, stats.chosenCount + 1),
+        weight:
+          exerciseEffectivenessScore(exercise) /
+          Math.max(1, stats.chosenCount + 1),
       };
     });
     let draw =
@@ -6692,31 +6746,11 @@
   }
 
   function exportPayload() {
-    const lockedIds = new Set(
-      allAssignments()
-        .filter((assignment) => assignment.locked)
-        .map((assignment) => assignment.exerciseId),
-    );
     return {
       app: "Basement 45",
       schemaVersion: APP_VERSION,
       exportedAt: new Date().toISOString(),
       appState: state,
-      exerciseLibrary: exercises.map((exercise) => ({
-        ...exercise,
-        chosen_count: stateFor(exercise.id).chosenCount,
-        skipped_count: stateFor(exercise.id).skippedCount,
-        recommendation_preference: stateFor(exercise.id).preference,
-        load_progress_count: stateFor(exercise.id).loadProgressCount,
-        current_reps: stateFor(exercise.id).reps,
-        current_measure: stateFor(exercise.id).measureType,
-        current_weight: stateFor(exercise.id).weight,
-        current_load_basis: stateFor(exercise.id).loadBasis,
-        current_notes: stateFor(exercise.id).notes,
-        user_locked: exercise.always_locked || lockedIds.has(exercise.id),
-        hidden: isHidden(exercise.id),
-        deleted: isDeleted(exercise.id),
-      })),
     };
   }
 
@@ -6808,10 +6842,12 @@
       const parsed = JSON.parse(await file.text());
       if (!parsed.appState)
         throw new Error("This is not a Basement 45 save file.");
-      if (parsed.appState.version !== APP_VERSION)
+      if (Number(parsed.appState.version) > APP_VERSION)
         throw new Error(
-          "This cycle-based version requires a fresh v18 workout file.",
+          `This file was saved by a newer Basement 45 version (${parsed.appState.version}).`,
         );
+      if (!parsed.appState.week?.days)
+        throw new Error("This workout file does not contain a saved week.");
       const { candidate, recoveredCount } = stateWithPortableExercises(parsed);
       state = normalizeState(candidate);
       const removedLegacyArmsCycle = Boolean(state.needsCycleRegeneration);
@@ -7039,6 +7075,9 @@
       return;
     }
     const data = new FormData(form);
+    const previousEffectivenessScore = ui.editingExerciseId
+      ? exerciseEffectivenessScore(exerciseById.get(ui.editingExerciseId))
+      : null;
     const name = String(data.get("name") || "").trim();
     const exerciseId = idFor(name);
     const defaultReps = String(data.get("defaultReps") || "10").trim() || "10";
@@ -7143,6 +7182,13 @@
     savedSettings.measureType = measureType;
     savedSettings.weight = defaultLoad;
     savedSettings.loadBasis = loadBasis;
+    if (
+      wasEditing &&
+      previousEffectivenessScore !== record.effectivenessScore
+    ) {
+      savedSettings.preference = 0;
+      savedSettings.effectivenessFeedbackBase = null;
+    }
     persist();
     renderTabs();
     document.getElementById("exercise-dialog").close();
@@ -8138,22 +8184,32 @@
       const exercise = exerciseById.get(actionButton.dataset.exerciseId);
       if (exercise) {
         const exerciseState = stateFor(exercise.id);
-        const requestedPreference = Math.max(
-          -1,
-          Math.min(1, Number(actionButton.dataset.value) || 0),
+        const requestedPreference =
+          Number(actionButton.dataset.value) < 0 ? -1 : 1;
+        const previousPreference = exerciseState.preference;
+        const feedbackBase =
+          previousPreference === 0
+            ? exerciseEffectivenessScore(exercise)
+            : clampRating(
+                exerciseState.effectivenessFeedbackBase,
+                exerciseEffectivenessScore(exercise) - previousPreference,
+              );
+        const nextPreference =
+          previousPreference === requestedPreference ? 0 : requestedPreference;
+        const effectivenessScore = updateExerciseEffectiveness(
+          exercise.id,
+          nextPreference === 0 ? feedbackBase : feedbackBase + nextPreference,
         );
-        exerciseState.preference =
-          exerciseState.preference === requestedPreference
-            ? 0
-            : requestedPreference;
+        exerciseState.preference = nextPreference;
+        exerciseState.effectivenessFeedbackBase = nextPreference
+          ? feedbackBase
+          : null;
         persist();
         render();
         showToast(
-          exerciseState.preference === 1
-            ? `${exercise.name} will be recommended more often.`
-            : exerciseState.preference === -1
-              ? `${exercise.name} will be recommended less often.`
-              : `${exercise.name} recommendation preference cleared.`,
+          nextPreference === 0
+            ? `${exercise.name} effectiveness returned to ${effectivenessScore} of 5.`
+            : `${exercise.name} effectiveness is now ${effectivenessScore} of 5.`,
         );
       }
     }
@@ -8382,15 +8438,7 @@
       const exerciseId = event.target.dataset.exerciseId;
       const exercise = exerciseById.get(exerciseId);
       if (!exercise) return;
-      const effectivenessScore = clampRating(
-        event.target.value,
-        exerciseEffectivenessScore(exercise),
-      );
-      state.exerciseEdits[exerciseId] = {
-        ...(state.exerciseEdits[exerciseId] || {}),
-        effectivenessScore,
-      };
-      rebuildExerciseCatalog(state.customExercises, state.exerciseEdits);
+      updateExerciseEffectiveness(exerciseId, event.target.value, true);
       persist();
       render();
       return;

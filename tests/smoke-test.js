@@ -17,9 +17,6 @@ const equipmentExerciseDataScript = fs.readFileSync(
 const appScript = fs.readFileSync(path.join(root, "app.js"), "utf8");
 const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
 const styles = fs.readFileSync(path.join(root, "styles.css"), "utf8");
-const exampleSave = JSON.parse(
-  fs.readFileSync(path.join(root, "basement-45-workouts.json"), "utf8"),
-);
 
 function elementStub() {
   const listeners = {};
@@ -2085,19 +2082,169 @@ async function main() {
       ),
     "changing the load basis should apply the distinct each-side color class",
   );
+  const effectivenessBeforeThumbUp = interactionApp.Basement45.exercises.find(
+    (exercise) => exercise.id === noteExerciseId,
+  ).effectiveness_score;
   clickAction(interactionApp, "set-preference", {
     exerciseId: noteExerciseId,
     value: "1",
   });
+  const effectivenessAfterThumbUp = interactionApp.Basement45.exercises.find(
+    (exercise) => exercise.id === noteExerciseId,
+  ).effectiveness_score;
   assert.equal(
     interactionApp.Basement45.getState().exerciseState[noteExerciseId]
       .preference,
     1,
   );
+  assert.equal(
+    interactionApp.Basement45.getState().exerciseState[noteExerciseId]
+      .effectivenessFeedbackBase,
+    effectivenessBeforeThumbUp,
+  );
+  assert.equal(
+    effectivenessAfterThumbUp,
+    Math.min(5, effectivenessBeforeThumbUp + 1),
+    "thumbs-up should raise effectiveness by one, capped at five",
+  );
+  clickAction(interactionApp, "set-preference", {
+    exerciseId: noteExerciseId,
+    value: "1",
+  });
+  assert.equal(
+    interactionApp.Basement45.exercises.find(
+      (exercise) => exercise.id === noteExerciseId,
+    ).effectiveness_score,
+    effectivenessBeforeThumbUp,
+    "clicking the highlighted thumbs-up again should restore the original score",
+  );
+  assert.equal(
+    interactionApp.Basement45.getState().exerciseState[noteExerciseId]
+      .preference,
+    0,
+  );
+  assert.equal(
+    interactionApp.Basement45.getState().exerciseState[noteExerciseId]
+      .effectivenessFeedbackBase,
+    null,
+  );
+  clickAction(interactionApp, "set-preference", {
+    exerciseId: noteExerciseId,
+    value: "1",
+  });
+  assert.equal(
+    interactionApp.Basement45.exercises.find(
+      (exercise) => exercise.id === noteExerciseId,
+    ).effectiveness_score,
+    effectivenessAfterThumbUp,
+    "thumbs-up should be reusable after its adjustment is cleared",
+  );
   assert.ok(
     interactionApp.__elements
       .get("workout-view")
       .innerHTML.includes('class="feedback-button active"'),
+  );
+  assert.doesNotMatch(
+    interactionApp.__elements.get("workout-view").innerHTML,
+    new RegExp(
+      `data-action="set-preference" data-exercise-id="${noteExerciseId}" data-value="1"[^>]*disabled`,
+    ),
+    "the highlighted thumb should remain clickable so its adjustment can be cleared",
+  );
+  clickAction(interactionApp, "set-preference", {
+    exerciseId: noteExerciseId,
+    value: "-1",
+  });
+  assert.equal(
+    interactionApp.Basement45.exercises.find(
+      (exercise) => exercise.id === noteExerciseId,
+    ).effectiveness_score,
+    Math.max(1, effectivenessBeforeThumbUp - 1),
+    "selecting the opposite thumb should switch around the original score instead of stacking",
+  );
+  assert.equal(
+    interactionApp.Basement45.getState().exerciseState[noteExerciseId]
+      .preference,
+    -1,
+  );
+  clickAction(interactionApp, "set-preference", {
+    exerciseId: noteExerciseId,
+    value: "-1",
+  });
+  assert.equal(
+    interactionApp.Basement45.exercises.find(
+      (exercise) => exercise.id === noteExerciseId,
+    ).effectiveness_score,
+    effectivenessBeforeThumbUp,
+  );
+  const manualEffectivenessAfterVote = effectivenessAfterThumbUp === 2 ? 3 : 2;
+  changeExerciseEffectiveness(
+    interactionApp,
+    noteExerciseId,
+    String(manualEffectivenessAfterVote),
+  );
+  assert.equal(
+    interactionApp.Basement45.exercises.find(
+      (exercise) => exercise.id === noteExerciseId,
+    ).effectiveness_score,
+    manualEffectivenessAfterVote,
+    "effectiveness should remain manually editable after feedback",
+  );
+  assert.equal(
+    interactionApp.Basement45.getState().exerciseState[noteExerciseId]
+      .preference,
+    0,
+    "manual effectiveness edits should become the new unadjusted score",
+  );
+  clickAction(interactionApp, "set-preference", {
+    exerciseId: noteExerciseId,
+    value: "1",
+  });
+  const savedEffectivenessScore = Math.min(5, manualEffectivenessAfterVote + 1);
+  assert.equal(
+    interactionApp.Basement45.exercises.find(
+      (exercise) => exercise.id === noteExerciseId,
+    ).effectiveness_score,
+    savedEffectivenessScore,
+  );
+  assert.equal(
+    interactionApp.Basement45.getState().exerciseState[noteExerciseId]
+      .effectivenessFeedbackBase,
+    manualEffectivenessAfterVote,
+  );
+  const thumbDownExerciseId =
+    interactionApp.Basement45.getState().week.days.monday.circuits[0].second
+      .exerciseId;
+  const effectivenessBeforeThumbDown = interactionApp.Basement45.exercises.find(
+    (exercise) => exercise.id === thumbDownExerciseId,
+  ).effectiveness_score;
+  clickAction(interactionApp, "set-preference", {
+    exerciseId: thumbDownExerciseId,
+    value: "-1",
+  });
+  const effectivenessAfterThumbDown = interactionApp.Basement45.exercises.find(
+    (exercise) => exercise.id === thumbDownExerciseId,
+  ).effectiveness_score;
+  assert.equal(
+    effectivenessAfterThumbDown,
+    Math.max(1, effectivenessBeforeThumbDown - 1),
+    "thumbs-down should lower effectiveness by one, capped at one",
+  );
+  clickAction(interactionApp, "set-preference", {
+    exerciseId: thumbDownExerciseId,
+    value: "-1",
+  });
+  assert.equal(
+    interactionApp.Basement45.exercises.find(
+      (exercise) => exercise.id === thumbDownExerciseId,
+    ).effectiveness_score,
+    effectivenessBeforeThumbDown,
+    "clicking the highlighted thumbs-down again should restore the original score",
+  );
+  assert.equal(
+    interactionApp.Basement45.getState().exerciseState[thumbDownExerciseId]
+      .preference,
+    0,
   );
   assert.ok(
     interactionApp.__elements
@@ -3376,18 +3523,105 @@ async function main() {
   };
   interactionApp.showSaveFilePicker = async () => directFileHandle;
   await interactionApp.__elements.get("save-button")._listeners.click[0]();
-  assert.equal(JSON.parse(directFileContents).app, "Basement 45");
+  const directFilePayload = JSON.parse(directFileContents);
+  assert.equal(directFilePayload.app, "Basement 45");
   assert.ok(
     interactionApp.__elements
       .get("file-status")
       .textContent.includes("workouts.json"),
   );
   assert.equal(
-    JSON.parse(directFileContents).exerciseLibrary.find(
-      (exercise) => exercise.id === noteExerciseId,
-    ).recommendation_preference,
+    directFilePayload.appState.exerciseState[noteExerciseId].preference,
     1,
   );
+  assert.equal(
+    directFilePayload.appState.exerciseState[noteExerciseId].notes,
+    "Keep the tempo controlled",
+    "personal save files should retain exercise notes",
+  );
+  assert.equal(
+    directFilePayload.appState.exerciseEdits[noteExerciseId].effectivenessScore,
+    savedEffectivenessScore,
+    "personal save files should retain effectiveness overrides",
+  );
+  assert.equal(
+    directFilePayload.appState.exerciseState[noteExerciseId]
+      .effectivenessFeedbackBase,
+    manualEffectivenessAfterVote,
+    "personal save files should retain the reversible feedback baseline",
+  );
+  assert.equal(
+    Object.hasOwn(directFilePayload, "exerciseLibrary"),
+    false,
+    "personal save files should not duplicate the built-in exercise catalog",
+  );
+  assert.ok(
+    directFilePayload.appState.cycles.every((cycle) =>
+      Array.isArray(cycle.lockedAssignments),
+    ),
+    "personal save files should retain cycle-locked exercises",
+  );
+  assert.equal(
+    JSON.stringify(
+      directFilePayload.appState.cycles.map((cycle) => cycle.lockedAssignments),
+    ),
+    JSON.stringify(
+      interactionApp.Basement45.getState().cycles.map(
+        (cycle) => cycle.lockedAssignments,
+      ),
+    ),
+    "personal save files should preserve every locked exercise assignment",
+  );
+  assert.deepEqual(
+    directFilePayload.appState.hiddenExerciseIds,
+    interactionApp.Basement45.getState().hiddenExerciseIds,
+    "personal save files should retain hidden exercises",
+  );
+  assert.deepEqual(
+    directFilePayload.appState.deletedExerciseIds,
+    interactionApp.Basement45.getState().deletedExerciseIds,
+    "personal save files should retain deleted exercises",
+  );
+  const personalReloadApp = launchApp();
+  await personalReloadApp.__elements.get("load-input")._listeners.change[0]({
+    target: {
+      files: [
+        {
+          name: "personal-data.json",
+          async text() {
+            return directFileContents;
+          },
+        },
+      ],
+    },
+  });
+  assert.equal(
+    personalReloadApp.Basement45.getState().exerciseState[noteExerciseId]
+      .preference,
+    1,
+    "personal JSON should reload exercise preferences without an embedded catalog",
+  );
+  assert.equal(
+    personalReloadApp.Basement45.getState().exerciseState[noteExerciseId].notes,
+    "Keep the tempo controlled",
+  );
+  assert.equal(
+    personalReloadApp.Basement45.exercises.find(
+      (exercise) => exercise.id === noteExerciseId,
+    ).effectiveness_score,
+    savedEffectivenessScore,
+    "personal JSON should reload effectiveness overrides without an embedded catalog",
+  );
+  assert.equal(
+    personalReloadApp.Basement45.getState().exerciseState[noteExerciseId]
+      .effectivenessFeedbackBase,
+    manualEffectivenessAfterVote,
+  );
+  assert.deepEqual(
+    Array.from(personalReloadApp.Basement45.getState().hiddenExerciseIds),
+    Array.from(directFilePayload.appState.hiddenExerciseIds),
+  );
+  assert.deepEqual(Array.from(personalReloadApp.Basement45.validateWeek()), []);
 
   let roundTripState;
   for (let sequence = 0; sequence < 10; sequence += 1) {
@@ -3606,41 +3840,44 @@ async function main() {
       .innerHTML.includes('data-action="increase-load"'),
   );
 
-  assert.equal(exampleSave.schemaVersion, 7);
   const legacyState = JSON.parse(JSON.stringify(roundTripState));
   legacyState.version = 17;
   const freshFromLegacyApp = launchApp(JSON.stringify(legacyState));
   assert.equal(freshFromLegacyApp.Basement45.getState().version, 18);
-  assert.equal(freshFromLegacyApp.Basement45.getState().weekNumber, 1);
+  assert.equal(
+    freshFromLegacyApp.Basement45.getState().weekNumber,
+    legacyState.weekNumber,
+    "an app update should normalize and retain older browser-local progress",
+  );
   assert.equal(freshFromLegacyApp.Basement45.getState().cycles.length, 4);
   assert.deepEqual(
     Array.from(freshFromLegacyApp.Basement45.validateWeek()),
     [],
   );
 
-  const rejectedLegacyFileApp = launchApp();
-  const beforeRejectedLoad = rejectedLegacyFileApp.Basement45.getState();
-  await rejectedLegacyFileApp.__elements
+  const migratedLegacyFileApp = launchApp();
+  await migratedLegacyFileApp.__elements
     .get("load-input")
     ._listeners.change[0]({
       target: {
         files: [
           {
-            name: "legacy-v7.json",
+            name: "legacy-v17.json",
             async text() {
-              return JSON.stringify(exampleSave);
+              return JSON.stringify({
+                app: "Basement 45",
+                schemaVersion: 17,
+                appState: legacyState,
+              });
             },
           },
         ],
       },
     });
-  assert.equal(
-    rejectedLegacyFileApp.__elements.get("toast").textContent,
-    "This cycle-based version requires a fresh v18 workout file.",
-  );
-  assert.equal(
-    rejectedLegacyFileApp.Basement45.getState().weekStartedAt,
-    beforeRejectedLoad.weekStartedAt,
+  assert.deepEqual(
+    Array.from(migratedLegacyFileApp.Basement45.validateWeek()),
+    [],
+    "older personal JSON should migrate against the current built-in catalog",
   );
 
   const portableApp = launchApp();
@@ -3685,7 +3922,7 @@ async function main() {
   );
 
   console.log(
-    "Smoke test passed randomized starts, 140 continuous cycle weeks, rest-day shifting, cross-week continuation, cycle locks and management, target/body-part generation, replacement filters and fuzzy search, fresh-v18 and portable JSON handling, circuit favorites, effectiveness scoring, expandable optional activators, rep/load basis and progression, master equipment, equipment varieties, recommendation feedback, automatic/adjustable workout timing, direct-file save, editing, and settings.",
+    "Smoke test passed randomized starts, 140 continuous cycle weeks, rest-day shifting, cross-week continuation, cycle locks and management, target/body-part generation, replacement filters and fuzzy search, personal-data-only and legacy portable JSON handling, circuit favorites, effectiveness scoring and reversible feedback, expandable optional activators, rep/load basis and progression, master equipment, equipment varieties, automatic/adjustable workout timing, direct-file save, editing, and settings.",
   );
 }
 
