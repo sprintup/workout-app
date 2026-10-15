@@ -3626,6 +3626,27 @@ async function main() {
     interactionApp.Basement45.getState().deletedExerciseIds,
     "personal save files should retain deleted exercises",
   );
+  assert.equal(
+    interactionApp.__elements.get("save-state").hidden,
+    true,
+    "saving should clear the unsaved-changes marker",
+  );
+  const savedFileContents = directFileContents;
+  clickAction(interactionApp, "add-warmup-exercise");
+  assert.equal(
+    interactionApp.__elements.get("save-state").hidden,
+    false,
+    "a change after saving should show the unsaved-changes marker",
+  );
+  await new Promise((resolve) => setTimeout(resolve, 900));
+  assert.equal(
+    directFileContents,
+    savedFileContents,
+    "changes should only reach the workout file when Save is pressed",
+  );
+  await interactionApp.__elements.get("save-button")._listeners.click[0]();
+  assert.notEqual(directFileContents, savedFileContents);
+  assert.equal(interactionApp.__elements.get("save-state").hidden, true);
   const personalReloadApp = launchApp();
   await personalReloadApp.__elements.get("load-input")._listeners.change[0]({
     target: {

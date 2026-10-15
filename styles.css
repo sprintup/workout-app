@@ -191,6 +191,17 @@ svg {
   color: var(--forest-2);
 }
 
+.save-state {
+  color: var(--orange-dark);
+  font-size: 0.65rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.button.has-unsaved-changes {
+  border-color: var(--orange);
+}
+
 .button {
   display: inline-flex;
   min-height: 42px;

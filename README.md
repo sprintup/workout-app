@@ -4,8 +4,8 @@ The app is ready to run as a local, server-free web page. Double-click `index.ht
 
 At the top of the app:
 
-- **Save file** (`Ctrl+S` / `Cmd+S`) connects a personal-data JSON file using Chrome or Edge's File System Access API. After the first file choice, changes autosave directly back to that file. Browser-local autosave remains active when no file is connected. The JSON stores workout progress, exercise preferences, weights, reps, notes, locked exercises, hidden/deleted exercise choices, favorite circuits, custom exercises, equipment, and settings; it does not duplicate the built-in exercise catalog.
-- **Open JSON** restores personal workout data and merges it with the current built-in exercise catalog before connecting the file for subsequent autosaves. Browsers without direct-file support can still open JSON with the standard file chooser. Older saves that contain an embedded exercise library remain supported for recovery, but new saves omit it.
+- **Save file** (`Ctrl+S` / `Cmd+S`) writes your personal data to a JSON file using Chrome or Edge's File System Access API. The first save asks where to put the file; later saves write back to the same file. The file is only written when you press Save: an **Unsaved changes** marker next to the button shows when the app has changes the file doesn't, and the browser warns before you close the tab or load another file with unsaved changes. Your work is also kept in the browser after every change, so a reload never loses it. The JSON stores workout progress, exercise preferences, weights, reps, notes, locked exercises, hidden/deleted exercise choices, favorite circuits, custom exercises, equipment, and settings; it does not duplicate the built-in exercise catalog.
+- **Open JSON** restores personal workout data and merges it with the current built-in exercise catalog; where the browser allows, later saves go back to the opened file. Browsers without direct-file support can still open JSON with the standard file chooser. Older saves that contain an embedded exercise library remain supported for recovery, but new saves omit it.
 - **New week** archives the current seven calendar days, starts with the next pending cycle, keeps cycle-locked exercises and saved loads/reps, generates fresh unlocked selections, and clears all round, optional-activator, and workout-timer state.
 
 Each circuit starts with a non-blocking **Optional total-body activator** checkbox for use when time remains, followed by a sticky row of checkboxes for rounds 1–3. Generated circuits use either two exercises (one one-sided plus one two-sided movement) or three one-sided exercises. The default 30-rep budget counts a two-sided movement twice and is editable in Settings. Manual changes may use two to four exercises and are not blocked by the generated rep budget. The optional activator does not affect circuit completion, rep totals, or the timer. Use `−` to remove the last optional exercise or `+` to automatically add the highest-ranked compatible exercise. The day sidebar stays visible while the workout scrolls.
@@ -40,11 +40,45 @@ Four small checks beside each load track completed workouts at that load. Comple
 
 **5 core** is the single default item in the editable cool-down checklist. The previous separate finisher and 20-minute cardio item have been removed. Each cool-down item has a **Schedule** setting (every day, every 2 days, every 3 days, and so on). An item set to every *N* days is hidden on a day if it was checked off in any of the previous *N − 1* days; the cool-down row notes which items are resting and when each is next due. Completion dates are stored with each cool-down item so the schedule carries across weeks and is saved in the JSON file.
 
-The header shows the connected JSON filename and the most specific path the browser exposes. Standard browser security normally hides a local file's absolute parent path, so a browser may display only the filename even though autosave is connected.
+The header shows the connected JSON filename and the most specific path the browser exposes. Standard browser security normally hides a local file's absolute parent path, so a browser may display only the filename even though the file is connected.
 
 Every exercise can be edited, annotated with a workout note, measured in repetitions or seconds, randomly replaced with an eligible option, reordered within a circuit, or removed when the circuit has more than two movements. The Settings page manages cycle order, names, targets, body parts, and descriptions. Personal state from older compatible app versions is normalized against the current catalog instead of being discarded after an app update. Portable library records in older JSON files can still recover missing custom exercises.
 
 The built-in exercise library is automatically loaded from `exercise-data.js` and `equipment-exercises.js`; users never need to load it manually. `exercise-data.js` is generated from `basement_gym_exercise_library.xlsx`. If the workbook changes, run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\export-exercise-data.ps1` to refresh it.
+
+## Development
+
+The app's source is TypeScript in `src/`. [esbuild](https://esbuild.github.io/) bundles it into the classic script `app.js` that `index.html` loads, so the built app is still plain HTML, CSS and JavaScript that runs from `file://` and GitHub Pages. Commit the rebuilt `app.js` together with source changes.
+
+```sh
+npm install        # once
+npm run dev        # rebuild app.js on every save; refresh index.html to see changes
+npm test           # type-check, build, unit tests, smoke test
+```
+
+`npm run build` makes a one-off build, `npm run test:unit` runs only the fast unit tests, and `npm run test:smoke` runs only the longer smoke test.
+
+### How the code is organized
+
+Each user action is a **use case** (interactor) that changes data only through **gateways**:
+
+```
+DOM event → ui/controller → interactors/<area>/<use-case>.ts → gateways → AppState
+                ↑                         │
+                └──── ui/presenter ◄──────┘  (result: what changed, what to redraw, toast)
+```
+
+| Folder | Holds |
+|---|---|
+| `src/interactors/` | One file per user story, documented with an *As a user / When / Then* comment. An interactor takes `(gateways, input)`, returns an `InteractorResult`, and never touches the DOM. When a story needs a confirmation or prompt first, the same file exports a small query the UI asks before calling it. |
+| `src/gateways/` | `gateways.ts` defines the interfaces. The document gateways (`week`, `cycles`, `routines`, `exercises`, `favorites`, `preferences`, `appState`) read and write slices of the saved document; the infrastructure gateways reach browser storage, the JSON file, the clock and randomness. `create-gateways.ts` builds the browser versions; tests install fakes. |
+| `src/services/` | Domain logic shared by several use cases: week generation, scheduling, replacement ranking, validation, normalization of loaded files. Services read through the installed gateways. |
+| `src/entities/` | Pure rules with no data access: exercise inference, equipment, cycles, timers, dates, text search. |
+| `src/data/` | Static tables: targets, split presets, days, circuit slot templates, and the built-in exercise library read from `exercise-data.js` and `equipment-exercises.js`. |
+| `src/ui/` | Everything on screen: the controller (events → interactors), the presenter (results → screen), views, dialogs and on-screen-only state (`ui-state.ts`). |
+| `tests/unit/` | Interactor tests that run against fake gateways (fixed clock, seeded randomness, in-memory storage and file). |
+
+To add a feature, write the story as a new interactor, add any data access it needs to a gateway interface, and call it from the controller.
 
 ## Exercise Recommendation Application Requirements
 

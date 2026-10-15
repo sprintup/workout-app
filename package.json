@@ -1,0 +1,18 @@
+{
+  "name": "basement-45",
+  "private": true,
+  "description": "Basement 45 workout planner. Source is TypeScript in src/; the build writes the browser bundle to app.js.",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit && tsc -p tests/unit --noEmit",
+    "test:unit": "node scripts/test-unit.mjs",
+    "test:smoke": "node tests/smoke-test.js",
+    "test": "npm run typecheck && npm run build && npm run test:unit && npm run test:smoke"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.42",
+    "esbuild": "0.25.10",
+    "typescript": "5.9.3"
+  }
+}
