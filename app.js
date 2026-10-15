@@ -291,7 +291,13 @@
     return DEFAULT_COOLDOWN_EXERCISES.map((exercise) => ({ ...exercise }));
   }
 
-  function normalizeRoutineExercises(values, defaults, prefix, noun) {
+  function normalizeRoutineExercises(
+    values,
+    defaults,
+    prefix,
+    noun,
+    extraFields = () => ({}),
+  ) {
     const source = Array.isArray(values) ? values : defaults;
     const seen = new Set();
     return source.slice(0, 24).map((exercise, index) => {
@@ -309,6 +315,7 @@
           String(exercise?.label || "")
             .trim()
             .slice(0, 100) || `${noun} ${index + 1}`,
+        ...extraFields(exercise),
       };
     });
   }
@@ -330,12 +337,117 @@
     return label === "core complete" || label === "5 core";
   }
 
+  const COOLDOWN_INTERVAL_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 10, 14];
+  const MAX_COMPLETED_DATES = 60;
+  const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+  function normalizeCooldownInterval(value) {
+    const numeric = Math.round(Number(value));
+    if (!Number.isFinite(numeric)) return 1;
+    return Math.min(30, Math.max(1, numeric));
+  }
+
+  function normalizeCompletedDates(values) {
+    if (!Array.isArray(values)) return [];
+    return [
+      ...new Set(
+        values
+          .map((value) => String(value || ""))
+          .filter((value) => DATE_KEY_PATTERN.test(value)),
+      ),
+    ]
+      .sort()
+      .slice(-MAX_COMPLETED_DATES);
+  }
+
+  function cooldownIntervalLabel(intervalDays) {
+    return intervalDays === 1 ? "Every day" : `Every ${intervalDays} days`;
+  }
+
+  function localDateKey(date) {
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${date.getFullYear()}-${month}-${day}`;
+  }
+
+  function dateFromKey(key) {
+    const [year, month, day] = key.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }
+
+  function addDaysToKey(key, days) {
+    const date = dateFromKey(key);
+    date.setDate(date.getDate() + days);
+    return localDateKey(date);
+  }
+
+  // Calendar date of a weekday tab: the Monday on or before the week start, plus the day's offset.
+  function dayDateKey(dayId) {
+    const started = new Date(state.weekStartedAt);
+    const base = Number.isNaN(started.getTime()) ? new Date() : started;
+    const date = new Date(base.getFullYear(), base.getMonth(), base.getDate());
+    date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+    const offset = Math.max(
+      0,
+      DAY_CONFIG.findIndex((day) => day.id === dayId),
+    );
+    date.setDate(date.getDate() + offset);
+    return localDateKey(date);
+  }
+
+  function cooldownCompletionDates(exercise) {
+    const dates = new Set(exercise.completedDates || []);
+    DAY_CONFIG.forEach((day) => {
+      if (state.week?.days?.[day.id]?.cooldownChecklist?.[exercise.id])
+        dates.add(dayDateKey(day.id));
+    });
+    return [...dates].sort();
+  }
+
+  // Most recent completion strictly before the given day, or null.
+  function lastCooldownCompletionBefore(exercise, dateKey) {
+    return (
+      cooldownCompletionDates(exercise)
+        .filter((date) => date < dateKey)
+        .pop() || null
+    );
+  }
+
+  function isCooldownDue(exercise, dayId) {
+    const interval = normalizeCooldownInterval(exercise.intervalDays);
+    if (interval <= 1) return true;
+    if (state.week?.days?.[dayId]?.cooldownChecklist?.[exercise.id])
+      return true;
+    const dateKey = dayDateKey(dayId);
+    const last = lastCooldownCompletionBefore(exercise, dateKey);
+    return !last || addDaysToKey(last, interval) <= dateKey;
+  }
+
+  function nextCooldownDueKey(exercise, dayId) {
+    const last = lastCooldownCompletionBefore(exercise, dayDateKey(dayId));
+    return last
+      ? addDaysToKey(last, normalizeCooldownInterval(exercise.intervalDays))
+      : dayDateKey(dayId);
+  }
+
+  function recordCooldownCompletion(exercise, dayId, completed) {
+    const dateKey = dayDateKey(dayId);
+    const dates = new Set(exercise.completedDates || []);
+    if (completed) dates.add(dateKey);
+    else dates.delete(dateKey);
+    exercise.completedDates = normalizeCompletedDates([...dates]);
+  }
+
   function normalizeCooldownExercises(values) {
     const normalized = normalizeRoutineExercises(
       values,
       createDefaultCooldownExercises(),
       "cooldown",
       "Cool-down exercise",
+      (exercise) => ({
+        intervalDays: normalizeCooldownInterval(exercise?.intervalDays),
+        completedDates: normalizeCompletedDates(exercise?.completedDates),
+      }),
     );
     const firstCoreIndex = normalized.findIndex((exercise) =>
       isCoreCooldownLabel(exercise.label),
@@ -4904,6 +5016,14 @@
       .replace(/'/g, "&#039;");
   }
 
+  function formatDueDate(key) {
+    return new Intl.DateTimeFormat(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    }).format(dateFromKey(key));
+  }
+
   function formatDate(value) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "Starting today";
@@ -5475,8 +5595,14 @@
     const beforeCircuitsComplete = Object.values(day.preChecklist).every(
       Boolean,
     );
-    const cooldownComplete = Object.values(day.cooldownChecklist).every(
-      Boolean,
+    const dueCooldownExercises = state.cooldownExercises.filter((exercise) =>
+      isCooldownDue(exercise, dayId),
+    );
+    const restingCooldownExercises = state.cooldownExercises.filter(
+      (exercise) => !isCooldownDue(exercise, dayId),
+    );
+    const cooldownComplete = dueCooldownExercises.every(
+      (exercise) => day.cooldownChecklist[exercise.id],
     );
     const dayTargetMuscles = targetBodyPartsForDay(dayId);
 
@@ -5515,12 +5641,22 @@
           state.cooldownExercises.length
             ? `<div class="routine-row cooldown-routine ${cooldownComplete ? "is-complete" : ""}" aria-label="Cool-down checklist">
                 <strong>Cool-down</strong>
-                ${state.cooldownExercises
+                ${dueCooldownExercises
                   .map(
                     (exercise) =>
                       `<label><input type="checkbox" data-action="cooldown-check" data-day="${dayId}" data-item="${escapeHtml(exercise.id)}" ${day.cooldownChecklist[exercise.id] ? "checked" : ""} /> ${escapeHtml(exercise.label)}</label>`,
                   )
                   .join("")}
+                ${
+                  restingCooldownExercises.length
+                    ? `<span class="cooldown-resting">Not due today: ${restingCooldownExercises
+                        .map(
+                          (exercise) =>
+                            `${escapeHtml(exercise.label)} (next ${escapeHtml(formatDueDate(nextCooldownDueKey(exercise, dayId)))})`,
+                        )
+                        .join(", ")}</span>`
+                    : ""
+                }
               </div>`
             : ""
         }
@@ -5721,13 +5857,23 @@
       </div>`;
   }
 
+  function renderCooldownIntervalField(exercise) {
+    const interval = normalizeCooldownInterval(exercise.intervalDays);
+    const options = COOLDOWN_INTERVAL_OPTIONS.includes(interval)
+      ? COOLDOWN_INTERVAL_OPTIONS
+      : [...COOLDOWN_INTERVAL_OPTIONS, interval].sort((a, b) => a - b);
+    return `<label class="form-field routine-interval-field"><span>Schedule</span><select data-cooldown-setting="intervalDays" data-cooldown-id="${escapeHtml(exercise.id)}" aria-label="How often to schedule ${escapeHtml(exercise.label)}">
+      ${options.map((value) => `<option value="${value}" ${value === interval ? "selected" : ""}>${cooldownIntervalLabel(value)}</option>`).join("")}
+    </select></label>`;
+  }
+
   function renderRoutineSettingsPanel(kind, exercises) {
     const warmup = kind === "warmup";
     const title = warmup ? "Warm-up exercises" : "Cool-down exercises";
     const adjective = warmup ? "Warm-up" : "Cool-down";
     const description = warmup
       ? "Shown before the circuits on every training day."
-      : "Shown after the circuits and excluded from workout time.";
+      : "Shown after the circuits and excluded from workout time. Exercises scheduled every few days stay hidden until they are due again.";
     const emptyMessage = warmup
       ? "No warm-up exercises. Add one whenever you want a pre-circuit checklist."
       : "No cool-down exercises. Add one whenever you want a post-workout checklist.";
@@ -5745,6 +5891,7 @@
                     `<div class="routine-settings-row">
                       <span class="routine-order">${index + 1}</span>
                       <label class="form-field"><span>Exercise ${index + 1}</span><input data-${kind}-setting="label" data-${kind}-id="${escapeHtml(exercise.id)}" maxlength="100" value="${escapeHtml(exercise.label)}" aria-label="${adjective} exercise ${index + 1}" /></label>
+                      ${warmup ? "" : renderCooldownIntervalField(exercise)}
                       <div class="routine-row-actions">
                         <button type="button" data-action="move-${kind}-exercise" data-${kind}-id="${escapeHtml(exercise.id)}" data-direction="-1" ${index === 0 ? "disabled" : ""} aria-label="Move ${escapeHtml(exercise.label)} earlier">&uarr;</button>
                         <button type="button" data-action="move-${kind}-exercise" data-${kind}-id="${escapeHtml(exercise.id)}" data-direction="1" ${index === exercises.length - 1 ? "disabled" : ""} aria-label="Move ${escapeHtml(exercise.label)} later">&darr;</button>
@@ -7481,6 +7628,8 @@
     const exercise = {
       id: nextRoutineId(state.cooldownExercises, "cooldown"),
       label: "New cool-down exercise",
+      intervalDays: 1,
+      completedDates: [],
     };
     state.cooldownExercises.push(exercise);
     for (const day of DAY_CONFIG) {
@@ -8315,6 +8464,21 @@
       return;
     }
     if (
+      event.target.dataset?.cooldownSetting === "intervalDays" &&
+      event.target.dataset.cooldownId
+    ) {
+      const exercise = state.cooldownExercises.find(
+        (item) => item.id === event.target.dataset.cooldownId,
+      );
+      if (!exercise) return;
+      exercise.intervalDays = normalizeCooldownInterval(event.target.value);
+      persist();
+      showToast(
+        `${exercise.label}: ${cooldownIntervalLabel(exercise.intervalDays).toLowerCase()}.`,
+      );
+      return;
+    }
+    if (
       event.target.dataset?.cooldownSetting === "label" &&
       event.target.dataset.cooldownId
     ) {
@@ -8544,6 +8708,15 @@
       state.week.days[cooldown.dataset.day].cooldownChecklist[
         cooldown.dataset.item
       ] = cooldown.checked;
+      const exercise = state.cooldownExercises.find(
+        (item) => item.id === cooldown.dataset.item,
+      );
+      if (exercise)
+        recordCooldownCompletion(
+          exercise,
+          cooldown.dataset.day,
+          cooldown.checked,
+        );
       persist();
       render();
       return;

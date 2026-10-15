@@ -1591,6 +1591,16 @@ svg {
   border-left-color: var(--forest-2);
 }
 
+.cooldown-routine {
+  flex-wrap: wrap;
+}
+
+.cooldown-resting {
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
 .round-check {
   display: flex;
   min-height: 38px;
@@ -2959,6 +2969,10 @@ svg {
   background: var(--white);
 }
 
+.cooldown-settings-panel .routine-settings-row {
+  grid-template-columns: auto minmax(0, 1fr) minmax(130px, auto) auto;
+}
+
 .routine-order {
   display: grid;
   width: 30px;
@@ -3728,8 +3742,13 @@ svg {
     flex-basis: auto;
   }
 
-  .routine-settings-row {
+  .routine-settings-row,
+  .cooldown-settings-panel .routine-settings-row {
     grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .routine-interval-field {
+    grid-column: 2;
   }
 
   .routine-row-actions {

@@ -1282,6 +1282,50 @@ async function main() {
       .innerHTML.includes("cooldown-routine is-complete"),
     "the cool-down pane should complete when every configured item is checked",
   );
+  const changeCooldownInterval = (cooldownId, value) =>
+    cycleSettingsApp.document._listeners.change[0]({
+      target: {
+        dataset: { cooldownSetting: "intervalDays", cooldownId },
+        value,
+        closest: () => null,
+      },
+    });
+  const cooldownIdsShownOn = (day) => {
+    selectView(cycleSettingsApp, day);
+    return Array.from(
+      cycleSettingsApp.__elements
+        .get("workout-view")
+        .innerHTML.matchAll(/data-action="cooldown-check" data-day="[^"]+" data-item="([^"]+)"/g),
+      (match) => match[1],
+    );
+  };
+  const cooldownDays = cycleSettingsApp.Basement45.getState().week.days;
+  if (["tuesday", "wednesday", "thursday"].every((day) => !cooldownDays[day].rest)) {
+    changeCooldownInterval(secondCooldownId, "2");
+    assert.equal(
+      cycleSettingsApp.Basement45.getState().cooldownExercises.find(
+        (exercise) => exercise.id === secondCooldownId,
+      ).intervalDays,
+      2,
+    );
+    assert.ok(
+      !cooldownIdsShownOn("tuesday").includes(secondCooldownId),
+      "an every-2-days cool-down done Monday should be hidden Tuesday",
+    );
+    assert.ok(
+      cooldownIdsShownOn("tuesday").includes("core"),
+      "every-day cool-downs should always be shown",
+    );
+    assert.ok(
+      cooldownIdsShownOn("wednesday").includes(secondCooldownId),
+      "an every-2-days cool-down done Monday should return Wednesday",
+    );
+    changeCooldownInterval(secondCooldownId, "3");
+    assert.ok(!cooldownIdsShownOn("wednesday").includes(secondCooldownId));
+    assert.ok(cooldownIdsShownOn("thursday").includes(secondCooldownId));
+    changeCooldownInterval(secondCooldownId, "1");
+    assert.ok(cooldownIdsShownOn("tuesday").includes(secondCooldownId));
+  }
   selectView(cycleSettingsApp, "settings");
   clickAction(cycleSettingsApp, "delete-cooldown-exercise", {
     cooldownId: firstCooldownId,
