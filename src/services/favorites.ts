@@ -13,19 +13,18 @@ export function favoriteSignature(circuit) {
 }
 
 
-export function favoritesForSlot(dayId, circuitIndex) {
+/** Favorites saved from any circuit of the day's cycle. */
+export function favoritesForDay(dayId) {
   const cycleId = gateways.week.current().days[dayId]?.cycleId;
   return gateways.favorites.all().filter(
-    (favorite) =>
-      favorite.cycleId === cycleId &&
-      Number(favorite.circuitIndex) === Number(circuitIndex),
+    (favorite) => favorite.cycleId === cycleId,
   );
 }
 
 
-export function isFavoriteCircuit(dayId, circuitIndex, circuit) {
+export function isFavoriteCircuit(dayId, circuit) {
   const signature = favoriteSignature(circuit);
-  return favoritesForSlot(dayId, circuitIndex).some(
+  return favoritesForDay(dayId).some(
     (favorite) => favorite.signature === signature,
   );
 }

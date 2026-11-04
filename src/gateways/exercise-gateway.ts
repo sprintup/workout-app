@@ -4,6 +4,7 @@ import { cleanRepValue, defaultMeasureType } from "../entities/exercise-state";
 import type {
   Exercise,
   ExerciseEdit,
+  ExerciseRating,
   ExerciseRecord,
   ExerciseStats,
 } from "../types";
@@ -72,8 +73,6 @@ export class DocumentExerciseGateway implements ExerciseGateway {
       this.state.exerciseState[exerciseId] = {
         chosenCount: 0,
         skippedCount: 0,
-        preference: 0,
-        effectivenessFeedbackBase: null,
         loadProgressCount: 0,
         reps: cleanRepValue(exercise?.default_reps || "10"),
         measureType: defaultMeasureType(exercise),
@@ -103,5 +102,13 @@ export class DocumentExerciseGateway implements ExerciseGateway {
 
   deletedIds(): string[] {
     return this.state?.deletedExerciseIds;
+  }
+
+  ratings(): Record<string, ExerciseRating> {
+    return this.state?.exerciseRatings;
+  }
+
+  replaceRatings(ratings: Record<string, ExerciseRating>): void {
+    this.state.exerciseRatings = ratings;
   }
 }

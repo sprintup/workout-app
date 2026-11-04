@@ -284,8 +284,14 @@ svg {
 }
 
 .week-number-row strong {
+  flex: 0 0 auto;
   font-family: Georgia, "Times New Roman", serif;
   font-size: 1.45rem;
+  white-space: nowrap;
+}
+
+.week-number-row span {
+  text-align: right;
 }
 
 .week-number-row span,
@@ -396,6 +402,14 @@ svg {
   margin: 0.45rem 0 0;
 }
 
+.week-summary .cardio-progress-track {
+  margin-top: 0.7rem;
+}
+
+.cardio-progress-track span {
+  background: var(--forest-2);
+}
+
 .day-tabs {
   display: grid;
   gap: 0.35rem;
@@ -503,33 +517,59 @@ svg {
   background: var(--orange);
 }
 
+.day-tabs .day-tab:not(.library-tab) {
+  grid-template-columns: 35px minmax(0, 1fr);
+}
+
+.tab-lines {
+  display: grid;
+  min-width: 0;
+  gap: 0.12rem;
+}
+
+.tab-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tab-line .tab-status {
+  width: 16px;
+  height: 16px;
+  font-size: 0.62rem;
+}
+
+.day-tab .tab-line small {
+  margin-top: 0;
+}
+
+/* On rest days only the dash is shown; the hidden checkmark stays hidden. */
+.day-tab.is-rest .tab-line:last-child .tab-status:not(.complete, .is-rest, .is-medal) {
+  border-color: var(--line-dark);
+  color: transparent;
+}
+
+.tab-status.is-rest {
+  border-color: #c9c5b8;
+  color: var(--ink-soft);
+}
+
+.day-tab.active .tab-status.is-rest {
+  color: rgb(255 255 255 / 72%);
+}
+
+.tab-status.is-medal {
+  border-color: transparent;
+  color: inherit;
+  background: transparent;
+  font-size: 0.8rem;
+}
+
 .library-tab {
   margin-top: 0.55rem;
   border-top: 1px solid var(--line);
   border-radius: 0 0 12px 12px;
-}
-
-.sidebar-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.65rem;
-  margin-top: auto;
-  padding: 0.9rem;
-  border: 1px solid #cdded5;
-  border-radius: var(--radius-sm);
-  color: #315c4c;
-  background: var(--mint-light);
-}
-
-.sidebar-note svg {
-  flex: 0 0 auto;
-  margin-top: 0.1rem;
-}
-
-.sidebar-note p {
-  margin: 0;
-  font-size: 0.72rem;
-  line-height: 1.45;
 }
 
 .main-content {
@@ -1610,6 +1650,120 @@ svg {
   color: var(--ink-soft);
   font-size: 0.78rem;
   font-weight: 700;
+}
+
+.cardio-routine {
+  flex-wrap: wrap;
+  margin-top: 1rem;
+  margin-bottom: 0;
+  border-left: 3px solid var(--orange);
+}
+
+.cardio-routine.is-complete,
+.cardio-routine.is-goal-met {
+  border-left-color: var(--forest-2);
+}
+
+.cardio-routine.is-goal-met {
+  border-color: #e2c46b;
+  background-color: #fdf5dc;
+}
+
+.cardio-stat {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 7.5rem;
+}
+
+.cardio-stat small {
+  color: var(--ink-soft);
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cardio-stat strong {
+  font-size: 0.86rem;
+}
+
+.routine-row label.cardio-planned,
+.routine-row label.cardio-planned:not(:has(input:checked)) {
+  display: grid;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  color: var(--ink);
+  background: transparent;
+  box-shadow: none;
+}
+
+.cardio-planned span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.routine-row .cardio-planned input {
+  width: 4.5rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--white);
+  font: inherit;
+  font-weight: 800;
+}
+
+.cardio-routine.is-rest {
+  border-left-color: #c9c5b8;
+}
+
+.cardio-note {
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.cardio-note.is-missed {
+  color: #74452f;
+}
+
+.cardio-medal {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.cardio-medal span {
+  color: #7a5b0c;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.rest-day-view .cardio-routine {
+  margin-top: 1rem;
+}
+
+.cardio-settings {
+  flex-wrap: wrap;
+}
+
+.cardio-settings > div {
+  flex: 1 1 260px;
+}
+
+.rep-budget-settings select {
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--white);
+  font: inherit;
+  font-weight: 800;
 }
 
 .round-check {
@@ -3514,8 +3668,7 @@ svg {
     top: 57px;
   }
 
-  .week-summary,
-  .sidebar-note {
+  .week-summary {
     display: none;
   }
 
@@ -3534,6 +3687,7 @@ svg {
   }
 
   .day-tab > span:nth-child(2),
+  .tab-lines,
   .tab-status {
     display: none;
   }

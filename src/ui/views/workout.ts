@@ -5,8 +5,9 @@ import { isCircuitComplete, mainAssignments } from "../../entities/circuits";
 import { cycleDisplayName, cycleTargetLabel, isRestCycle } from "../../entities/cycles";
 import { exerciseEffectivenessScore } from "../../entities/exercise";
 import { roundDeadlineMs, timerDuration, timerElapsed } from "../../entities/timer";
-import { libraryTotalCount } from "../../services/exercise-catalog";
-import { favoritesForSlot, isFavoriteCircuit } from "../../services/favorites";
+import { cardioStatusForDay } from "../../services/cardio";
+import { libraryTotalCount, ratingKey } from "../../services/exercise-catalog";
+import { favoritesForDay, isFavoriteCircuit } from "../../services/favorites";
 import { assignmentRepBasis, assignmentReps, circuitTotalReps } from "../../services/reps";
 import { isCooldownDue, nextCooldownDueKey } from "../../services/routine-schedule";
 import { targetBodyPartsForDay } from "../../services/targeting";
@@ -26,11 +27,34 @@ export function renderTabs() {
       ? 0
       : dayData.circuits.filter(isCircuitComplete).length;
     const active = ui.currentView === day.id;
+    const strengthLabel =
+      dayData.rest && !day.rotationRest ? "Rest day" : day.cycleName;
+    const strengthStatus = dayData.rest
+      ? "Rest day"
+      : `${completeCount} of 3 circuits complete`;
+    const cardio = cardioStatusForDay(day.id);
+    const cardioOff = cardio.goalMetBefore && !cardio.completed;
+    const cardioRest =
+      !cardioOff && !cardio.completed && cardio.plannedMinutes === 0;
+    const cardioLabel = cardioOff
+      ? "Cardio day off"
+      : cardioRest
+        ? "Cardio rest"
+        : `${cardio.plannedMinutes} min cardio`;
+    const cardioStatus = cardioOff
+      ? "Weekly cardio goal reached"
+      : cardioRest
+        ? "Cardio rest day"
+        : cardio.completed
+          ? "Cardio done"
+          : "Cardio not done";
     return `
-      <button class="day-tab ${dayData.rest ? "is-rest" : ""} ${active ? "active" : ""}" type="button" data-view="${day.id}" aria-current="${active ? "page" : "false"}">
+      <button class="day-tab ${dayData.rest ? "is-rest" : ""} ${active ? "active" : ""}" type="button" data-view="${day.id}" aria-current="${active ? "page" : "false"}" title="${day.name}" aria-label="${day.name}: ${escapeHtml(strengthLabel)}, ${strengthStatus}; ${cardioLabel}, ${cardioStatus}">
         <span class="day-short">${day.short}</span>
-        <span><strong>${day.name}</strong><small>${dayData.rest ? (day.rotationRest ? `${escapeHtml(day.cycleName)} &middot; Scheduled rest` : `Rest &middot; ${escapeHtml(day.cycleName)} waits`) : `${escapeHtml(day.cycleName)} &middot; ${escapeHtml(day.focus)}`}</small></span>
-        <span class="tab-status ${completeCount === 3 ? "complete" : ""}" aria-label="${dayData.rest ? "Rest day" : `${completeCount} of 3 circuits complete`}">${dayData.rest ? "&mdash;" : "&#10003;"}</span>
+        <span class="tab-lines">
+          <span class="tab-line"><small>${escapeHtml(strengthLabel)}</small><span class="tab-status ${completeCount === 3 ? "complete" : ""}">${dayData.rest ? "&mdash;" : "&#10003;"}</span></span>
+          <span class="tab-line"><small>${cardioLabel}</small><span class="tab-status ${cardio.completed ? "complete" : ""} ${cardioOff ? "is-medal" : ""} ${cardioRest ? "is-rest" : ""}">${cardioOff ? "🥇" : cardioRest ? "&mdash;" : "&#10003;"}</span></span>
+        </span>
       </button>`;
   }).join("");
 
@@ -61,6 +85,7 @@ export function cautionText(exercise) {
 export function renderExerciseItem(assignment, context) {
   const exercise = gateways.exercises.find(assignment.exerciseId);
   const settings = gateways.exercises.stats(exercise.id);
+  const rating = gateways.exercises.ratings()[ratingKey(context, exercise.id)]?.direction || 0;
   const fixed = assignment.fixed || exercise.always_locked;
   const isOptionalActivator = context.position === "optionalActivator";
   const itemClass = `${isOptionalActivator ? "exercise-item activator-item" : "exercise-item"}${gateways.exercises.isHidden(exercise.id) ? " is-hidden" : ""}`;
@@ -120,9 +145,9 @@ export function renderExerciseItem(assignment, context) {
                  <button class="mini-button" type="button" data-action="move-exercise" data-direction="1" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" data-position="${context.position}" title="Move exercise down" aria-label="Move ${escapeHtml(exercise.name)} down" ${context.orderIndex === context.exerciseCount - 1 ? "disabled" : ""}>↓</button>`
               : ""
           }
-          <span class="preference-controls" aria-label="Reversible effectiveness adjustment for ${escapeHtml(exercise.name)}">
-            <button class="feedback-button ${settings.preference === 1 ? "active" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-value="1" title="${settings.preference === 1 ? "Remove the +1 effectiveness adjustment" : "Apply a +1 effectiveness adjustment"}" aria-label="${settings.preference === 1 ? `Remove the effectiveness increase from ${escapeHtml(exercise.name)}` : `Increase ${escapeHtml(exercise.name)} effectiveness by 1`}" aria-pressed="${settings.preference === 1}">${ICONS.thumbUp}</button>
-            <button class="feedback-button ${settings.preference === -1 ? "active negative" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-value="-1" title="${settings.preference === -1 ? "Remove the -1 effectiveness adjustment" : "Apply a -1 effectiveness adjustment"}" aria-label="${settings.preference === -1 ? `Remove the effectiveness decrease from ${escapeHtml(exercise.name)}` : `Decrease ${escapeHtml(exercise.name)} effectiveness by 1`}" aria-pressed="${settings.preference === -1}">${ICONS.thumbDown}</button>
+          <span class="preference-controls" aria-label="Rate ${escapeHtml(exercise.name)} for this workout">
+            <button class="feedback-button ${rating === 1 ? "active" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" data-position="${context.position}" data-value="1" title="${rating === 1 ? "Undo this thumbs-up" : "Thumbs up: +1 effectiveness"}" aria-label="${rating === 1 ? `Undo the thumbs-up for ${escapeHtml(exercise.name)}` : `Increase ${escapeHtml(exercise.name)} effectiveness by 1`}" aria-pressed="${rating === 1}">${ICONS.thumbUp}</button>
+            <button class="feedback-button ${rating === -1 ? "active negative" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" data-position="${context.position}" data-value="-1" title="${rating === -1 ? "Undo this thumbs-down" : "Thumbs down: -1 effectiveness"}" aria-label="${rating === -1 ? `Undo the thumbs-down for ${escapeHtml(exercise.name)}` : `Decrease ${escapeHtml(exercise.name)} effectiveness by 1`}" aria-pressed="${rating === -1}">${ICONS.thumbDown}</button>
           </span>
           <button
             class="mini-button ${assignment.locked ? "active" : ""}"
@@ -292,8 +317,8 @@ export function renderCircuit(dayId, circuit, circuitIndex) {
           <span class="circuit-title"><span>Circuit ${circuit.number}</span><strong>${escapeHtml(circuit.category)}</strong><span class="circuit-muscle-list" aria-label="Muscles targeted in circuit ${circuit.number}">${circuitMuscles.map((part) => `<i data-circuit-muscle="${circuitIndex}:${escapeHtml(part)}">${escapeHtml(part)}</i>`).join("")}</span></span>
         </div>
         <div class="circuit-scaling">
-          <button class="favorite-button ${isFavoriteCircuit(dayId, circuitIndex, circuit) ? "active" : ""}" type="button" data-action="toggle-favorite-circuit" data-day="${dayId}" data-circuit="${circuitIndex}" title="${isFavoriteCircuit(dayId, circuitIndex, circuit) ? "Remove this circuit from favorites" : "Save this circuit as a favorite"}" aria-label="${isFavoriteCircuit(dayId, circuitIndex, circuit) ? "Remove circuit from favorites" : "Favorite this circuit"}">${ICONS.star}</button>
-          <button class="favorite-button" type="button" data-action="open-favorite-circuits" data-day="${dayId}" data-circuit="${circuitIndex}" title="Substitute a saved favorite circuit" aria-label="Substitute a favorite circuit" ${favoritesForSlot(dayId, circuitIndex).length ? "" : "disabled"}>${ICONS.favorites}</button>
+          <button class="favorite-button ${isFavoriteCircuit(dayId, circuit) ? "active" : ""}" type="button" data-action="toggle-favorite-circuit" data-day="${dayId}" data-circuit="${circuitIndex}" title="${isFavoriteCircuit(dayId, circuit) ? "Remove this circuit from favorites" : "Save this circuit as a favorite"}" aria-label="${isFavoriteCircuit(dayId, circuit) ? "Remove circuit from favorites" : "Favorite this circuit"}">${ICONS.star}</button>
+          <button class="favorite-button" type="button" data-action="open-favorite-circuits" data-day="${dayId}" data-circuit="${circuitIndex}" title="Substitute a saved favorite circuit" aria-label="Substitute a favorite circuit" ${favoritesForDay(dayId).length ? "" : "disabled"}>${ICONS.favorites}</button>
           <span class="circuit-rep-total${meetsRepGoal ? "" : " is-off-target"}" title="${meetsRepGoal ? "Circuit meets the 30-rep goal" : "Adjust this circuit to 30 reps per round"}">${totalReps} reps / round &middot; ${totalReps * 3} total</span>
           <span class="rounds-badge">${assignments.length} exercises</span>
           <span class="scale-buttons">
@@ -308,6 +333,40 @@ export function renderCircuit(dayId, circuit, circuitIndex) {
         <div class="exercise-cycle">${exerciseItems}</div>
       </div>
     </article>`;
+}
+
+
+export function renderCardioRow(dayId) {
+  const status = cardioStatusForDay(dayId);
+  const goal = gateways.cardio.settings().weeklyGoalMinutes;
+  const dayOff = status.goalMetBefore && !status.completed;
+  const restDay = !dayOff && !status.completed && status.plannedMinutes === 0;
+  const rowClass = [
+    "routine-row cardio-routine",
+    status.completed && "is-complete",
+    dayOff && "is-goal-met",
+    restDay && "is-rest",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const done = `<span class="cardio-stat"><small>Done this week</small><strong data-cardio-done="${dayId}">${status.doneThrough} / ${goal} min</strong></span>`;
+  const remaining = `<span class="cardio-stat"><small>Remaining this week</small><strong data-cardio-remaining="${dayId}">${status.remaining} min</strong></span>`;
+  const today = dayOff
+    ? `<span class="cardio-medal" data-cardio-medal="${dayId}" title="Weekly cardio goal reached">🥇 <span>Goal reached: cardio day off</span></span>`
+    : `<label class="cardio-stat cardio-planned"><small>Scheduled today</small><span><input type="number" min="0" max="300" step="5" inputmode="numeric" data-cardio-minutes="${dayId}" value="${status.plannedMinutes}" aria-label="Cardio minutes scheduled for ${escapeHtml(gateways.week.current().days[dayId].day)}" /> min</span></label>
+       ${
+         restDay
+           ? `<span class="cardio-note" data-cardio-rest="${dayId}">Cardio rest day</span>`
+           : `<label class="cardio-check"><input type="checkbox" data-action="complete-cardio" data-day="${dayId}" ${status.completed ? "checked" : ""} /> Cardio done</label>`
+       }
+       ${status.makeUpMinutes ? `<span class="cardio-note" data-cardio-make-up="${dayId}">Includes ${status.makeUpMinutes} min made up from missed sessions</span>` : ""}
+       ${status.missed ? `<span class="cardio-note is-missed">Missed: these minutes moved to a later session</span>` : ""}`;
+  return `<div class="${rowClass}" aria-label="Cardio">
+    <strong>Cardio</strong>
+    ${done}
+    ${remaining}
+    ${today}
+  </div>`;
 }
 
 
@@ -359,6 +418,7 @@ export function renderWorkout(dayId) {
           <span class="rest-day-mark" aria-hidden="true">&mdash;</span>
           <div><strong>${rotationRest ? "Scheduled recovery" : "Recover today"}</strong><p>${rotationRest ? "This rest entry was consumed and the rotation continues with the next entry." : "No cycle was consumed. Every later calendar day has shifted forward automatically."}</p></div>
         </section>
+        ${renderCardioRow(dayId)}
       </div>`;
     updateWorkoutTimer();
     return;
@@ -411,8 +471,8 @@ export function renderWorkout(dayId) {
       </div>
       ${
         gateways.routines.cooldowns().length
-          ? `<div class="routine-row cooldown-routine ${cooldownComplete ? "is-complete" : ""}" aria-label="Cool-down checklist">
-              <strong>Cool-down</strong>
+          ? `<div class="routine-row cooldown-routine ${cooldownComplete ? "is-complete" : ""}" aria-label="Auxiliary set checklist">
+              <strong>Auxiliary set</strong>
               ${dueCooldownExercises
                 .map(
                   (exercise) =>
@@ -432,6 +492,7 @@ export function renderWorkout(dayId) {
             </div>`
           : ""
       }
+      ${renderCardioRow(dayId)}
     </div>`;
   updateWorkoutTimer();
 }

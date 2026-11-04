@@ -1,5 +1,6 @@
 import { gateways } from "../../gateways/registry";
 import { COOLDOWN_INTERVAL_OPTIONS, MAX_CIRCUIT_REP_BUDGET, MIN_CIRCUIT_REP_BUDGET } from "../../config/constants";
+import { CARDIO_SPLITS, MAX_CARDIO_GOAL_MINUTES, MAX_CARDIO_SESSION_MINUTES, MIN_CARDIO_MINUTES, cardioSplitLabel } from "../../entities/cardio";
 import { cycleDisplayName, cycleTargetLabel } from "../../entities/cycles";
 import { cooldownIntervalLabel, normalizeCooldownInterval } from "../../entities/routines";
 import { splitForId } from "../../services/cycle-schedule";
@@ -21,18 +22,18 @@ export function renderCooldownIntervalField(exercise) {
 
 export function renderRoutineSettingsPanel(kind, exercises) {
   const warmup = kind === "warmup";
-  const title = warmup ? "Warm-up exercises" : "Cool-down exercises";
-  const adjective = warmup ? "Warm-up" : "Cool-down";
+  const title = warmup ? "Warm-up exercises" : "Auxiliary set exercises";
+  const adjective = warmup ? "Warm-up" : "Auxiliary";
   const description = warmup
     ? "Shown before the circuits on every training day."
-    : "Shown after the circuits and excluded from workout time. Exercises scheduled every few days stay hidden until they are due again.";
+    : "Shown after the circuits and excluded from workout time. Use Schedule to do an exercise every day or every few days; it stays hidden until it is due again.";
   const emptyMessage = warmup
     ? "No warm-up exercises. Add one whenever you want a pre-circuit checklist."
-    : "No cool-down exercises. Add one whenever you want a post-workout checklist.";
+    : "No auxiliary set exercises. Add one whenever you want a post-workout checklist.";
   return `<section class="routine-settings-panel ${kind}-settings-panel">
     <header>
       <div><strong>${title}</strong><span>${description}</span></div>
-      <button class="button button-quiet" type="button" data-action="add-${kind}-exercise" ${exercises.length >= 24 ? "disabled" : ""}>+ Add ${kind === "warmup" ? "warm-up" : "cool-down"} exercise</button>
+      <button class="button button-quiet" type="button" data-action="add-${kind}-exercise" ${exercises.length >= 24 ? "disabled" : ""}>+ Add ${kind === "warmup" ? "warm-up" : "auxiliary"} exercise</button>
     </header>
     <div class="routine-settings-list">
       ${
@@ -55,6 +56,35 @@ export function renderRoutineSettingsPanel(kind, exercises) {
           : `<div class="routine-empty">${emptyMessage}</div>`
       }
     </div>
+  </section>`;
+}
+
+
+export function renderCardioSettings() {
+  const settings = gateways.cardio.settings();
+  return `<section class="rep-budget-settings cardio-settings" aria-labelledby="cardio-settings-title">
+    <div>
+      <strong id="cardio-settings-title">Cardio split</strong>
+      <span>Each day schedules one session until the weekly goal is met; unchecked days roll their minutes forward, and the days after the goal is reached are days off.</span>
+    </div>
+    <label>
+      <span>Weekly goal (min)</span>
+      <input id="cardio-goal" type="number" min="${MIN_CARDIO_MINUTES}" max="${MAX_CARDIO_GOAL_MINUTES}" step="5" value="${settings.weeklyGoalMinutes}" />
+    </label>
+    <label>
+      <span>Sessions</span>
+      <select id="cardio-split">
+        ${CARDIO_SPLITS.map((split) => `<option value="${split.id}" ${split.id === settings.splitId ? "selected" : ""}>${escapeHtml(cardioSplitLabel(settings, split.id))}</option>`).join("")}
+      </select>
+    </label>
+    ${
+      settings.splitId === "custom"
+        ? `<label>
+            <span>Session length (min)</span>
+            <input id="cardio-custom-minutes" type="number" min="${MIN_CARDIO_MINUTES}" max="${MAX_CARDIO_SESSION_MINUTES}" step="5" value="${settings.customMinutes}" />
+          </label>`
+        : ""
+    }
   </section>`;
 }
 
@@ -104,7 +134,7 @@ export function renderSettings() {
       ${
         ui.showBodyPartCoverage
           ? `<section class="body-part-coverage-panel" aria-label="Body-part coverage throughout cycles">
-              <header><strong>Body-part coverage</strong><span>Number of cycles that target each body part; warm-up and cool-down items are excluded</span></header>
+              <header><strong>Body-part coverage</strong><span>Number of cycles that target each body part; warm-up and auxiliary items are excluded</span></header>
               <div class="body-part-coverage-list">
                 ${coverage
                   .map(
@@ -118,5 +148,7 @@ export function renderSettings() {
       }
       <hr class="settings-section-divider" aria-hidden="true" />
       ${renderRoutineSettingsPanel("cooldown", gateways.routines.cooldowns())}
+      <hr class="settings-section-divider" aria-hidden="true" />
+      ${renderCardioSettings()}
     </div>`;
 }

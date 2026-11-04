@@ -1,24 +1,29 @@
 import type { Gateways } from "../../gateways/gateways";
 import { generateWeek } from "../../services/generation";
 import { validateWeek } from "../../services/validation";
-import { archiveCurrentWeek, enabledDays } from "../../services/week";
+import { archiveCurrentWeek, enabledDays, isWeekFinished } from "../../services/week";
 import { changed, failed, type InteractorResult } from "../interactor";
 
 export const START_NEW_WEEK_CONFIRMATION =
-  "Start a new week? This archives the current calendar week, continues with the next cycle in the rotation, keeps cycle locks and saved loads, and clears every checkmark.";
+  "Start a new week? This archives the current calendar week, continues with the next cycle in the rotation, keeps cycle locks and saved loads, and clears every checkmark and this week's cardio minutes.";
 
 // As a user
 // When I finish a week of training and start a new week
 // Then the old week is archived and a fresh week is generated with blank
-//   checkmarks, continuing the cycle rotation and keeping my locks and loads
+//   checkmarks and the full cardio goal, continuing the cycle rotation and
+//   keeping my locks and loads; my streak grows if I finished every circuit
+//   and the cardio goal, and starts over if I didn't
 export function startNewWeek(gateways: Gateways): InteractorResult {
   const backup = gateways.appState.snapshot();
   try {
+    gateways.week.setStreak(isWeekFinished() ? gateways.week.streak() + 1 : 0);
     archiveCurrentWeek();
     gateways.week.setNumber(gateways.week.number() + 1);
     gateways.week.setStartedAt(gateways.clock.nowIso());
     gateways.week.setStartCycleId(gateways.week.nextCycleId());
     generateWeek(null, { restDayIds: [] });
+    gateways.cardio.clearWeek();
+    gateways.exercises.replaceRatings({});
     const issues = validateWeek(gateways.week.current());
     if (issues.length) throw new Error(issues[0]);
     return changed({

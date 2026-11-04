@@ -1,5 +1,6 @@
 import { gateways } from "../gateways/registry";
 import { APP_VERSION, DEFAULT_CIRCUIT_REP_BUDGET } from "../config/constants";
+import { createDefaultCardioSettings } from "../entities/cardio";
 import { createDefaultCycles } from "../entities/cycles";
 import { createDefaultCooldownExercises, createDefaultWarmupExercises } from "../entities/routines";
 import { exerciseEquipmentCatalog } from "./exercise-catalog";
@@ -12,6 +13,7 @@ export function createState(): AppState {
   return {
     version: APP_VERSION,
     weekNumber: 1,
+    weekStreak: 0,
     weekStartedAt: gateways.clock.nowIso(),
     circuitRepBudget: DEFAULT_CIRCUIT_REP_BUDGET,
     exerciseState: initialExerciseState(),
@@ -28,6 +30,9 @@ export function createState(): AppState {
     weekStartCycleId: cycles[0].id,
     nextCycleId: cycles[0].id,
     favoriteCircuits: [],
+    exerciseRatings: {},
+    cardio: createDefaultCardioSettings(),
+    cardioWeek: {},
     hiddenExerciseIds: [],
     deletedExerciseIds: [],
     history: [],

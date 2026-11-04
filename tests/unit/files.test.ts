@@ -68,3 +68,37 @@ test("a file that isn't a save file is rejected and nothing changes", async () =
   assert.equal(result.toast?.message, "This is not a Basement 45 save file.");
   assert.deepEqual(gateways.appState.snapshot(), before);
 });
+
+test("a save from before cardio and streaks loads with their defaults", async () => {
+  const original = createTestGateways();
+  await saveWorkoutFile(original);
+  const payload = JSON.parse(original.workoutFile.written!);
+  // Shape the file like a version 18 save.
+  payload.schemaVersion = 18;
+  payload.appState.version = 18;
+  delete payload.appState.cardio;
+  delete payload.appState.cardioWeek;
+  delete payload.appState.weekStreak;
+  delete payload.appState.exerciseRatings;
+  const exerciseId = Object.keys(payload.appState.exerciseState)[0];
+  Object.assign(payload.appState.exerciseState[exerciseId], {
+    preference: 1,
+    effectivenessFeedbackBase: 3,
+    weight: "35",
+  });
+
+  const reloaded = createTestGateways({ seed: 2 });
+  const result = await loadWorkoutFile(reloaded, {
+    file: pickedFile("old.json", JSON.stringify(payload)),
+  });
+
+  assert.equal(result.changed, true, result.toast?.message);
+  const state = reloaded.appState.current();
+  assert.equal(state.version, 19);
+  assert.deepEqual(state.cardio, { weeklyGoalMinutes: 180, splitId: "6x30", customMinutes: 30 });
+  assert.deepEqual(state.cardioWeek, {});
+  assert.equal(state.weekStreak, 0);
+  assert.deepEqual(state.exerciseRatings, {});
+  assert.equal(state.exerciseState[exerciseId].weight, "35");
+  assert.equal("preference" in state.exerciseState[exerciseId], false);
+});

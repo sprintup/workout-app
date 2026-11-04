@@ -1,6 +1,7 @@
 // Test doubles for the infrastructure gateways, plus a helper that installs a
 // complete gateway bundle around a fresh, deterministic document.
 import { InMemoryAppStateGateway } from "../../src/gateways/app-state-gateway";
+import { DocumentCardioGateway } from "../../src/gateways/cardio-gateway";
 import { DocumentCycleGateway } from "../../src/gateways/cycle-gateway";
 import { DocumentExerciseGateway } from "../../src/gateways/exercise-gateway";
 import { DocumentFavoritesGateway } from "../../src/gateways/favorites-gateway";
@@ -157,6 +158,7 @@ export function createTestGateways(
     week: new DocumentWeekGateway(appState),
     cycles: new DocumentCycleGateway(appState),
     routines: new DocumentRoutineGateway(appState),
+    cardio: new DocumentCardioGateway(appState),
     exercises: new DocumentExerciseGateway(appState),
     favorites: new DocumentFavoritesGateway(appState),
     preferences: new DocumentPreferencesGateway(appState),

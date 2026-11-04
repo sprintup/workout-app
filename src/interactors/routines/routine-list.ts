@@ -1,4 +1,4 @@
-// Helpers shared by the warm-up and cool-down stories.
+// Helpers shared by the warm-up and auxiliary stories.
 import type { RoutineExercise } from "../../types";
 
 export const MAX_ROUTINE_EXERCISES = 24;

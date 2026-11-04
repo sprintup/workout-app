@@ -4,15 +4,15 @@ import { changed, unchanged, type InteractorResult } from "../interactor";
 import { MAX_ROUTINE_EXERCISES, nextRoutineId } from "./routine-list";
 
 // As a user
-// When I add a cool-down exercise in Settings
-// Then it appears in the cool-down checklist, scheduled every day until I
+// When I add an auxiliary exercise in Settings
+// Then it appears in the auxiliary checklist, scheduled every day until I
 //   choose another interval
 export function addCooldownExercise(gateways: Gateways): InteractorResult {
   const cooldowns = gateways.routines.cooldowns();
   if (cooldowns.length >= MAX_ROUTINE_EXERCISES) return unchanged();
   const exercise = {
     id: nextRoutineId(cooldowns, "cooldown"),
-    label: "New cool-down exercise",
+    label: "New auxiliary exercise",
     intervalDays: 1,
     completedDates: [],
   };
@@ -24,6 +24,6 @@ export function addCooldownExercise(gateways: Gateways): InteractorResult {
   }
   return changed({
     refresh: ["settings"],
-    toast: "Cool-down exercise added.",
+    toast: "Auxiliary exercise added.",
   });
 }

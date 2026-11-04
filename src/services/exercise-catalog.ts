@@ -2,6 +2,7 @@ import { gateways } from "../gateways/registry";
 import { BODY_PART_OPTIONS } from "../data/training";
 import { normalizeEquipmentCatalog } from "../entities/equipment";
 import { clampRating, exerciseEffectivenessScore } from "../entities/exercise";
+import type { AssignmentContext } from "../types";
 
 
 
@@ -12,11 +13,7 @@ export function exerciseEquipmentCatalog() {
 }
 
 
-export function updateExerciseEffectiveness(
-  exerciseId,
-  value,
-  clearFeedback = false,
-) {
+export function updateExerciseEffectiveness(exerciseId, value) {
   const exercise = gateways.exercises.find(exerciseId);
   if (!exercise) return null;
   const effectivenessScore = clampRating(
@@ -27,13 +24,25 @@ export function updateExerciseEffectiveness(
     ...(gateways.exercises.edits()[exerciseId] || {}),
     effectivenessScore,
   };
-  if (clearFeedback) {
-    const settings = gateways.exercises.stats(exerciseId);
-    settings.preference = 0;
-    settings.effectivenessFeedbackBase = null;
-  }
   gateways.exercises.rebuildCatalog(gateways.exercises.customRecords(), gateways.exercises.edits());
   return effectivenessScore;
+}
+
+
+/** The key a thumbs rating is stored under: one exercise in one circuit this week. */
+export function ratingKey(context: AssignmentContext, exerciseId: string) {
+  return `${context.dayId}:${context.circuitIndex}:${exerciseId}`;
+}
+
+
+/** Forgets this week's thumbs for an exercise, so its score is the new baseline. */
+export function clearExerciseRatings(exerciseId) {
+  const ratings = gateways.exercises.ratings();
+  gateways.exercises.replaceRatings(
+    Object.fromEntries(
+      Object.entries(ratings).filter(([key]) => !key.endsWith(`:${exerciseId}`)),
+    ),
+  );
 }
 
 

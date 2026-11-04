@@ -122,7 +122,7 @@
   }
 
   // src/config/constants.ts
-  var APP_VERSION = 18;
+  var APP_VERSION = 19;
   var STORAGE_KEY = "basement45-state-v2";
   var ACTIVATOR_LABEL = "Total Body activator";
   var DEFAULT_WORKOUT_DURATION_MS = 45 * 60 * 1e3;
@@ -435,6 +435,111 @@
       defaultEnabled: false
     }
   ];
+
+  // src/entities/cardio.ts
+  var DEFAULT_CARDIO_GOAL_MINUTES = 180;
+  var MIN_CARDIO_MINUTES = 5;
+  var MAX_CARDIO_GOAL_MINUTES = 1440;
+  var MAX_CARDIO_SESSION_MINUTES = 300;
+  var CARDIO_SPLITS = [
+    { id: "6x30", minutes: 30 },
+    { id: "4x45", minutes: 45 },
+    { id: "custom", minutes: null }
+  ];
+  function createDefaultCardioSettings() {
+    return {
+      weeklyGoalMinutes: DEFAULT_CARDIO_GOAL_MINUTES,
+      splitId: "6x30",
+      customMinutes: 30
+    };
+  }
+  function wholeMinutes(value, fallback, min, max) {
+    const numeric = Math.round(Number(value));
+    if (!Number.isFinite(numeric) || value === "" || value === null) return fallback;
+    return Math.min(max, Math.max(min, numeric));
+  }
+  function normalizeCardioGoal(value, fallback = DEFAULT_CARDIO_GOAL_MINUTES) {
+    return wholeMinutes(value, fallback, MIN_CARDIO_MINUTES, MAX_CARDIO_GOAL_MINUTES);
+  }
+  function normalizeCardioSessionMinutes(value, fallback = 30) {
+    return wholeMinutes(value, fallback, MIN_CARDIO_MINUTES, MAX_CARDIO_SESSION_MINUTES);
+  }
+  function normalizePlannedCardioMinutes(value) {
+    if (value === null || value === void 0 || value === "") return null;
+    const numeric = Math.round(Number(value));
+    if (!Number.isFinite(numeric)) return null;
+    return Math.min(MAX_CARDIO_SESSION_MINUTES, Math.max(0, numeric));
+  }
+  function normalizeCardioSettings(value) {
+    const defaults = createDefaultCardioSettings();
+    const splitId = CARDIO_SPLITS.some((split) => split.id === value?.splitId) ? value.splitId : defaults.splitId;
+    return {
+      weeklyGoalMinutes: normalizeCardioGoal(value?.weeklyGoalMinutes),
+      splitId,
+      customMinutes: normalizeCardioSessionMinutes(value?.customMinutes)
+    };
+  }
+  function normalizeCardioDay(value) {
+    return {
+      plannedMinutes: normalizePlannedCardioMinutes(value?.plannedMinutes),
+      completed: Boolean(value?.completed)
+    };
+  }
+  function cardioSessionMinutes(settings) {
+    const preset = CARDIO_SPLITS.find((split) => split.id === settings.splitId);
+    return preset?.minutes ?? settings.customMinutes;
+  }
+  function cardioSplitLabel(settings, splitId) {
+    if (splitId === "custom") return "Custom time";
+    const minutes = CARDIO_SPLITS.find((split) => split.id === splitId)?.minutes ?? 30;
+    return `${Math.ceil(settings.weeklyGoalMinutes / minutes)} \xD7 ${minutes} min`;
+  }
+  function cardioWeekStatus(settings, week) {
+    const goal = settings.weeklyGoalMinutes;
+    const session = cardioSessionMinutes(settings);
+    let scheduled = 0;
+    const plans = week.map(({ cardio, past, beforeWeek }) => {
+      const day = normalizeCardioDay(cardio);
+      const plannedMinutes = day.plannedMinutes ?? (beforeWeek ? 0 : Math.min(session, Math.max(0, goal - scheduled)));
+      scheduled += plannedMinutes;
+      return {
+        ...day,
+        plannedMinutes,
+        customPlan: day.plannedMinutes !== null,
+        missed: past && !day.completed && plannedMinutes > 0,
+        past,
+        makeUpMinutes: 0
+      };
+    });
+    const completedMinutes = plans.filter((plan) => plan.completed).reduce((total, plan) => total + plan.plannedMinutes, 0);
+    const upcoming = plans.filter((plan) => !plan.past && !plan.completed);
+    const shortfall = goal - completedMinutes - upcoming.reduce((total, plan) => total + plan.plannedMinutes, 0);
+    const longSession = upcoming.filter((plan) => plan.plannedMinutes > 0 && !plan.customPlan).pop() || upcoming.filter((plan) => !plan.customPlan).pop();
+    if (longSession && shortfall > 0) {
+      const plannedMinutes = Math.min(
+        MAX_CARDIO_SESSION_MINUTES,
+        longSession.plannedMinutes + shortfall
+      );
+      longSession.makeUpMinutes = plannedMinutes - longSession.plannedMinutes;
+      longSession.plannedMinutes = plannedMinutes;
+    }
+    let done = 0;
+    return plans.map((plan) => {
+      const doneBefore = done;
+      if (plan.completed) done += plan.plannedMinutes;
+      return {
+        doneBefore,
+        doneThrough: done,
+        remaining: Math.max(0, goal - done),
+        plannedMinutes: plan.plannedMinutes,
+        makeUpMinutes: plan.makeUpMinutes,
+        customPlan: plan.customPlan,
+        completed: plan.completed,
+        missed: plan.missed,
+        goalMetBefore: doneBefore >= goal
+      };
+    });
+  }
 
   // src/entities/circuits.ts
   function mainAssignments(circuit) {
@@ -1173,6 +1278,20 @@
   function cleanRepValue(value) {
     return String(value || "").replace(/\s*(sec|seconds)\s*/gi, "").trim();
   }
+  function normalizeExerciseRatings(value) {
+    if (!value || typeof value !== "object") return {};
+    return Object.fromEntries(
+      Object.entries(value).filter(
+        ([key, rating]) => key.split(":").length === 3 && (rating?.direction === 1 || rating?.direction === -1)
+      ).map(([key, rating]) => [
+        key,
+        {
+          direction: rating.direction,
+          applied: Math.max(-4, Math.min(4, Math.round(Number(rating.applied) || 0)))
+        }
+      ])
+    );
+  }
 
   // src/entities/reps.ts
   function normalizeCircuitRepBudget(value) {
@@ -1261,7 +1380,7 @@
       values,
       createDefaultCooldownExercises(),
       "cooldown",
-      "Cool-down exercise",
+      "Auxiliary exercise",
       (exercise) => ({
         intervalDays: normalizeCooldownInterval(exercise?.intervalDays),
         completedDates: normalizeCompletedDates(exercise?.completedDates)
@@ -1333,7 +1452,7 @@
       gateways.exercises.all().flatMap((exercise) => exercise.equipment_varieties)
     );
   }
-  function updateExerciseEffectiveness(exerciseId, value, clearFeedback = false) {
+  function updateExerciseEffectiveness(exerciseId, value) {
     const exercise = gateways.exercises.find(exerciseId);
     if (!exercise) return null;
     const effectivenessScore = clampRating(
@@ -1344,13 +1463,19 @@
       ...gateways.exercises.edits()[exerciseId] || {},
       effectivenessScore
     };
-    if (clearFeedback) {
-      const settings = gateways.exercises.stats(exerciseId);
-      settings.preference = 0;
-      settings.effectivenessFeedbackBase = null;
-    }
     gateways.exercises.rebuildCatalog(gateways.exercises.customRecords(), gateways.exercises.edits());
     return effectivenessScore;
+  }
+  function ratingKey(context, exerciseId) {
+    return `${context.dayId}:${context.circuitIndex}:${exerciseId}`;
+  }
+  function clearExerciseRatings(exerciseId) {
+    const ratings = gateways.exercises.ratings();
+    gateways.exercises.replaceRatings(
+      Object.fromEntries(
+        Object.entries(ratings).filter(([key]) => !key.endsWith(`:${exerciseId}`))
+      )
+    );
   }
   function libraryTotalCount() {
     return gateways.exercises.all().filter((exercise) => !gateways.exercises.isDeleted(exercise.id)).length;
@@ -2431,6 +2556,25 @@
     );
   }
 
+  // src/services/cardio.ts
+  function cardioWeek() {
+    const week = gateways.cardio.week() || {};
+    const today = localDateKey(gateways.clock.now());
+    const started = new Date(gateways.week.startedAt());
+    const weekStart = Number.isNaN(started.getTime()) ? "" : localDateKey(started);
+    return cardioWeekStatus(
+      gateways.cardio.settings(),
+      DAY_CONFIG.map((day) => ({
+        cardio: week[day.id],
+        past: dayDateKey(day.id) < today,
+        beforeWeek: dayDateKey(day.id) < weekStart
+      }))
+    ).map((status, index) => ({ ...status, dayId: DAY_CONFIG[index].id }));
+  }
+  function cardioStatusForDay(dayId) {
+    return cardioWeek().find((status) => status.dayId === dayId);
+  }
+
   // src/services/week.ts
   function workoutDayHasProgress(day) {
     if (!day || day.rest) return false;
@@ -2496,6 +2640,13 @@
       rotationRest
     };
   }
+  function isWeekFinished() {
+    const days = enabledDays();
+    return days.length > 0 && completedCircuits() === days.length * 3 && cardioWeek().at(-1).remaining === 0;
+  }
+  function currentStreak() {
+    return gateways.week.streak() + (isWeekFinished() ? 1 : 0);
+  }
   function enabledDays() {
     return DAY_CONFIG.filter((day) => !gateways.week.current().days[day.id].rest);
   }
@@ -2536,7 +2687,7 @@
     if (slot.defaultName && exercise.id === idFor(slot.defaultName))
       score -= 18;
     if (exercise.technical_difficulty === "advanced") score += 8;
-    score += (5 - exerciseEffectivenessScore(exercise)) * 4;
+    score += (5 - exerciseEffectivenessScore(exercise)) * 12;
     return score;
   }
   function candidatesFor(slot, used) {
@@ -2916,18 +3067,23 @@
       template,
       cycle.bodyParts
     );
+    const attempts = isNoEquipmentTarget(targetId) ? (() => {
+      const reserved = optionalActivatorSlot(targetId).names.map(idFor);
+      return [
+        () => /* @__PURE__ */ new Set([...usedForCycle, ...reserved]),
+        () => new Set(reserved),
+        () => new Set(usedForCycle),
+        () => /* @__PURE__ */ new Set()
+      ];
+    })() : [() => used, () => new Set(usedForCycle), () => /* @__PURE__ */ new Set()];
     let circuits;
-    try {
-      circuits = generateWith(
-        isNoEquipmentTarget(targetId) ? new Set(usedForCycle) : used
-      );
-    } catch (firstError) {
-      restoreGlobalUsed();
+    for (const [index, selectionUsed] of attempts.entries()) {
       try {
-        circuits = generateWith(new Set(usedForCycle));
-      } catch (secondError) {
+        circuits = generateWith(selectionUsed());
+        break;
+      } catch (error) {
         restoreGlobalUsed();
-        circuits = generateWith(/* @__PURE__ */ new Set());
+        if (index === attempts.length - 1) throw error;
       }
     }
     circuits.forEach(
@@ -3078,8 +3234,6 @@
         {
           chosenCount: 0,
           skippedCount: 0,
-          preference: 0,
-          effectivenessFeedbackBase: null,
           loadProgressCount: 0,
           reps: cleanRepValue(exercise.default_reps),
           measureType: defaultMeasureType(exercise),
@@ -3097,6 +3251,7 @@
     return {
       version: APP_VERSION,
       weekNumber: 1,
+      weekStreak: 0,
       weekStartedAt: gateways.clock.nowIso(),
       circuitRepBudget: DEFAULT_CIRCUIT_REP_BUDGET,
       exerciseState: initialExerciseState(),
@@ -3113,6 +3268,9 @@
       weekStartCycleId: cycles[0].id,
       nextCycleId: cycles[0].id,
       favoriteCircuits: [],
+      exerciseRatings: {},
+      cardio: createDefaultCardioSettings(),
+      cardioWeek: {},
       hiddenExerciseIds: [],
       deletedExerciseIds: [],
       history: [],
@@ -3333,6 +3491,7 @@
     );
     const normalized = createState();
     normalized.weekNumber = Number(candidate.weekNumber) || Number(candidate.week?.number) || 1;
+    normalized.weekStreak = Math.max(0, Math.floor(Number(candidate.weekStreak) || 0));
     normalized.weekStartedAt = candidate.weekStartedAt || candidate.week?.startedAt || gateways.clock.nowIso();
     normalized.circuitRepBudget = normalizeCircuitRepBudget(
       candidate.circuitRepBudget
@@ -3423,6 +3582,16 @@
       delete migrated.bridge;
       return migrated;
     }).slice(-30) : [];
+    normalized.exerciseRatings = normalizeExerciseRatings(
+      candidate.exerciseRatings
+    );
+    normalized.cardio = normalizeCardioSettings(candidate.cardio);
+    normalized.cardioWeek = Object.fromEntries(
+      DAY_CONFIG.filter((day) => candidate.cardioWeek?.[day.id]).map((day) => [
+        day.id,
+        normalizeCardioDay(candidate.cardioWeek[day.id])
+      ])
+    );
     normalized.hiddenExerciseIds = Array.isArray(candidate.hiddenExerciseIds) ? candidate.hiddenExerciseIds.filter(
       (id) => gateways.exercises.has(id) && !gateways.exercises.find(id).always_locked
     ) : [];
@@ -3434,25 +3603,9 @@
       for (const exercise of gateways.exercises.all()) {
         const loaded = candidate.exerciseState[exercise.id];
         if (!loaded) continue;
-        const loadedPreference = Math.max(
-          -1,
-          Math.min(1, Number(loaded.preference) || 0)
-        );
-        const loadedFeedbackBase = Number(loaded.effectivenessFeedbackBase);
-        const hasExplicitFeedbackBase = loaded.effectivenessFeedbackBase !== null && loaded.effectivenessFeedbackBase !== void 0 && Number.isFinite(loadedFeedbackBase);
-        const hasEffectivenessOverride = Object.hasOwn(
-          candidate.exerciseEdits?.[exercise.id] || {},
-          "effectivenessScore"
-        );
-        const preference = loadedPreference && (hasExplicitFeedbackBase || hasEffectivenessOverride) ? loadedPreference : 0;
         normalized.exerciseState[exercise.id] = {
           chosenCount: Math.max(0, Number(loaded.chosenCount) || 0),
           skippedCount: Math.max(0, Number(loaded.skippedCount) || 0),
-          preference,
-          effectivenessFeedbackBase: preference ? hasExplicitFeedbackBase ? clampRating(loadedFeedbackBase, 3) : clampRating(
-            exerciseEffectivenessScore(exercise) - preference,
-            3
-          ) : null,
           loadProgressCount: Math.max(
             0,
             Math.min(4, Math.floor(Number(loaded.loadProgressCount) || 0))
@@ -3734,6 +3887,30 @@
     }
   };
 
+  // src/gateways/cardio-gateway.ts
+  var DocumentCardioGateway = class {
+    constructor(appState) {
+      this.appState = appState;
+    }
+    settings() {
+      return this.appState.current()?.cardio;
+    }
+    replaceSettings(settings) {
+      this.appState.current().cardio = settings;
+    }
+    day(dayId) {
+      const week = this.appState.current().cardioWeek;
+      week[dayId] || (week[dayId] = normalizeCardioDay(null));
+      return week[dayId];
+    }
+    week() {
+      return this.appState.current()?.cardioWeek;
+    }
+    clearWeek() {
+      this.appState.current().cardioWeek = {};
+    }
+  };
+
   // src/gateways/browser-storage-gateway.ts
   var LocalStorageGateway = class {
     constructor(key = STORAGE_KEY) {
@@ -3857,8 +4034,6 @@
         this.state.exerciseState[exerciseId] = {
           chosenCount: 0,
           skippedCount: 0,
-          preference: 0,
-          effectivenessFeedbackBase: null,
           loadProgressCount: 0,
           reps: cleanRepValue(exercise?.default_reps || "10"),
           measureType: defaultMeasureType(exercise),
@@ -3883,6 +4058,12 @@
     }
     deletedIds() {
       return this.state?.deletedExerciseIds;
+    }
+    ratings() {
+      return this.state?.exerciseRatings;
+    }
+    replaceRatings(ratings) {
+      this.state.exerciseRatings = ratings;
     }
   };
 
@@ -3996,6 +4177,12 @@
     }
     setNumber(weekNumber) {
       this.state.weekNumber = weekNumber;
+    }
+    streak() {
+      return this.state?.weekStreak || 0;
+    }
+    setStreak(weeks) {
+      this.state.weekStreak = weeks;
     }
     startedAt() {
       return this.state?.weekStartedAt;
@@ -4157,6 +4344,7 @@
       week: new DocumentWeekGateway(appState),
       cycles: new DocumentCycleGateway(appState),
       routines: new DocumentRoutineGateway(appState),
+      cardio: new DocumentCardioGateway(appState),
       exercises: new DocumentExerciseGateway(appState),
       favorites: new DocumentFavoritesGateway(appState),
       preferences: new DocumentPreferencesGateway(appState),
@@ -4761,6 +4949,58 @@
     });
   }
 
+  // src/interactors/cardio/complete-cardio.ts
+  function completeCardio(gateways2, input) {
+    if (!DAY_CONFIG.some((day2) => day2.id === input.dayId)) return unchanged();
+    const before = cardioStatusForDay(input.dayId);
+    const day = gateways2.cardio.day(input.dayId);
+    day.completed = input.completed;
+    if (input.completed) day.plannedMinutes = before.plannedMinutes;
+    const after = cardioStatusForDay(input.dayId);
+    return changed({
+      refresh: ["all"],
+      toast: !input.completed ? void 0 : after.remaining ? `${after.plannedMinutes} min of cardio done, ${after.remaining} min left this week.` : "Weekly cardio goal reached. Enjoy your day off!"
+    });
+  }
+
+  // src/interactors/cardio/set-cardio-goal.ts
+  function setCardioGoal(gateways2, input) {
+    const settings = gateways2.cardio.settings();
+    const weeklyGoalMinutes = normalizeCardioGoal(
+      input.minutes,
+      settings.weeklyGoalMinutes
+    );
+    gateways2.cardio.replaceSettings({ ...settings, weeklyGoalMinutes });
+    return changed({
+      refresh: ["all"],
+      value: weeklyGoalMinutes,
+      toast: `Weekly cardio goal is now ${weeklyGoalMinutes} minutes.`
+    });
+  }
+
+  // src/interactors/cardio/set-cardio-minutes.ts
+  function setCardioMinutes(gateways2, input) {
+    gateways2.cardio.day(input.dayId).plannedMinutes = normalizePlannedCardioMinutes(input.minutes);
+    return changed({ refresh: ["all"] });
+  }
+
+  // src/interactors/cardio/set-cardio-split.ts
+  function setCardioSplit(gateways2, input) {
+    const settings = gateways2.cardio.settings();
+    if (!CARDIO_SPLITS.some((split) => split.id === input.splitId))
+      return unchanged();
+    const next = {
+      ...settings,
+      splitId: input.splitId,
+      customMinutes: input.customMinutes === void 0 ? settings.customMinutes : normalizeCardioSessionMinutes(input.customMinutes, settings.customMinutes)
+    };
+    gateways2.cardio.replaceSettings(next);
+    return changed({
+      refresh: ["all"],
+      toast: `Cardio sessions are now ${cardioSessionMinutes(next)} minutes.`
+    });
+  }
+
   // src/services/schedule.ts
   function cycleDaysWithProgress(cycleId = null) {
     return DAY_CONFIG.filter((day) => {
@@ -5062,15 +5302,15 @@
       (assignment) => `${assignment.exerciseId}:${assignmentReps(assignment)}:${assignmentRepBasis(assignment)}`
     ).join("|");
   }
-  function favoritesForSlot(dayId, circuitIndex) {
+  function favoritesForDay(dayId) {
     const cycleId = gateways.week.current().days[dayId]?.cycleId;
     return gateways.favorites.all().filter(
-      (favorite) => favorite.cycleId === cycleId && Number(favorite.circuitIndex) === Number(circuitIndex)
+      (favorite) => favorite.cycleId === cycleId
     );
   }
-  function isFavoriteCircuit(dayId, circuitIndex, circuit) {
+  function isFavoriteCircuit(dayId, circuit) {
     const signature = favoriteSignature(circuit);
-    return favoritesForSlot(dayId, circuitIndex).some(
+    return favoritesForDay(dayId).some(
       (favorite) => favorite.signature === signature
     );
   }
@@ -5148,7 +5388,7 @@
     const circuit = gateways2.week.day(input.dayId)?.circuits?.[input.circuitIndex];
     if (!circuit) return { circuit: null, existing: null };
     const signature = favoriteSignature(circuit);
-    const existing = favoritesForSlot(input.dayId, input.circuitIndex).find(
+    const existing = favoritesForDay(input.dayId).find(
       (favorite) => favorite.signature === signature
     );
     return { circuit, existing };
@@ -5250,7 +5490,7 @@
     if (cooldowns.length >= MAX_ROUTINE_EXERCISES) return unchanged();
     const exercise = {
       id: nextRoutineId(cooldowns, "cooldown"),
-      label: "New cool-down exercise",
+      label: "New auxiliary exercise",
       intervalDays: 1,
       completedDates: []
     };
@@ -5262,7 +5502,7 @@
     }
     return changed({
       refresh: ["settings"],
-      toast: "Cool-down exercise added."
+      toast: "Auxiliary exercise added."
     });
   }
 
@@ -5299,7 +5539,7 @@
     }
     return changed({
       refresh: ["settings"],
-      toast: `${removed.label} removed from the cool-down.`
+      toast: `${removed.label} removed from the auxiliary set.`
     });
   }
 
@@ -5326,7 +5566,7 @@
       input.direction
     ))
       return unchanged();
-    return changed({ refresh: ["settings"], toast: "Cool-down order updated." });
+    return changed({ refresh: ["settings"], toast: "Auxiliary set order updated." });
   }
 
   // src/interactors/routines/move-warmup-exercise.ts
@@ -5346,7 +5586,7 @@
     const label = routineLabel(
       input.label,
       input.final,
-      `Cool-down exercise ${index + 1}`
+      `Auxiliary exercise ${index + 1}`
     );
     cooldowns[index].label = label;
     return changed({ value: label });
@@ -5604,15 +5844,18 @@
   }
 
   // src/interactors/week/start-new-week.ts
-  var START_NEW_WEEK_CONFIRMATION = "Start a new week? This archives the current calendar week, continues with the next cycle in the rotation, keeps cycle locks and saved loads, and clears every checkmark.";
+  var START_NEW_WEEK_CONFIRMATION = "Start a new week? This archives the current calendar week, continues with the next cycle in the rotation, keeps cycle locks and saved loads, and clears every checkmark and this week's cardio minutes.";
   function startNewWeek(gateways2) {
     const backup = gateways2.appState.snapshot();
     try {
+      gateways2.week.setStreak(isWeekFinished() ? gateways2.week.streak() + 1 : 0);
       archiveCurrentWeek();
       gateways2.week.setNumber(gateways2.week.number() + 1);
       gateways2.week.setStartedAt(gateways2.clock.nowIso());
       gateways2.week.setStartCycleId(gateways2.week.nextCycleId());
       generateWeek(null, { restDayIds: [] });
+      gateways2.cardio.clearWeek();
+      gateways2.exercises.replaceRatings({});
       const issues = validateWeek(gateways2.week.current());
       if (issues.length) throw new Error(issues[0]);
       return changed({
@@ -5762,25 +6005,29 @@
 
   // src/interactors/workout/rate-exercise.ts
   function rateExercise(gateways2, input) {
-    const exercise = gateways2.exercises.find(input.exerciseId);
+    const exercise = gateways2.exercises.find(assignmentFor(input)?.exerciseId);
     if (!exercise) return unchanged();
-    const stats = gateways2.exercises.stats(exercise.id);
-    const requestedPreference = input.thumbsUp ? 1 : -1;
-    const previousPreference = stats.preference;
-    const feedbackBase = previousPreference === 0 ? exerciseEffectivenessScore(exercise) : clampRating(
-      stats.effectivenessFeedbackBase,
-      exerciseEffectivenessScore(exercise) - previousPreference
+    const key = ratingKey(input, exercise.id);
+    const ratings = gateways2.exercises.ratings();
+    const previous = ratings[key];
+    const direction = input.thumbsUp ? 1 : -1;
+    const unrated = clampRating(
+      exerciseEffectivenessScore(exercise) - (previous?.applied || 0),
+      3
     );
-    const nextPreference = previousPreference === requestedPreference ? 0 : requestedPreference;
-    const effectivenessScore = updateExerciseEffectiveness(
-      exercise.id,
-      nextPreference === 0 ? feedbackBase : feedbackBase + nextPreference
-    );
-    stats.preference = nextPreference;
-    stats.effectivenessFeedbackBase = nextPreference ? feedbackBase : null;
+    if (previous?.direction === direction) {
+      delete ratings[key];
+      const score2 = updateExerciseEffectiveness(exercise.id, unrated);
+      return changed({
+        refresh: ["all"],
+        toast: `${exercise.name} effectiveness returned to ${score2} of 5.`
+      });
+    }
+    const score = updateExerciseEffectiveness(exercise.id, unrated + direction);
+    ratings[key] = { direction, applied: score - unrated };
     return changed({
       refresh: ["all"],
-      toast: nextPreference === 0 ? `${exercise.name} effectiveness returned to ${effectivenessScore} of 5.` : `${exercise.name} effectiveness is now ${effectivenessScore} of 5.`
+      toast: `${exercise.name} effectiveness is now ${score} of 5.`
     });
   }
 
@@ -5815,7 +6062,8 @@
   // src/interactors/workout/set-exercise-effectiveness.ts
   function setExerciseEffectiveness(gateways2, input) {
     if (!gateways2.exercises.find(input.exerciseId)) return unchanged();
-    updateExerciseEffectiveness(input.exerciseId, input.score, true);
+    updateExerciseEffectiveness(input.exerciseId, input.score);
+    clearExerciseRatings(input.exerciseId);
     return changed({ refresh: ["all"] });
   }
 
@@ -5946,7 +6194,7 @@
   function renderFavoriteResults() {
     const target = ui.favoriteTarget;
     if (!target) return;
-    const favorites = favoritesForSlot(target.dayId, target.circuitIndex);
+    const favorites = favoritesForDay(target.dayId);
     document.getElementById("favorite-results").innerHTML = favorites.length ? favorites.map((favorite) => {
       const reason = favoriteUnavailableReason(favorite, target);
       return `<article class="favorite-option">
@@ -5954,12 +6202,12 @@
             <button class="library-action" type="button" data-action="apply-favorite-circuit" data-favorite-id="${favorite.id}" ${reason ? "disabled" : ""}>Use circuit</button>
             <button class="library-action delete" type="button" data-action="delete-favorite-circuit" data-favorite-id="${favorite.id}">Remove</button>
           </article>`;
-    }).join("") : '<div class="empty-state">No favorites are saved for this circuit position yet.</div>';
+    }).join("") : `<div class="empty-state">No favorites are saved for this day's cycle yet.</div>`;
   }
   function openFavoriteCircuits(dayId, circuitIndex) {
     ui.favoriteTarget = { dayId, circuitIndex };
     const day = cycleForDay(dayId);
-    document.getElementById("favorite-title").textContent = `${cycleDisplayName(day)} Circuit ${circuitIndex + 1} favorites`;
+    document.getElementById("favorite-title").textContent = `${cycleDisplayName(day)} favorites for Circuit ${circuitIndex + 1}`;
     renderFavoriteResults();
     dialogById("favorite-dialog").showModal();
   }
@@ -6256,20 +6504,6 @@
     status.title = connected ? `${message}. Save writes your changes to this JSON file. Browsers may hide its parent folders.` : `${message}. Your work is kept in this browser until you save it to a JSON file; browsers may hide a selected file's parent folders.`;
   }
 
-  // src/ui/format.ts
-  function formatDueDate(key) {
-    return new Intl.DateTimeFormat(void 0, {
-      weekday: "short",
-      month: "short",
-      day: "numeric"
-    }).format(dateFromKey(key));
-  }
-  function formatDate(value) {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "Starting today";
-    return `Started ${new Intl.DateTimeFormat(void 0, { month: "short", day: "numeric" }).format(date)}`;
-  }
-
   // src/interactors/workout/stop-expired-workout-timer.ts
   function stopExpiredWorkoutTimer(gateways2, input) {
     const day = gateways2.week.day(input.dayId);
@@ -6357,6 +6591,15 @@
     });
   }
 
+  // src/ui/format.ts
+  function formatDueDate(key) {
+    return new Intl.DateTimeFormat(void 0, {
+      weekday: "short",
+      month: "short",
+      day: "numeric"
+    }).format(dateFromKey(key));
+  }
+
   // src/ui/views/workout.ts
   function renderTabs() {
     const tabs = DAY_CONFIG.map((baseDay) => {
@@ -6364,11 +6607,20 @@
       const dayData = gateways.week.current().days[day.id];
       const completeCount = dayData.rest ? 0 : dayData.circuits.filter(isCircuitComplete).length;
       const active = ui.currentView === day.id;
+      const strengthLabel = dayData.rest && !day.rotationRest ? "Rest day" : day.cycleName;
+      const strengthStatus = dayData.rest ? "Rest day" : `${completeCount} of 3 circuits complete`;
+      const cardio = cardioStatusForDay(day.id);
+      const cardioOff = cardio.goalMetBefore && !cardio.completed;
+      const cardioRest = !cardioOff && !cardio.completed && cardio.plannedMinutes === 0;
+      const cardioLabel = cardioOff ? "Cardio day off" : cardioRest ? "Cardio rest" : `${cardio.plannedMinutes} min cardio`;
+      const cardioStatus = cardioOff ? "Weekly cardio goal reached" : cardioRest ? "Cardio rest day" : cardio.completed ? "Cardio done" : "Cardio not done";
       return `
-      <button class="day-tab ${dayData.rest ? "is-rest" : ""} ${active ? "active" : ""}" type="button" data-view="${day.id}" aria-current="${active ? "page" : "false"}">
+      <button class="day-tab ${dayData.rest ? "is-rest" : ""} ${active ? "active" : ""}" type="button" data-view="${day.id}" aria-current="${active ? "page" : "false"}" title="${day.name}" aria-label="${day.name}: ${escapeHtml(strengthLabel)}, ${strengthStatus}; ${cardioLabel}, ${cardioStatus}">
         <span class="day-short">${day.short}</span>
-        <span><strong>${day.name}</strong><small>${dayData.rest ? day.rotationRest ? `${escapeHtml(day.cycleName)} &middot; Scheduled rest` : `Rest &middot; ${escapeHtml(day.cycleName)} waits` : `${escapeHtml(day.cycleName)} &middot; ${escapeHtml(day.focus)}`}</small></span>
-        <span class="tab-status ${completeCount === 3 ? "complete" : ""}" aria-label="${dayData.rest ? "Rest day" : `${completeCount} of 3 circuits complete`}">${dayData.rest ? "&mdash;" : "&#10003;"}</span>
+        <span class="tab-lines">
+          <span class="tab-line"><small>${escapeHtml(strengthLabel)}</small><span class="tab-status ${completeCount === 3 ? "complete" : ""}">${dayData.rest ? "&mdash;" : "&#10003;"}</span></span>
+          <span class="tab-line"><small>${cardioLabel}</small><span class="tab-status ${cardio.completed ? "complete" : ""} ${cardioOff ? "is-medal" : ""} ${cardioRest ? "is-rest" : ""}">${cardioOff ? "\u{1F947}" : cardioRest ? "&mdash;" : "&#10003;"}</span></span>
+        </span>
       </button>`;
     }).join("");
     const libraryActive = ui.currentView === "library";
@@ -6394,6 +6646,7 @@
   function renderExerciseItem(assignment, context) {
     const exercise = gateways.exercises.find(assignment.exerciseId);
     const settings = gateways.exercises.stats(exercise.id);
+    const rating = gateways.exercises.ratings()[ratingKey(context, exercise.id)]?.direction || 0;
     const fixed = assignment.fixed || exercise.always_locked;
     const isOptionalActivator = context.position === "optionalActivator";
     const itemClass = `${isOptionalActivator ? "exercise-item activator-item" : "exercise-item"}${gateways.exercises.isHidden(exercise.id) ? " is-hidden" : ""}`;
@@ -6437,9 +6690,9 @@
                 </label>` : ""}
           ${!isOptionalActivator ? `<button class="mini-button" type="button" data-action="move-exercise" data-direction="-1" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" data-position="${context.position}" title="Move exercise up" aria-label="Move ${escapeHtml(exercise.name)} up" ${context.orderIndex === 0 ? "disabled" : ""}>\u2191</button>
                  <button class="mini-button" type="button" data-action="move-exercise" data-direction="1" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" data-position="${context.position}" title="Move exercise down" aria-label="Move ${escapeHtml(exercise.name)} down" ${context.orderIndex === context.exerciseCount - 1 ? "disabled" : ""}>\u2193</button>` : ""}
-          <span class="preference-controls" aria-label="Reversible effectiveness adjustment for ${escapeHtml(exercise.name)}">
-            <button class="feedback-button ${settings.preference === 1 ? "active" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-value="1" title="${settings.preference === 1 ? "Remove the +1 effectiveness adjustment" : "Apply a +1 effectiveness adjustment"}" aria-label="${settings.preference === 1 ? `Remove the effectiveness increase from ${escapeHtml(exercise.name)}` : `Increase ${escapeHtml(exercise.name)} effectiveness by 1`}" aria-pressed="${settings.preference === 1}">${ICONS.thumbUp}</button>
-            <button class="feedback-button ${settings.preference === -1 ? "active negative" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-value="-1" title="${settings.preference === -1 ? "Remove the -1 effectiveness adjustment" : "Apply a -1 effectiveness adjustment"}" aria-label="${settings.preference === -1 ? `Remove the effectiveness decrease from ${escapeHtml(exercise.name)}` : `Decrease ${escapeHtml(exercise.name)} effectiveness by 1`}" aria-pressed="${settings.preference === -1}">${ICONS.thumbDown}</button>
+          <span class="preference-controls" aria-label="Rate ${escapeHtml(exercise.name)} for this workout">
+            <button class="feedback-button ${rating === 1 ? "active" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" data-position="${context.position}" data-value="1" title="${rating === 1 ? "Undo this thumbs-up" : "Thumbs up: +1 effectiveness"}" aria-label="${rating === 1 ? `Undo the thumbs-up for ${escapeHtml(exercise.name)}` : `Increase ${escapeHtml(exercise.name)} effectiveness by 1`}" aria-pressed="${rating === 1}">${ICONS.thumbUp}</button>
+            <button class="feedback-button ${rating === -1 ? "active negative" : ""}" type="button" data-action="set-preference" data-exercise-id="${exercise.id}" data-day="${context.dayId}" data-circuit="${context.circuitIndex}" data-position="${context.position}" data-value="-1" title="${rating === -1 ? "Undo this thumbs-down" : "Thumbs down: -1 effectiveness"}" aria-label="${rating === -1 ? `Undo the thumbs-down for ${escapeHtml(exercise.name)}` : `Decrease ${escapeHtml(exercise.name)} effectiveness by 1`}" aria-pressed="${rating === -1}">${ICONS.thumbDown}</button>
           </span>
           <button
             class="mini-button ${assignment.locked ? "active" : ""}"
@@ -6587,8 +6840,8 @@
           <span class="circuit-title"><span>Circuit ${circuit.number}</span><strong>${escapeHtml(circuit.category)}</strong><span class="circuit-muscle-list" aria-label="Muscles targeted in circuit ${circuit.number}">${circuitMuscles.map((part) => `<i data-circuit-muscle="${circuitIndex}:${escapeHtml(part)}">${escapeHtml(part)}</i>`).join("")}</span></span>
         </div>
         <div class="circuit-scaling">
-          <button class="favorite-button ${isFavoriteCircuit(dayId, circuitIndex, circuit) ? "active" : ""}" type="button" data-action="toggle-favorite-circuit" data-day="${dayId}" data-circuit="${circuitIndex}" title="${isFavoriteCircuit(dayId, circuitIndex, circuit) ? "Remove this circuit from favorites" : "Save this circuit as a favorite"}" aria-label="${isFavoriteCircuit(dayId, circuitIndex, circuit) ? "Remove circuit from favorites" : "Favorite this circuit"}">${ICONS.star}</button>
-          <button class="favorite-button" type="button" data-action="open-favorite-circuits" data-day="${dayId}" data-circuit="${circuitIndex}" title="Substitute a saved favorite circuit" aria-label="Substitute a favorite circuit" ${favoritesForSlot(dayId, circuitIndex).length ? "" : "disabled"}>${ICONS.favorites}</button>
+          <button class="favorite-button ${isFavoriteCircuit(dayId, circuit) ? "active" : ""}" type="button" data-action="toggle-favorite-circuit" data-day="${dayId}" data-circuit="${circuitIndex}" title="${isFavoriteCircuit(dayId, circuit) ? "Remove this circuit from favorites" : "Save this circuit as a favorite"}" aria-label="${isFavoriteCircuit(dayId, circuit) ? "Remove circuit from favorites" : "Favorite this circuit"}">${ICONS.star}</button>
+          <button class="favorite-button" type="button" data-action="open-favorite-circuits" data-day="${dayId}" data-circuit="${circuitIndex}" title="Substitute a saved favorite circuit" aria-label="Substitute a favorite circuit" ${favoritesForDay(dayId).length ? "" : "disabled"}>${ICONS.favorites}</button>
           <span class="circuit-rep-total${meetsRepGoal ? "" : " is-off-target"}" title="${meetsRepGoal ? "Circuit meets the 30-rep goal" : "Adjust this circuit to 30 reps per round"}">${totalReps} reps / round &middot; ${totalReps * 3} total</span>
           <span class="rounds-badge">${assignments.length} exercises</span>
           <span class="scale-buttons">
@@ -6603,6 +6856,30 @@
         <div class="exercise-cycle">${exerciseItems}</div>
       </div>
     </article>`;
+  }
+  function renderCardioRow(dayId) {
+    const status = cardioStatusForDay(dayId);
+    const goal = gateways.cardio.settings().weeklyGoalMinutes;
+    const dayOff = status.goalMetBefore && !status.completed;
+    const restDay = !dayOff && !status.completed && status.plannedMinutes === 0;
+    const rowClass = [
+      "routine-row cardio-routine",
+      status.completed && "is-complete",
+      dayOff && "is-goal-met",
+      restDay && "is-rest"
+    ].filter(Boolean).join(" ");
+    const done = `<span class="cardio-stat"><small>Done this week</small><strong data-cardio-done="${dayId}">${status.doneThrough} / ${goal} min</strong></span>`;
+    const remaining = `<span class="cardio-stat"><small>Remaining this week</small><strong data-cardio-remaining="${dayId}">${status.remaining} min</strong></span>`;
+    const today = dayOff ? `<span class="cardio-medal" data-cardio-medal="${dayId}" title="Weekly cardio goal reached">\u{1F947} <span>Goal reached: cardio day off</span></span>` : `<label class="cardio-stat cardio-planned"><small>Scheduled today</small><span><input type="number" min="0" max="300" step="5" inputmode="numeric" data-cardio-minutes="${dayId}" value="${status.plannedMinutes}" aria-label="Cardio minutes scheduled for ${escapeHtml(gateways.week.current().days[dayId].day)}" /> min</span></label>
+       ${restDay ? `<span class="cardio-note" data-cardio-rest="${dayId}">Cardio rest day</span>` : `<label class="cardio-check"><input type="checkbox" data-action="complete-cardio" data-day="${dayId}" ${status.completed ? "checked" : ""} /> Cardio done</label>`}
+       ${status.makeUpMinutes ? `<span class="cardio-note" data-cardio-make-up="${dayId}">Includes ${status.makeUpMinutes} min made up from missed sessions</span>` : ""}
+       ${status.missed ? `<span class="cardio-note is-missed">Missed: these minutes moved to a later session</span>` : ""}`;
+    return `<div class="${rowClass}" aria-label="Cardio">
+    <strong>Cardio</strong>
+    ${done}
+    ${remaining}
+    ${today}
+  </div>`;
   }
   function renderDayCycleSelector(dayId, selectedCycleId) {
     const rotationEntries = gateways.cycles.all().map((cycle, index) => ({
@@ -6644,6 +6921,7 @@
           <span class="rest-day-mark" aria-hidden="true">&mdash;</span>
           <div><strong>${rotationRest ? "Scheduled recovery" : "Recover today"}</strong><p>${rotationRest ? "This rest entry was consumed and the rotation continues with the next entry." : "No cycle was consumed. Every later calendar day has shifted forward automatically."}</p></div>
         </section>
+        ${renderCardioRow(dayId)}
       </div>`;
       updateWorkoutTimer();
       return;
@@ -6686,8 +6964,8 @@
       <div class="circuit-grid">
         ${day.circuits.map((circuit, index) => renderCircuit(dayId, circuit, index)).join("")}
       </div>
-      ${gateways.routines.cooldowns().length ? `<div class="routine-row cooldown-routine ${cooldownComplete ? "is-complete" : ""}" aria-label="Cool-down checklist">
-              <strong>Cool-down</strong>
+      ${gateways.routines.cooldowns().length ? `<div class="routine-row cooldown-routine ${cooldownComplete ? "is-complete" : ""}" aria-label="Auxiliary set checklist">
+              <strong>Auxiliary set</strong>
               ${dueCooldownExercises.map(
       (exercise) => `<label><input type="checkbox" data-action="cooldown-check" data-day="${dayId}" data-item="${escapeHtml(exercise.id)}" ${day.cooldownChecklist[exercise.id] ? "checked" : ""} /> ${escapeHtml(exercise.label)}</label>`
     ).join("")}
@@ -6695,6 +6973,7 @@
       (exercise) => `${escapeHtml(exercise.label)} (next ${escapeHtml(formatDueDate(nextCooldownDueKey(exercise, dayId)))})`
     ).join(", ")}</span>` : ""}
             </div>` : ""}
+      ${renderCardioRow(dayId)}
     </div>`;
     updateWorkoutTimer();
   }
@@ -6845,14 +7124,14 @@
   }
   function renderRoutineSettingsPanel(kind, exercises) {
     const warmup = kind === "warmup";
-    const title = warmup ? "Warm-up exercises" : "Cool-down exercises";
-    const adjective = warmup ? "Warm-up" : "Cool-down";
-    const description = warmup ? "Shown before the circuits on every training day." : "Shown after the circuits and excluded from workout time. Exercises scheduled every few days stay hidden until they are due again.";
-    const emptyMessage = warmup ? "No warm-up exercises. Add one whenever you want a pre-circuit checklist." : "No cool-down exercises. Add one whenever you want a post-workout checklist.";
+    const title = warmup ? "Warm-up exercises" : "Auxiliary set exercises";
+    const adjective = warmup ? "Warm-up" : "Auxiliary";
+    const description = warmup ? "Shown before the circuits on every training day." : "Shown after the circuits and excluded from workout time. Use Schedule to do an exercise every day or every few days; it stays hidden until it is due again.";
+    const emptyMessage = warmup ? "No warm-up exercises. Add one whenever you want a pre-circuit checklist." : "No auxiliary set exercises. Add one whenever you want a post-workout checklist.";
     return `<section class="routine-settings-panel ${kind}-settings-panel">
     <header>
       <div><strong>${title}</strong><span>${description}</span></div>
-      <button class="button button-quiet" type="button" data-action="add-${kind}-exercise" ${exercises.length >= 24 ? "disabled" : ""}>+ Add ${kind === "warmup" ? "warm-up" : "cool-down"} exercise</button>
+      <button class="button button-quiet" type="button" data-action="add-${kind}-exercise" ${exercises.length >= 24 ? "disabled" : ""}>+ Add ${kind === "warmup" ? "warm-up" : "auxiliary"} exercise</button>
     </header>
     <div class="routine-settings-list">
       ${exercises.length ? exercises.map(
@@ -6868,6 +7147,29 @@
                   </div>`
     ).join("") : `<div class="routine-empty">${emptyMessage}</div>`}
     </div>
+  </section>`;
+  }
+  function renderCardioSettings() {
+    const settings = gateways.cardio.settings();
+    return `<section class="rep-budget-settings cardio-settings" aria-labelledby="cardio-settings-title">
+    <div>
+      <strong id="cardio-settings-title">Cardio split</strong>
+      <span>Each day schedules one session until the weekly goal is met; unchecked days roll their minutes forward, and the days after the goal is reached are days off.</span>
+    </div>
+    <label>
+      <span>Weekly goal (min)</span>
+      <input id="cardio-goal" type="number" min="${MIN_CARDIO_MINUTES}" max="${MAX_CARDIO_GOAL_MINUTES}" step="5" value="${settings.weeklyGoalMinutes}" />
+    </label>
+    <label>
+      <span>Sessions</span>
+      <select id="cardio-split">
+        ${CARDIO_SPLITS.map((split) => `<option value="${split.id}" ${split.id === settings.splitId ? "selected" : ""}>${escapeHtml(cardioSplitLabel(settings, split.id))}</option>`).join("")}
+      </select>
+    </label>
+    ${settings.splitId === "custom" ? `<label>
+            <span>Session length (min)</span>
+            <input id="cardio-custom-minutes" type="number" min="${MIN_CARDIO_MINUTES}" max="${MAX_CARDIO_SESSION_MINUTES}" step="5" value="${settings.customMinutes}" />
+          </label>` : ""}
   </section>`;
   }
   function renderSettings() {
@@ -6911,7 +7213,7 @@
         <button class="coverage-toggle" type="button" data-action="toggle-body-part-coverage" aria-expanded="${ui.showBodyPartCoverage}">Body-part coverage</button>
       </div>
       ${ui.showBodyPartCoverage ? `<section class="body-part-coverage-panel" aria-label="Body-part coverage throughout cycles">
-              <header><strong>Body-part coverage</strong><span>Number of cycles that target each body part; warm-up and cool-down items are excluded</span></header>
+              <header><strong>Body-part coverage</strong><span>Number of cycles that target each body part; warm-up and auxiliary items are excluded</span></header>
               <div class="body-part-coverage-list">
                 ${coverage.map(
       ({ bodyPart, count }) => `<div class="body-part-coverage-item" data-body-part-coverage="${escapeHtml(bodyPart)}"><span>${escapeHtml(bodyPart)}</span><strong>${count}</strong></div>`
@@ -6920,6 +7222,8 @@
             </section>` : ""}
       <hr class="settings-section-divider" aria-hidden="true" />
       ${renderRoutineSettingsPanel("cooldown", gateways.routines.cooldowns())}
+      <hr class="settings-section-divider" aria-hidden="true" />
+      ${renderCardioSettings()}
     </div>`;
   }
 
@@ -6927,12 +7231,15 @@
   function render() {
     const complete = completedCircuits();
     const circuitTotal = enabledDays().length * 3;
-    document.getElementById("week-number").textContent = `Week ${gateways.week.number()}`;
-    document.getElementById("week-date").textContent = formatDate(
-      gateways.week.startedAt()
-    );
+    const streak = currentStreak();
+    document.getElementById("streak-count").textContent = `${streak} week${streak === 1 ? "" : "s"}`;
+    document.getElementById("streak-note").textContent = isWeekFinished() ? "This week is done \u2713" : "";
     document.getElementById("week-progress-label").textContent = `${complete} of ${circuitTotal} circuits complete`;
     document.getElementById("week-progress-bar").style.width = `${circuitTotal ? complete / circuitTotal * 100 : 0}%`;
+    const cardioGoal = gateways.cardio.settings().weeklyGoalMinutes;
+    const cardioDone = Math.min(cardioGoal, cardioWeek().at(-1).doneThrough);
+    document.getElementById("cardio-progress-label").textContent = `${cardioDone} of ${cardioGoal} cardio min`;
+    document.getElementById("cardio-progress-bar").style.width = `${cardioDone / cardioGoal * 100}%`;
     renderTabs();
     const workoutView = document.getElementById("workout-view");
     const libraryView = document.getElementById("library-view");
@@ -7130,11 +7437,9 @@
       const formError = `That edit conflicts with the current plan: ${issues[0]}`;
       return failed(formError, { value: { formError } });
     }
-    const stats = saveExerciseDefaults(gateways2, input.exerciseId, form);
-    if (previousEffectivenessScore !== form.record.effectivenessScore) {
-      stats.preference = 0;
-      stats.effectivenessFeedbackBase = null;
-    }
+    saveExerciseDefaults(gateways2, input.exerciseId, form);
+    if (previousEffectivenessScore !== form.record.effectivenessScore)
+      clearExerciseRatings(input.exerciseId);
     return changed({
       refresh: ["all"],
       toast: `${form.name} updated.`,
@@ -7375,7 +7680,7 @@
         view: enabledDays()[0]?.id || "settings",
         fileStatus,
         inSyncWithFile: true,
-        toast: `Loaded Week ${gateways2.week.number()} from ${file.name}.${removedLegacyArmsCycle ? " Removed the retired Arms & upper cycle." : ""}${normalizedCoreCooldown ? " Consolidated the core cool-down into 5 core." : ""}${recoveredCount ? ` Recovered ${recoveredCount} portable library exercise${recoveredCount === 1 ? "" : "s"}.` : ""}`
+        toast: `Loaded Week ${gateways2.week.number()} from ${file.name}.${removedLegacyArmsCycle ? " Removed the retired Arms & upper cycle." : ""}${normalizedCoreCooldown ? " Consolidated the core auxiliary exercise into 5 core." : ""}${recoveredCount ? ` Recovered ${recoveredCount} portable library exercise${recoveredCount === 1 ? "" : "s"}.` : ""}`
       });
     } catch (error) {
       gateways2.exercises.rebuildCatalog(
@@ -7694,7 +7999,7 @@
     },
     "set-preference": (button) => present(
       rateExercise(gateways, {
-        exerciseId: button.dataset.exerciseId,
+        ...parseContext(button),
         thumbsUp: !(Number(button.dataset.value) < 0)
       })
     ),
@@ -7765,6 +8070,31 @@
     const target = event.target;
     if (target.id === "circuit-rep-budget") {
       present(setCircuitRepBudget(gateways, { reps: target.value }));
+      return;
+    }
+    if (target.id === "cardio-goal") {
+      const result = setCardioGoal(gateways, { minutes: target.value });
+      target.value = result.value;
+      present(result);
+      return;
+    }
+    if (target.id === "cardio-split") {
+      present(setCardioSplit(gateways, { splitId: target.value }));
+      return;
+    }
+    if (target.id === "cardio-custom-minutes") {
+      present(
+        setCardioSplit(gateways, { splitId: "custom", customMinutes: target.value })
+      );
+      return;
+    }
+    if (target.dataset?.cardioMinutes) {
+      present(
+        setCardioMinutes(gateways, {
+          dayId: target.dataset.cardioMinutes,
+          minutes: target.value
+        })
+      );
       return;
     }
     if (target.id === "split-week-start") {
@@ -7912,6 +8242,16 @@
           dayId: daily.dataset.day,
           warmupId: daily.dataset.item,
           completed: daily.checked
+        })
+      );
+      return;
+    }
+    const cardio = target.closest('[data-action="complete-cardio"]');
+    if (cardio) {
+      present(
+        completeCardio(gateways, {
+          dayId: cardio.dataset.day,
+          completed: cardio.checked
         })
       );
       return;

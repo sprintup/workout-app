@@ -97,7 +97,7 @@ export function normalizeCooldownExercises(values) {
     values,
     createDefaultCooldownExercises(),
     "cooldown",
-    "Cool-down exercise",
+    "Auxiliary exercise",
     (exercise) => ({
       intervalDays: normalizeCooldownInterval(exercise?.intervalDays),
       completedDates: normalizeCompletedDates(exercise?.completedDates),

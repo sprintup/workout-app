@@ -8,7 +8,7 @@ import { checkCooldownExercise } from "../../src/interactors/workout/check-coold
 import { isCooldownDue } from "../../src/services/routine-schedule";
 import { createTestGateways } from "./fakes";
 
-test("a cool-down scheduled every 2 days skips the next day and returns the day after", () => {
+test("an auxiliary exercise scheduled every 2 days skips the next day and returns the day after", () => {
   const gateways = createTestGateways();
   const [core] = gateways.routines.cooldowns();
   setCooldownInterval(gateways, { cooldownId: core.id, intervalDays: 2 });
@@ -24,7 +24,7 @@ test("a cool-down scheduled every 2 days skips the next day and returns the day 
   assert.equal(isCooldownDue(core, "wednesday"), true);
 });
 
-test("a cool-down scheduled every 3 days looks back over the previous two days", () => {
+test("an auxiliary exercise scheduled every 3 days looks back over the previous two days", () => {
   const gateways = createTestGateways();
   const [core] = gateways.routines.cooldowns();
   setCooldownInterval(gateways, { cooldownId: core.id, intervalDays: 3 });
@@ -39,7 +39,7 @@ test("a cool-down scheduled every 3 days looks back over the previous two days",
   assert.equal(isCooldownDue(core, "thursday"), true);
 });
 
-test("unchecking a cool-down forgets that day's completion", () => {
+test("unchecking an auxiliary exercise forgets that day's completion", () => {
   const gateways = createTestGateways();
   const [core] = gateways.routines.cooldowns();
   setCooldownInterval(gateways, { cooldownId: core.id, intervalDays: 2 });
@@ -51,7 +51,7 @@ test("unchecking a cool-down forgets that day's completion", () => {
   assert.equal(isCooldownDue(core, "tuesday"), true);
 });
 
-test("an every-day cool-down is always due", () => {
+test("an every-day auxiliary exercise is always due", () => {
   const gateways = createTestGateways();
   const [core] = gateways.routines.cooldowns();
   checkCooldownExercise(gateways, {
@@ -74,7 +74,7 @@ test("setting an interval reports it and stores a whole number of days", () => {
   assert.equal(result.toast?.message, "5 core: every 3 days.");
 });
 
-test("adding and deleting a cool-down exercise updates every day's checklist", () => {
+test("adding and deleting an auxiliary exercise updates every day's checklist", () => {
   const gateways = createTestGateways();
   addCooldownExercise(gateways);
   const added = gateways.routines.cooldowns().at(-1)!;
@@ -82,7 +82,7 @@ test("adding and deleting a cool-down exercise updates every day's checklist", (
   assert.equal(gateways.week.day("friday").cooldownChecklist[added.id], false);
 
   const result = deleteCooldownExercise(gateways, { cooldownId: added.id });
-  assert.equal(result.toast?.message, "New cool-down exercise removed from the cool-down.");
+  assert.equal(result.toast?.message, "New auxiliary exercise removed from the auxiliary set.");
   assert.equal(added.id in gateways.week.day("friday").cooldownChecklist, false);
 });
 
@@ -92,5 +92,5 @@ test("renaming keeps typed text and falls back to a numbered name when cleared",
   renameCooldownExercise(gateways, { cooldownId: core.id, label: " Plank ", final: false });
   assert.equal(core.label, " Plank ");
   const result = renameCooldownExercise(gateways, { cooldownId: core.id, label: "  ", final: true });
-  assert.equal(result.value, "Cool-down exercise 1");
+  assert.equal(result.value, "Auxiliary exercise 1");
 });

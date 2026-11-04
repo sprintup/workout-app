@@ -10,8 +10,6 @@ export function initialExerciseState(): Record<string, ExerciseStats> {
       {
         chosenCount: 0,
         skippedCount: 0,
-        preference: 0,
-        effectivenessFeedbackBase: null,
         loadProgressCount: 0,
         reps: cleanRepValue(exercise.default_reps),
         measureType: defaultMeasureType(exercise),

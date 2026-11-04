@@ -72,7 +72,8 @@ export function exerciseScore(exercise, slot, recent) {
   if (slot.defaultName && exercise.id === idFor(slot.defaultName))
     score -= 18;
   if (exercise.technical_difficulty === "advanced") score += 8;
-  score += (5 - exerciseEffectivenessScore(exercise)) * 4;
+  // Each effectiveness point outweighs most of the random variety.
+  score += (5 - exerciseEffectivenessScore(exercise)) * 12;
   return score;
 }
 
@@ -599,18 +600,29 @@ export function generatedWorkoutDay(
       template,
       cycle.bodyParts,
     );
+  // Each attempt allows more repeats than the last. The no-equipment
+  // activator pool is tiny and highly rated, so its attempts keep the main
+  // circuits off it (repeating this cycle's exercises instead) before
+  // giving up on it.
+  const attempts = isNoEquipmentTarget(targetId)
+    ? (() => {
+        const reserved = optionalActivatorSlot(targetId).names.map(idFor);
+        return [
+          () => new Set([...usedForCycle, ...reserved]),
+          () => new Set(reserved),
+          () => new Set(usedForCycle),
+          () => new Set(),
+        ];
+      })()
+    : [() => used, () => new Set(usedForCycle), () => new Set()];
   let circuits;
-  try {
-    circuits = generateWith(
-      isNoEquipmentTarget(targetId) ? new Set(usedForCycle) : used,
-    );
-  } catch (firstError) {
-    restoreGlobalUsed();
+  for (const [index, selectionUsed] of attempts.entries()) {
     try {
-      circuits = generateWith(new Set(usedForCycle));
-    } catch (secondError) {
+      circuits = generateWith(selectionUsed());
+      break;
+    } catch (error) {
       restoreGlobalUsed();
-      circuits = generateWith(new Set());
+      if (index === attempts.length - 1) throw error;
     }
   }
   circuits.forEach((circuit) =>

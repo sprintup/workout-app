@@ -1,11 +1,12 @@
 import { gateways } from "../gateways/registry";
 import { ACTIVATOR_LABEL, DEFAULT_CIRCUIT_REP_BUDGET, DEFAULT_WORKOUT_DURATION_MS } from "../config/constants";
 import { DAY_CONFIG, SPLIT_PRESETS } from "../data/training";
+import { normalizeCardioDay, normalizeCardioSettings } from "../entities/cardio";
 import { mainAssignments } from "../entities/circuits";
 import { assignmentWithoutSetupScore, createDefaultCycles, cycleTargetLabel, isRestCycle, normalizeCustomCycleDefinitions, normalizeCustomSplits } from "../entities/cycles";
 import { normalizeEquipmentCatalog } from "../entities/equipment";
-import { clampRating, exerciseEffectivenessScore, idFor, normalizeBodyParts } from "../entities/exercise";
-import { cleanRepValue, defaultMeasureType } from "../entities/exercise-state";
+import { idFor, normalizeBodyParts } from "../entities/exercise";
+import { cleanRepValue, defaultMeasureType, normalizeExerciseRatings } from "../entities/exercise-state";
 import { normalizeCircuitRepBudget, normalizePerSideReps } from "../entities/reps";
 import { isCoreCooldownLabel, normalizeCooldownExercises, normalizeWarmupExercises, warmupChecklist } from "../entities/routines";
 import { defaultDesignationLabel, isRemovedArmsUpperTarget, normalizeWorkoutTarget } from "../entities/targets";
@@ -114,6 +115,7 @@ export function normalizeState(candidate) {
   const normalized = createState();
   normalized.weekNumber =
     Number(candidate.weekNumber) || Number(candidate.week?.number) || 1;
+  normalized.weekStreak = Math.max(0, Math.floor(Number(candidate.weekStreak) || 0));
   normalized.weekStartedAt =
     candidate.weekStartedAt ||
     candidate.week?.startedAt ||
@@ -259,6 +261,16 @@ export function normalizeState(candidate) {
         })
         .slice(-30)
     : [];
+  normalized.exerciseRatings = normalizeExerciseRatings(
+    candidate.exerciseRatings,
+  );
+  normalized.cardio = normalizeCardioSettings(candidate.cardio);
+  normalized.cardioWeek = Object.fromEntries(
+    DAY_CONFIG.filter((day) => candidate.cardioWeek?.[day.id]).map((day) => [
+      day.id,
+      normalizeCardioDay(candidate.cardioWeek[day.id]),
+    ]),
+  );
   normalized.hiddenExerciseIds = Array.isArray(candidate.hiddenExerciseIds)
     ? candidate.hiddenExerciseIds.filter(
         (id) => gateways.exercises.has(id) && !gateways.exercises.find(id).always_locked,
@@ -280,36 +292,9 @@ export function normalizeState(candidate) {
     for (const exercise of gateways.exercises.all()) {
       const loaded = candidate.exerciseState[exercise.id];
       if (!loaded) continue;
-      const loadedPreference = Math.max(
-        -1,
-        Math.min(1, Number(loaded.preference) || 0),
-      );
-      const loadedFeedbackBase = Number(loaded.effectivenessFeedbackBase);
-      const hasExplicitFeedbackBase =
-        loaded.effectivenessFeedbackBase !== null &&
-        loaded.effectivenessFeedbackBase !== undefined &&
-        Number.isFinite(loadedFeedbackBase);
-      const hasEffectivenessOverride = Object.hasOwn(
-        candidate.exerciseEdits?.[exercise.id] || {},
-        "effectivenessScore",
-      );
-      const preference =
-        loadedPreference &&
-        (hasExplicitFeedbackBase || hasEffectivenessOverride)
-          ? loadedPreference
-          : 0;
       normalized.exerciseState[exercise.id] = {
         chosenCount: Math.max(0, Number(loaded.chosenCount) || 0),
         skippedCount: Math.max(0, Number(loaded.skippedCount) || 0),
-        preference,
-        effectivenessFeedbackBase: preference
-          ? hasExplicitFeedbackBase
-            ? clampRating(loadedFeedbackBase, 3)
-            : clampRating(
-                exerciseEffectivenessScore(exercise) - preference,
-                3,
-              )
-          : null,
         loadProgressCount: Math.max(
           0,
           Math.min(4, Math.floor(Number(loaded.loadProgressCount) || 0)),

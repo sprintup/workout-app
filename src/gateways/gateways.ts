@@ -9,12 +9,15 @@
 // the stored data. Use the replace/set methods to swap a whole value.
 import type {
   AppState,
+  CardioDay,
+  CardioSettings,
   Cycle,
   CycleDefinition,
   CooldownExercise,
   DayId,
   Exercise,
   ExerciseEdit,
+  ExerciseRating,
   ExerciseRecord,
   ExerciseStats,
   FavoriteCircuit,
@@ -42,6 +45,9 @@ export interface WeekGateway {
   day(dayId: DayId | string): WorkoutDay;
   number(): number;
   setNumber(weekNumber: number): void;
+  /** Finished weeks in a row before the current one. */
+  streak(): number;
+  setStreak(weeks: number): void;
   startedAt(): string;
   setStartedAt(isoDate: string): void;
   startCycleId(): string;
@@ -90,6 +96,18 @@ export interface ExerciseGateway {
   hiddenIds(): string[];
   replaceHiddenIds(exerciseIds: string[]): void;
   deletedIds(): string[];
+  /** This week's thumbs ratings, keyed by occurrence (see ratingKey). */
+  ratings(): Record<string, ExerciseRating>;
+  replaceRatings(ratings: Record<string, ExerciseRating>): void;
+}
+
+export interface CardioGateway {
+  settings(): CardioSettings;
+  replaceSettings(settings: CardioSettings): void;
+  /** A calendar day's cardio this week; created on first use. */
+  day(dayId: DayId): CardioDay;
+  week(): Partial<Record<DayId, CardioDay>>;
+  clearWeek(): void;
 }
 
 export interface FavoritesGateway {
@@ -180,6 +198,7 @@ export interface Gateways {
   week: WeekGateway;
   cycles: CycleGateway;
   routines: RoutineGateway;
+  cardio: CardioGateway;
   exercises: ExerciseGateway;
   favorites: FavoritesGateway;
   preferences: PreferencesGateway;

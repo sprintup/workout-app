@@ -3,6 +3,7 @@ import { DAY_CONFIG } from "../data/training";
 import { isCircuitComplete } from "../entities/circuits";
 import { cycleDisplayName, cycleTargetLabel } from "../entities/cycles";
 import { timerElapsed } from "../entities/timer";
+import { cardioWeek } from "./cardio";
 import { cycleForId } from "./cycle-schedule";
 
 
@@ -100,6 +101,23 @@ export function displayDay(day) {
     cycleName: cycleDisplayName(displayedCycle),
     rotationRest,
   };
+}
+
+
+/** Every circuit on every training day is done and the cardio goal is met. */
+export function isWeekFinished() {
+  const days = enabledDays();
+  return (
+    days.length > 0 &&
+    completedCircuits() === days.length * 3 &&
+    cardioWeek().at(-1).remaining === 0
+  );
+}
+
+
+/** Finished weeks in a row, counting this one once it is finished. */
+export function currentStreak() {
+  return gateways.week.streak() + (isWeekFinished() ? 1 : 0);
 }
 
 

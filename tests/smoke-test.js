@@ -1146,11 +1146,16 @@ async function main() {
     cycleSettingsHtml.includes(
       'data-body-part-coverage="Abs/core"><span>Abs/core</span><strong>0</strong>',
     ),
-    "the shared Abs/core cool-down should not be counted as a cycle target",
+    "the shared Abs/core auxiliary exercise should not be counted as a cycle target",
   );
   assert.equal(
     (cycleSettingsHtml.match(/class="settings-section-divider"/g) || []).length,
-    2,
+    3,
+  );
+  assert.ok(
+    cycleSettingsHtml.indexOf("cooldown-settings-panel") <
+      cycleSettingsHtml.indexOf('id="cardio-goal"'),
+    "cardio settings should follow the auxiliary set settings",
   );
   assert.ok(
     cycleSettingsHtml.indexOf("warmup-settings-panel") <
@@ -1159,7 +1164,7 @@ async function main() {
         cycleSettingsHtml.indexOf("cycle-sequence-summary") &&
       cycleSettingsHtml.indexOf("cycle-sequence-summary") <
         cycleSettingsHtml.indexOf("cooldown-settings-panel"),
-    "warm-up settings should precede cycles and cool-down settings should follow them",
+    "warm-up settings should precede cycles and auxiliary settings should follow them",
   );
   assert.equal(cycleSettingsHtml.includes("cycle-settings-grid"), false);
   assert.equal(cycleSettingsHtml.includes('data-action="add-cycle"'), false);
@@ -1337,6 +1342,53 @@ async function main() {
     ),
     false,
   );
+
+  // Start the week on this week's Monday so every day is scheduled.
+  const cardioSeedState = launchApp().Basement45.getState();
+  const thisMonday = new Date();
+  thisMonday.setDate(thisMonday.getDate() - ((thisMonday.getDay() + 6) % 7));
+  thisMonday.setHours(6, 0, 0, 0);
+  cardioSeedState.weekStartedAt = thisMonday.toISOString();
+  cardioSeedState.week.startedAt = thisMonday.toISOString();
+  const cardioApp = launchApp(JSON.stringify(cardioSeedState));
+  selectView(cardioApp, "monday");
+  const cardioWorkoutHtml = () =>
+    cardioApp.__elements.get("workout-view").innerHTML;
+  assert.ok(
+    cardioWorkoutHtml().indexOf("cooldown-routine") > 0 &&
+      cardioWorkoutHtml().indexOf("cooldown-routine") <
+        cardioWorkoutHtml().indexOf("cardio-routine"),
+    "the cardio row should follow the auxiliary set",
+  );
+  assert.ok(cardioWorkoutHtml().includes('data-cardio-remaining="monday">180 min'));
+  assert.ok(cardioWorkoutHtml().includes('data-cardio-minutes="monday" value="30"'));
+  cardioApp.document._listeners.change[0]({
+    target: { value: "45", dataset: { cardioMinutes: "monday" }, closest: () => null },
+  });
+  changeAction(cardioApp, "complete-cardio", { day: "monday" }, true);
+  assert.ok(
+    cardioWorkoutHtml().includes('data-cardio-remaining="monday">135 min'),
+    "checking off cardio should count the adjusted minutes",
+  );
+  for (const day of ["tuesday", "wednesday", "thursday"])
+    changeAction(cardioApp, "complete-cardio", { day }, true);
+  const cardioWeek = cardioApp.Basement45.getState().cardioWeek;
+  assert.deepEqual(
+    ["monday", "tuesday", "wednesday", "thursday"].map(
+      (day) => cardioWeek[day].plannedMinutes,
+    ),
+    [45, 30, 30, 30],
+  );
+  cardioApp.document._listeners.change[0]({
+    target: { value: "45", dataset: { cardioMinutes: "friday" }, closest: () => null },
+  });
+  changeAction(cardioApp, "complete-cardio", { day: "friday" }, true);
+  selectView(cardioApp, "saturday");
+  assert.ok(
+    cardioWorkoutHtml().includes('data-cardio-medal="saturday"'),
+    "the day after the cardio goal is met should show a gold medal instead of a checkbox",
+  );
+  assert.ok(!cardioWorkoutHtml().includes('data-action="complete-cardio"'));
 
   const interactionApp = launchApp();
   const workoutHtml = interactionApp.__elements.get("workout-view").innerHTML;
@@ -2126,169 +2178,127 @@ async function main() {
       ),
     "changing the load basis should apply the distinct each-side color class",
   );
-  const effectivenessBeforeThumbUp = interactionApp.Basement45.exercises.find(
-    (exercise) => exercise.id === noteExerciseId,
-  ).effectiveness_score;
+  const scoreOf = (exerciseId) =>
+    interactionApp.Basement45.exercises.find(
+      (exercise) => exercise.id === exerciseId,
+    ).effectiveness_score;
+  const noteSpot = { day: "monday", circuit: "0", position: "first" };
+  const noteRatingKey = `monday:0:${noteExerciseId}`;
+  changeExerciseEffectiveness(interactionApp, noteExerciseId, "2");
+  const effectivenessBeforeThumbUp = scoreOf(noteExerciseId);
   clickAction(interactionApp, "set-preference", {
     exerciseId: noteExerciseId,
+    ...noteSpot,
     value: "1",
   });
-  const effectivenessAfterThumbUp = interactionApp.Basement45.exercises.find(
-    (exercise) => exercise.id === noteExerciseId,
-  ).effectiveness_score;
+  const effectivenessAfterThumbUp = scoreOf(noteExerciseId);
   assert.equal(
-    interactionApp.Basement45.getState().exerciseState[noteExerciseId]
-      .preference,
+    effectivenessAfterThumbUp,
+    effectivenessBeforeThumbUp + 1,
+    "thumbs-up should raise effectiveness by one",
+  );
+  assert.equal(
+    interactionApp.Basement45.getState().exerciseRatings[noteRatingKey]
+      .direction,
     1,
   );
-  assert.equal(
-    interactionApp.Basement45.getState().exerciseState[noteExerciseId]
-      .effectivenessFeedbackBase,
-    effectivenessBeforeThumbUp,
-  );
-  assert.equal(
-    effectivenessAfterThumbUp,
-    Math.min(5, effectivenessBeforeThumbUp + 1),
-    "thumbs-up should raise effectiveness by one, capped at five",
-  );
-  clickAction(interactionApp, "set-preference", {
-    exerciseId: noteExerciseId,
-    value: "1",
-  });
-  assert.equal(
-    interactionApp.Basement45.exercises.find(
-      (exercise) => exercise.id === noteExerciseId,
-    ).effectiveness_score,
-    effectivenessBeforeThumbUp,
-    "clicking the highlighted thumbs-up again should restore the original score",
-  );
-  assert.equal(
-    interactionApp.Basement45.getState().exerciseState[noteExerciseId]
-      .preference,
-    0,
-  );
-  assert.equal(
-    interactionApp.Basement45.getState().exerciseState[noteExerciseId]
-      .effectivenessFeedbackBase,
-    null,
-  );
-  clickAction(interactionApp, "set-preference", {
-    exerciseId: noteExerciseId,
-    value: "1",
-  });
-  assert.equal(
-    interactionApp.Basement45.exercises.find(
-      (exercise) => exercise.id === noteExerciseId,
-    ).effectiveness_score,
-    effectivenessAfterThumbUp,
-    "thumbs-up should be reusable after its adjustment is cleared",
-  );
-  assert.ok(
-    interactionApp.__elements
-      .get("workout-view")
-      .innerHTML.includes('class="feedback-button active"'),
-  );
-  assert.doesNotMatch(
+  assert.match(
     interactionApp.__elements.get("workout-view").innerHTML,
     new RegExp(
-      `data-action="set-preference" data-exercise-id="${noteExerciseId}" data-value="1"[^>]*disabled`,
+      `class="feedback-button active" type="button" data-action="set-preference" data-exercise-id="${noteExerciseId}" data-day="monday" data-circuit="0"`,
     ),
-    "the highlighted thumb should remain clickable so its adjustment can be cleared",
+    "the thumb should be highlighted for this appearance of the exercise",
   );
   clickAction(interactionApp, "set-preference", {
     exerciseId: noteExerciseId,
-    value: "-1",
+    ...noteSpot,
+    value: "1",
   });
   assert.equal(
-    interactionApp.Basement45.exercises.find(
-      (exercise) => exercise.id === noteExerciseId,
-    ).effectiveness_score,
-    Math.max(1, effectivenessBeforeThumbUp - 1),
-    "selecting the opposite thumb should switch around the original score instead of stacking",
-  );
-  assert.equal(
-    interactionApp.Basement45.getState().exerciseState[noteExerciseId]
-      .preference,
-    -1,
-  );
-  clickAction(interactionApp, "set-preference", {
-    exerciseId: noteExerciseId,
-    value: "-1",
-  });
-  assert.equal(
-    interactionApp.Basement45.exercises.find(
-      (exercise) => exercise.id === noteExerciseId,
-    ).effectiveness_score,
+    scoreOf(noteExerciseId),
     effectivenessBeforeThumbUp,
+    "clicking the highlighted thumbs-up again should undo it",
   );
-  const manualEffectivenessAfterVote = effectivenessAfterThumbUp === 2 ? 3 : 2;
+  assert.equal(
+    interactionApp.Basement45.getState().exerciseRatings[noteRatingKey],
+    undefined,
+  );
+  clickAction(interactionApp, "set-preference", {
+    exerciseId: noteExerciseId,
+    ...noteSpot,
+    value: "1",
+  });
+  clickAction(interactionApp, "set-preference", {
+    exerciseId: noteExerciseId,
+    ...noteSpot,
+    value: "-1",
+  });
+  assert.equal(
+    scoreOf(noteExerciseId),
+    effectivenessBeforeThumbUp - 1,
+    "selecting the opposite thumb should switch around the unrated score instead of stacking",
+  );
+  clickAction(interactionApp, "set-preference", {
+    exerciseId: noteExerciseId,
+    ...noteSpot,
+    value: "-1",
+  });
+  assert.equal(scoreOf(noteExerciseId), effectivenessBeforeThumbUp);
+  const manualEffectivenessAfterVote = 3;
+  clickAction(interactionApp, "set-preference", {
+    exerciseId: noteExerciseId,
+    ...noteSpot,
+    value: "1",
+  });
   changeExerciseEffectiveness(
     interactionApp,
     noteExerciseId,
     String(manualEffectivenessAfterVote),
   );
   assert.equal(
-    interactionApp.Basement45.exercises.find(
-      (exercise) => exercise.id === noteExerciseId,
-    ).effectiveness_score,
+    scoreOf(noteExerciseId),
     manualEffectivenessAfterVote,
     "effectiveness should remain manually editable after feedback",
   );
   assert.equal(
-    interactionApp.Basement45.getState().exerciseState[noteExerciseId]
-      .preference,
-    0,
-    "manual effectiveness edits should become the new unadjusted score",
+    interactionApp.Basement45.getState().exerciseRatings[noteRatingKey],
+    undefined,
+    "manual effectiveness edits should become the new unrated score",
   );
   clickAction(interactionApp, "set-preference", {
     exerciseId: noteExerciseId,
+    ...noteSpot,
     value: "1",
   });
-  const savedEffectivenessScore = Math.min(5, manualEffectivenessAfterVote + 1);
-  assert.equal(
-    interactionApp.Basement45.exercises.find(
-      (exercise) => exercise.id === noteExerciseId,
-    ).effectiveness_score,
-    savedEffectivenessScore,
-  );
-  assert.equal(
-    interactionApp.Basement45.getState().exerciseState[noteExerciseId]
-      .effectivenessFeedbackBase,
-    manualEffectivenessAfterVote,
-  );
+  const savedEffectivenessScore = manualEffectivenessAfterVote + 1;
+  assert.equal(scoreOf(noteExerciseId), savedEffectivenessScore);
   const thumbDownExerciseId =
     interactionApp.Basement45.getState().week.days.monday.circuits[0].second
       .exerciseId;
-  const effectivenessBeforeThumbDown = interactionApp.Basement45.exercises.find(
-    (exercise) => exercise.id === thumbDownExerciseId,
-  ).effectiveness_score;
+  const effectivenessBeforeThumbDown = scoreOf(thumbDownExerciseId);
   clickAction(interactionApp, "set-preference", {
     exerciseId: thumbDownExerciseId,
+    day: "monday",
+    circuit: "0",
+    position: "second",
     value: "-1",
   });
-  const effectivenessAfterThumbDown = interactionApp.Basement45.exercises.find(
-    (exercise) => exercise.id === thumbDownExerciseId,
-  ).effectiveness_score;
   assert.equal(
-    effectivenessAfterThumbDown,
+    scoreOf(thumbDownExerciseId),
     Math.max(1, effectivenessBeforeThumbDown - 1),
     "thumbs-down should lower effectiveness by one, capped at one",
   );
   clickAction(interactionApp, "set-preference", {
     exerciseId: thumbDownExerciseId,
+    day: "monday",
+    circuit: "0",
+    position: "second",
     value: "-1",
   });
   assert.equal(
-    interactionApp.Basement45.exercises.find(
-      (exercise) => exercise.id === thumbDownExerciseId,
-    ).effectiveness_score,
+    scoreOf(thumbDownExerciseId),
     effectivenessBeforeThumbDown,
     "clicking the highlighted thumbs-down again should restore the original score",
-  );
-  assert.equal(
-    interactionApp.Basement45.getState().exerciseState[thumbDownExerciseId]
-      .preference,
-    0,
   );
   assert.ok(
     interactionApp.__elements
@@ -3574,9 +3584,10 @@ async function main() {
       .get("file-status")
       .textContent.includes("workouts.json"),
   );
-  assert.equal(
-    directFilePayload.appState.exerciseState[noteExerciseId].preference,
-    1,
+  assert.deepEqual(
+    { ...directFilePayload.appState.exerciseRatings },
+    {},
+    "starting a new week should clear thumbs so every exercise can be rated again",
   );
   assert.equal(
     directFilePayload.appState.exerciseState[noteExerciseId].notes,
@@ -3587,12 +3598,6 @@ async function main() {
     directFilePayload.appState.exerciseEdits[noteExerciseId].effectivenessScore,
     savedEffectivenessScore,
     "personal save files should retain effectiveness overrides",
-  );
-  assert.equal(
-    directFilePayload.appState.exerciseState[noteExerciseId]
-      .effectivenessFeedbackBase,
-    manualEffectivenessAfterVote,
-    "personal save files should retain the reversible feedback baseline",
   );
   assert.equal(
     Object.hasOwn(directFilePayload, "exerciseLibrary"),
@@ -3661,12 +3666,6 @@ async function main() {
     },
   });
   assert.equal(
-    personalReloadApp.Basement45.getState().exerciseState[noteExerciseId]
-      .preference,
-    1,
-    "personal JSON should reload exercise preferences without an embedded catalog",
-  );
-  assert.equal(
     personalReloadApp.Basement45.getState().exerciseState[noteExerciseId].notes,
     "Keep the tempo controlled",
   );
@@ -3676,11 +3675,6 @@ async function main() {
     ).effectiveness_score,
     savedEffectivenessScore,
     "personal JSON should reload effectiveness overrides without an embedded catalog",
-  );
-  assert.equal(
-    personalReloadApp.Basement45.getState().exerciseState[noteExerciseId]
-      .effectivenessFeedbackBase,
-    manualEffectivenessAfterVote,
   );
   assert.deepEqual(
     Array.from(personalReloadApp.Basement45.getState().hiddenExerciseIds),
@@ -3908,7 +3902,7 @@ async function main() {
   const legacyState = JSON.parse(JSON.stringify(roundTripState));
   legacyState.version = 17;
   const freshFromLegacyApp = launchApp(JSON.stringify(legacyState));
-  assert.equal(freshFromLegacyApp.Basement45.getState().version, 18);
+  assert.equal(freshFromLegacyApp.Basement45.getState().version, 19);
   assert.equal(
     freshFromLegacyApp.Basement45.getState().weekNumber,
     legacyState.weekNumber,

@@ -2,7 +2,7 @@ import { circuitExerciseIds, mainAssignments } from "../../entities/circuits";
 import { cycleDisplayName } from "../../entities/cycles";
 import type { Gateways } from "../../gateways/gateways";
 import { cycleForDay } from "../../services/cycle-schedule";
-import { favoriteSignature, favoritesForSlot } from "../../services/favorites";
+import { favoriteSignature, favoritesForDay } from "../../services/favorites";
 import type { DayId } from "../../types";
 import { changed, unchanged, type InteractorResult } from "../interactor";
 
@@ -15,7 +15,7 @@ function existingFavorite(gateways: Gateways, input: FavoriteSlot) {
   const circuit = gateways.week.day(input.dayId)?.circuits?.[input.circuitIndex];
   if (!circuit) return { circuit: null, existing: null };
   const signature = favoriteSignature(circuit);
-  const existing = favoritesForSlot(input.dayId, input.circuitIndex).find(
+  const existing = favoritesForDay(input.dayId).find(
     (favorite) => favorite.signature === signature,
   );
   return { circuit, existing };
@@ -45,7 +45,7 @@ export function favoriteNameSuggestion(
 // As a user
 // When I star a circuit (or un-star a favorite)
 // Then the circuit is saved under the name I give it, so I can reuse it in
-//   the same cycle and position later (or it is removed from favorites)
+//   any circuit of that cycle's day later (or it is removed from favorites)
 export function toggleFavoriteCircuit(
   gateways: Gateways,
   input: FavoriteSlot & { name?: string },

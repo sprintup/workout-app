@@ -1,6 +1,6 @@
 import { cycleDisplayName } from "../../entities/cycles";
 import { cycleForDay } from "../../services/cycle-schedule";
-import { favoriteUnavailableReason, favoritesForSlot } from "../../services/favorites";
+import { favoriteUnavailableReason, favoritesForDay } from "../../services/favorites";
 import { escapeHtml } from "../html";
 import { ui } from "../ui-state";
 import { dialogById } from "../dom";
@@ -9,7 +9,7 @@ import { dialogById } from "../dom";
 export function renderFavoriteResults() {
   const target = ui.favoriteTarget;
   if (!target) return;
-  const favorites = favoritesForSlot(target.dayId, target.circuitIndex);
+  const favorites = favoritesForDay(target.dayId);
   document.getElementById("favorite-results").innerHTML = favorites.length
     ? favorites
         .map((favorite) => {
@@ -21,7 +21,7 @@ export function renderFavoriteResults() {
           </article>`;
         })
         .join("")
-    : '<div class="empty-state">No favorites are saved for this circuit position yet.</div>';
+    : `<div class="empty-state">No favorites are saved for this day's cycle yet.</div>`;
 }
 
 
@@ -29,7 +29,7 @@ export function openFavoriteCircuits(dayId, circuitIndex) {
   ui.favoriteTarget = { dayId, circuitIndex };
   const day = cycleForDay(dayId);
   document.getElementById("favorite-title").textContent =
-    `${cycleDisplayName(day)} Circuit ${circuitIndex + 1} favorites`;
+    `${cycleDisplayName(day)} favorites for Circuit ${circuitIndex + 1}`;
   renderFavoriteResults();
   dialogById("favorite-dialog").showModal();
 }

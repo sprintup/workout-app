@@ -1,7 +1,7 @@
 import type { CooldownExercise, RoutineExercise } from "../types";
 import type { AppStateGateway, RoutineGateway } from "./gateways";
 
-/** The warm-up and cool-down checklists. */
+/** The warm-up and auxiliary set (stored as "cooldown") checklists. */
 export class DocumentRoutineGateway implements RoutineGateway {
   constructor(private readonly appState: AppStateGateway) {}
 

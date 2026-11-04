@@ -66,10 +66,10 @@
     <div class="app-shell">
       <aside class="sidebar" aria-label="Primary navigation">
         <div class="week-summary">
-          <span class="eyebrow">Current plan</span>
+          <span class="eyebrow">Streak</span>
           <div class="week-number-row">
-            <strong id="week-number">Week 1</strong>
-            <span id="week-date">Starting today</span>
+            <strong id="streak-count">0 weeks</strong>
+            <span id="streak-note"></span>
           </div>
           <div class="progress-timer-row">
             <div class="progress-track" aria-hidden="true">
@@ -120,20 +120,14 @@
             </div>
           </div>
           <p id="week-progress-label">0 of 15 circuits complete</p>
+          <div class="progress-track cardio-progress-track" aria-hidden="true">
+            <span id="cardio-progress-bar"></span>
+          </div>
+          <p id="cardio-progress-label">0 of 180 cardio min</p>
         </div>
 
         <nav id="day-tabs" class="day-tabs" aria-label="Training days"></nav>
 
-        <div class="sidebar-note">
-          <svg aria-hidden="true" viewBox="0 0 24 24">
-            <path d="M12 3 3.5 7v5c0 5 3.6 8 8.5 9 4.9-1 8.5-4 8.5-9V7L12 3Z" />
-            <path d="m9 12 2 2 4-4" />
-          </svg>
-          <p>
-            <strong>Train the good reps.</strong> Stop for sharp, worsening, or
-            persistent pain.
-          </p>
-        </div>
       </aside>
 
       <main id="main-content" class="main-content" tabindex="-1">

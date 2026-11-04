@@ -5,7 +5,7 @@ import { createDefaultCooldownExercises, createDefaultWarmupExercises, normalize
 
 
 // Calendar date of a weekday tab: the Monday on or before the week start, plus the day's offset.
-function dayDateKey(dayId) {
+export function dayDateKey(dayId) {
   const started = new Date(gateways.week.startedAt());
   const base = Number.isNaN(started.getTime()) ? gateways.clock.now() : started;
   const date = new Date(base.getFullYear(), base.getMonth(), base.getDate());

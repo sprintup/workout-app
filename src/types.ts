@@ -115,8 +115,6 @@ export interface ExerciseEdit {
 export interface ExerciseStats {
   chosenCount: number;
   skippedCount: number;
-  preference: number;
-  effectivenessFeedbackBase: number | null;
   loadProgressCount: number;
   reps: string;
   measureType: "reps" | "seconds";
@@ -260,6 +258,33 @@ export interface CooldownExercise extends RoutineExercise {
   completedDates: DateKey[];
 }
 
+/** A thumbs-up or thumbs-down given to one occurrence of an exercise. */
+export interface ExerciseRating {
+  direction: 1 | -1;
+  /** The change actually applied to the score (0 when it was already at the limit). */
+  applied: number;
+}
+
+// ---------------------------------------------------------------------------
+// Cardio
+// ---------------------------------------------------------------------------
+
+export type CardioSplitId = "6x30" | "4x45" | "custom";
+
+export interface CardioSettings {
+  weeklyGoalMinutes: number;
+  splitId: CardioSplitId;
+  /** Session length used by the custom split. */
+  customMinutes: number;
+}
+
+/** One calendar day's cardio in the current week. */
+export interface CardioDay {
+  /** Minutes scheduled for the day; null follows the split. */
+  plannedMinutes: number | null;
+  completed: boolean;
+}
+
 export interface FavoriteCircuit {
   id: string;
   cycleId: string;
@@ -280,6 +305,8 @@ export interface AppState {
   version: number;
   weekNumber: number;
   weekStartedAt: string;
+  /** Consecutive finished weeks (every circuit and the cardio goal) before this one. */
+  weekStreak: number;
   circuitRepBudget: number;
   exerciseState: Record<string, ExerciseStats>;
   customExercises: ExerciseRecord[];
@@ -295,6 +322,10 @@ export interface AppState {
   weekStartCycleId: string;
   nextCycleId: string;
   favoriteCircuits: FavoriteCircuit[];
+  /** Thumbs given this week, keyed by day, circuit and exercise. */
+  exerciseRatings: Record<string, ExerciseRating>;
+  cardio: CardioSettings;
+  cardioWeek: Partial<Record<DayId, CardioDay>>;
   hiddenExerciseIds: string[];
   deletedExerciseIds: string[];
   history: WeekHistoryEntry[];

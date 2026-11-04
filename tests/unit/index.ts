@@ -4,3 +4,6 @@ import "./routines.test";
 import "./workout.test";
 import "./week.test";
 import "./files.test";
+import "./cardio.test";
+import "./ratings.test";
+import "./streak.test";

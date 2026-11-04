@@ -3,6 +3,7 @@ import { mainAssignments } from "../../entities/circuits";
 import { exerciseEffectivenessScore } from "../../entities/exercise";
 import type { Gateways } from "../../gateways/gateways";
 import { markManualSetupTransitions } from "../../services/circuit-editing";
+import { clearExerciseRatings } from "../../services/exercise-catalog";
 import { validateWeek } from "../../services/validation";
 import { changed, failed, unchanged, type InteractorResult } from "../interactor";
 import {
@@ -44,11 +45,9 @@ export function editExercise(
     const formError = `That edit conflicts with the current plan: ${issues[0]}`;
     return failed(formError, { value: { formError } });
   }
-  const stats = saveExerciseDefaults(gateways, input.exerciseId, form);
-  if (previousEffectivenessScore !== form.record.effectivenessScore) {
-    stats.preference = 0;
-    stats.effectivenessFeedbackBase = null;
-  }
+  saveExerciseDefaults(gateways, input.exerciseId, form);
+  if (previousEffectivenessScore !== form.record.effectivenessScore)
+    clearExerciseRatings(input.exerciseId);
   return changed({
     refresh: ["all"],
     toast: `${form.name} updated.`,

@@ -38,7 +38,7 @@ export async function loadWorkoutFile(
       view: enabledDays()[0]?.id || "settings",
       fileStatus,
       inSyncWithFile: true,
-      toast: `Loaded Week ${gateways.week.number()} from ${file.name}.${removedLegacyArmsCycle ? " Removed the retired Arms & upper cycle." : ""}${normalizedCoreCooldown ? " Consolidated the core cool-down into 5 core." : ""}${recoveredCount ? ` Recovered ${recoveredCount} portable library exercise${recoveredCount === 1 ? "" : "s"}.` : ""}`,
+      toast: `Loaded Week ${gateways.week.number()} from ${file.name}.${removedLegacyArmsCycle ? " Removed the retired Arms & upper cycle." : ""}${normalizedCoreCooldown ? " Consolidated the core auxiliary exercise into 5 core." : ""}${recoveredCount ? ` Recovered ${recoveredCount} portable library exercise${recoveredCount === 1 ? "" : "s"}.` : ""}`,
     });
   } catch (error) {
     gateways.exercises.rebuildCatalog(

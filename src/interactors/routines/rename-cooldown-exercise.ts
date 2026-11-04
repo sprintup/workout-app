@@ -10,8 +10,8 @@ export interface RenameCooldownExerciseInput {
 }
 
 // As a user
-// When I rename a cool-down exercise in Settings
-// Then the cool-down checklist shows the new name
+// When I rename an auxiliary exercise in Settings
+// Then the auxiliary checklist shows the new name
 export function renameCooldownExercise(
   gateways: Gateways,
   input: RenameCooldownExerciseInput,
@@ -24,7 +24,7 @@ export function renameCooldownExercise(
   const label = routineLabel(
     input.label,
     input.final,
-    `Cool-down exercise ${index + 1}`,
+    `Auxiliary exercise ${index + 1}`,
   );
   cooldowns[index].label = label;
   return changed({ value: label });

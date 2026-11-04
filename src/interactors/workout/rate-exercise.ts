@@ -1,41 +1,41 @@
 import { clampRating, exerciseEffectivenessScore } from "../../entities/exercise";
 import type { Gateways } from "../../gateways/gateways";
-import { updateExerciseEffectiveness } from "../../services/exercise-catalog";
+import { assignmentFor } from "../../services/circuit-editing";
+import { ratingKey, updateExerciseEffectiveness } from "../../services/exercise-catalog";
+import type { AssignmentContext } from "../../types";
 import { changed, unchanged, type InteractorResult } from "../interactor";
 
 // As a user
-// When I give an exercise a thumbs up or thumbs down
-// Then its effectiveness score moves one point that way (pressing the same
-//   thumb again undoes it), which changes how often it is recommended
+// When I give an exercise a thumbs up or thumbs down in a workout
+// Then its effectiveness score moves one point that way (which changes how
+//   often it is recommended); pressing the same thumb again in that spot
+//   undoes it, and every later appearance of the exercise can be rated again
 export function rateExercise(
   gateways: Gateways,
-  input: { exerciseId: string; thumbsUp: boolean },
+  input: AssignmentContext & { thumbsUp: boolean },
 ): InteractorResult {
-  const exercise = gateways.exercises.find(input.exerciseId);
+  const exercise = gateways.exercises.find(assignmentFor(input)?.exerciseId);
   if (!exercise) return unchanged();
-  const stats = gateways.exercises.stats(exercise.id);
-  const requestedPreference = input.thumbsUp ? 1 : -1;
-  const previousPreference = stats.preference;
-  const feedbackBase =
-    previousPreference === 0
-      ? exerciseEffectivenessScore(exercise)
-      : clampRating(
-          stats.effectivenessFeedbackBase,
-          exerciseEffectivenessScore(exercise) - previousPreference,
-        );
-  const nextPreference =
-    previousPreference === requestedPreference ? 0 : requestedPreference;
-  const effectivenessScore = updateExerciseEffectiveness(
-    exercise.id,
-    nextPreference === 0 ? feedbackBase : feedbackBase + nextPreference,
+  const key = ratingKey(input, exercise.id);
+  const ratings = gateways.exercises.ratings();
+  const previous = ratings[key];
+  const direction = input.thumbsUp ? 1 : -1;
+  const unrated = clampRating(
+    exerciseEffectivenessScore(exercise) - (previous?.applied || 0),
+    3,
   );
-  stats.preference = nextPreference;
-  stats.effectivenessFeedbackBase = nextPreference ? feedbackBase : null;
+  if (previous?.direction === direction) {
+    delete ratings[key];
+    const score = updateExerciseEffectiveness(exercise.id, unrated);
+    return changed({
+      refresh: ["all"],
+      toast: `${exercise.name} effectiveness returned to ${score} of 5.`,
+    });
+  }
+  const score = updateExerciseEffectiveness(exercise.id, unrated + direction);
+  ratings[key] = { direction, applied: score - unrated };
   return changed({
     refresh: ["all"],
-    toast:
-      nextPreference === 0
-        ? `${exercise.name} effectiveness returned to ${effectivenessScore} of 5.`
-        : `${exercise.name} effectiveness is now ${effectivenessScore} of 5.`,
+    toast: `${exercise.name} effectiveness is now ${score} of 5.`,
   });
 }

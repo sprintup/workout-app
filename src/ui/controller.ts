@@ -13,6 +13,10 @@ import { randomReplaceExercise } from "../interactors/circuits/random-replace-ex
 import { removeRoundExercise } from "../interactors/circuits/remove-round-exercise";
 import { replaceExercise } from "../interactors/circuits/replace-exercise";
 import { toggleExerciseLock } from "../interactors/circuits/toggle-exercise-lock";
+import { completeCardio } from "../interactors/cardio/complete-cardio";
+import { setCardioGoal } from "../interactors/cardio/set-cardio-goal";
+import { setCardioMinutes } from "../interactors/cardio/set-cardio-minutes";
+import { setCardioSplit } from "../interactors/cardio/set-cardio-split";
 import { addRestCycle, addRestCycleConfirmation } from "../interactors/cycles/add-rest-cycle";
 import { addTrainingCycle, addTrainingCycleConfirmation } from "../interactors/cycles/add-training-cycle";
 import { deleteCycle, deleteCycleConfirmation } from "../interactors/cycles/delete-cycle";
@@ -350,7 +354,7 @@ const clickActions = {
   "set-preference": (button) =>
     present(
       rateExercise(gateways, {
-        exerciseId: button.dataset.exerciseId,
+        ...parseContext(button),
         thumbsUp: !(Number(button.dataset.value) < 0),
       }),
     ),
@@ -432,6 +436,31 @@ export function handleChange(event) {
   const target = event.target;
   if (target.id === "circuit-rep-budget") {
     present(setCircuitRepBudget(gateways, { reps: target.value }));
+    return;
+  }
+  if (target.id === "cardio-goal") {
+    const result = setCardioGoal(gateways, { minutes: target.value });
+    target.value = result.value;
+    present(result);
+    return;
+  }
+  if (target.id === "cardio-split") {
+    present(setCardioSplit(gateways, { splitId: target.value }));
+    return;
+  }
+  if (target.id === "cardio-custom-minutes") {
+    present(
+      setCardioSplit(gateways, { splitId: "custom", customMinutes: target.value }),
+    );
+    return;
+  }
+  if (target.dataset?.cardioMinutes) {
+    present(
+      setCardioMinutes(gateways, {
+        dayId: target.dataset.cardioMinutes,
+        minutes: target.value,
+      }),
+    );
     return;
   }
   if (target.id === "split-week-start") {
@@ -598,6 +627,16 @@ export function handleChange(event) {
         dayId: daily.dataset.day,
         warmupId: daily.dataset.item,
         completed: daily.checked,
+      }),
+    );
+    return;
+  }
+  const cardio = target.closest('[data-action="complete-cardio"]');
+  if (cardio) {
+    present(
+      completeCardio(gateways, {
+        dayId: cardio.dataset.day,
+        completed: cardio.checked,
       }),
     );
     return;

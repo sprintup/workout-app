@@ -1,6 +1,6 @@
 
 
-export const APP_VERSION = 18;
+export const APP_VERSION = 19;
 
 export const STORAGE_KEY = "basement45-state-v2";
 

@@ -29,6 +29,14 @@ export class DocumentWeekGateway implements WeekGateway {
     this.state.weekNumber = weekNumber;
   }
 
+  streak(): number {
+    return this.state?.weekStreak || 0;
+  }
+
+  setStreak(weeks: number): void {
+    this.state.weekStreak = weeks;
+  }
+
   startedAt(): string {
     return this.state?.weekStartedAt;
   }

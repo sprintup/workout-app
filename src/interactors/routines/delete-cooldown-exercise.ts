@@ -3,8 +3,8 @@ import type { Gateways } from "../../gateways/gateways";
 import { changed, unchanged, type InteractorResult } from "../interactor";
 
 // As a user
-// When I delete a cool-down exercise in Settings
-// Then it leaves every day's cool-down checklist
+// When I delete an auxiliary exercise in Settings
+// Then it leaves every day's auxiliary checklist
 export function deleteCooldownExercise(
   gateways: Gateways,
   input: { cooldownId: string },
@@ -20,6 +20,6 @@ export function deleteCooldownExercise(
   }
   return changed({
     refresh: ["settings"],
-    toast: `${removed.label} removed from the cool-down.`,
+    toast: `${removed.label} removed from the auxiliary set.`,
   });
 }
