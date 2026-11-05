@@ -356,9 +356,13 @@ export function normalizeState(candidate) {
       dayData.focus = "Rest day";
       dayData.bodyParts = [];
       dayData.circuits = [];
-      dayData.preChecklist = warmupChecklist(normalized.warmupExercises);
+      dayData.preChecklist = warmupChecklist(
+        normalized.warmupExercises,
+        dayData.preChecklist,
+      );
       dayData.cooldownChecklist = warmupChecklist(
         normalized.cooldownExercises,
+        dayData.cooldownChecklist,
       );
       delete dayData.coreCompleted;
       dayData.timer = {
@@ -381,9 +385,13 @@ export function normalizeState(candidate) {
         pendingCycle.description ||
         "A scheduled recovery day that advances the rotation.";
       dayData.circuits = [];
-      dayData.preChecklist = warmupChecklist(normalized.warmupExercises);
+      dayData.preChecklist = warmupChecklist(
+        normalized.warmupExercises,
+        dayData.preChecklist,
+      );
       dayData.cooldownChecklist = warmupChecklist(
         normalized.cooldownExercises,
+        dayData.cooldownChecklist,
       );
       delete dayData.coreCompleted;
       delete dayData.cardioCompleted;

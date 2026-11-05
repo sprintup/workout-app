@@ -1042,6 +1042,11 @@ async function main() {
     cycleSettingsApp.__elements.get("workout-view").innerHTML;
   assert.ok(rotationRestHtml.includes("Scheduled recovery"));
   assert.ok(rotationRestHtml.includes('data-view="settings"'));
+  assert.ok(
+    rotationRestHtml.includes('data-action="daily-check"') &&
+      rotationRestHtml.includes('data-action="cooldown-check"'),
+    "rest days should still show the warm-up and auxiliary set",
+  );
   assert.ok(rotationRestHtml.includes('data-day-cycle-select="true"'));
   assert.equal(
     rotationRestHtml.includes('data-action="toggle-rest-day"'),

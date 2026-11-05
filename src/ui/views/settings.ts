@@ -25,8 +25,8 @@ export function renderRoutineSettingsPanel(kind, exercises) {
   const title = warmup ? "Warm-up exercises" : "Auxiliary set exercises";
   const adjective = warmup ? "Warm-up" : "Auxiliary";
   const description = warmup
-    ? "Shown before the circuits on every training day."
-    : "Shown after the circuits and excluded from workout time. Use Schedule to do an exercise every day or every few days; it stays hidden until it is due again.";
+    ? "Shown every day, before the circuits on training days."
+    : "Shown every day, after the circuits on training days, and excluded from workout time. Use Schedule to do an exercise every day or every few days; it stays hidden until it is due again.";
   const emptyMessage = warmup
     ? "No warm-up exercises. Add one whenever you want a pre-circuit checklist."
     : "No auxiliary set exercises. Add one whenever you want a post-workout checklist.";

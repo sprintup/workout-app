@@ -4,7 +4,9 @@ import { addCooldownExercise } from "../../src/interactors/routines/add-cooldown
 import { deleteCooldownExercise } from "../../src/interactors/routines/delete-cooldown-exercise";
 import { renameCooldownExercise } from "../../src/interactors/routines/rename-cooldown-exercise";
 import { setCooldownInterval } from "../../src/interactors/routines/set-cooldown-interval";
+import { toggleRestDay } from "../../src/interactors/week/toggle-rest-day";
 import { checkCooldownExercise } from "../../src/interactors/workout/check-cooldown-exercise";
+import { checkWarmupExercise } from "../../src/interactors/workout/check-warmup-exercise";
 import { isCooldownDue } from "../../src/services/routine-schedule";
 import { createTestGateways } from "./fakes";
 
@@ -93,4 +95,21 @@ test("renaming keeps typed text and falls back to a numbered name when cleared",
   assert.equal(core.label, " Plank ");
   const result = renameCooldownExercise(gateways, { cooldownId: core.id, label: "  ", final: true });
   assert.equal(result.value, "Auxiliary exercise 1");
+});
+
+test("rest days keep warm-up and auxiliary checks through a reload without starting a timer", () => {
+  const gateways = createTestGateways();
+  toggleRestDay(gateways, { dayId: "monday" });
+  const day = gateways.week.day("monday");
+  for (const warmupId of Object.keys(day.preChecklist))
+    checkWarmupExercise(gateways, { dayId: "monday", warmupId, completed: true });
+  checkCooldownExercise(gateways, { dayId: "monday", cooldownId: "core", completed: true });
+  assert.equal(day.timer.startedAt, null);
+
+  gateways.appState.restore(gateways.appState.snapshot());
+
+  const reloaded = gateways.week.day("monday");
+  assert.equal(reloaded.rest, true);
+  assert.ok(Object.values(reloaded.preChecklist).every(Boolean));
+  assert.equal(reloaded.cooldownChecklist.core, true);
 });

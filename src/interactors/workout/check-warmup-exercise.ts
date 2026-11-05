@@ -11,8 +11,8 @@ export interface CheckWarmupExerciseInput {
 
 // As a user
 // When I check off a warm-up exercise
-// Then it is marked done for that day, and checking off the last one starts
-//   the workout timer automatically
+// Then it is marked done for that day, and on a training day checking off
+//   the last one starts the workout timer automatically
 export function checkWarmupExercise(
   gateways: Gateways,
   input: CheckWarmupExerciseInput,
@@ -22,6 +22,7 @@ export function checkWarmupExercise(
   day.preChecklist[input.warmupId] = input.completed;
   const isComplete = Object.values(day.preChecklist).every(Boolean);
   if (
+    !day.rest &&
     !wasComplete &&
     isComplete &&
     timerElapsed(day) === 0 &&

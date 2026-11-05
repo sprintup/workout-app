@@ -2577,7 +2577,7 @@
 
   // src/services/week.ts
   function workoutDayHasProgress(day) {
-    if (!day || day.rest) return false;
+    if (!day) return false;
     return Object.values(day.preChecklist || {}).some(Boolean) || Object.values(day.cooldownChecklist || {}).some(Boolean) || timerElapsed(day) > 0 || (day.circuits || []).some(
       (circuit) => circuit.roundsCompleted?.some(Boolean) || circuit.optionalActivatorCompleted
     );
@@ -3660,9 +3660,13 @@
         dayData.focus = "Rest day";
         dayData.bodyParts = [];
         dayData.circuits = [];
-        dayData.preChecklist = warmupChecklist(normalized.warmupExercises);
+        dayData.preChecklist = warmupChecklist(
+          normalized.warmupExercises,
+          dayData.preChecklist
+        );
         dayData.cooldownChecklist = warmupChecklist(
-          normalized.cooldownExercises
+          normalized.cooldownExercises,
+          dayData.cooldownChecklist
         );
         delete dayData.coreCompleted;
         dayData.timer = {
@@ -3683,9 +3687,13 @@
         dayData.bodyParts = [];
         dayData.description = pendingCycle.description || "A scheduled recovery day that advances the rotation.";
         dayData.circuits = [];
-        dayData.preChecklist = warmupChecklist(normalized.warmupExercises);
+        dayData.preChecklist = warmupChecklist(
+          normalized.warmupExercises,
+          dayData.preChecklist
+        );
         dayData.cooldownChecklist = warmupChecklist(
-          normalized.cooldownExercises
+          normalized.cooldownExercises,
+          dayData.cooldownChecklist
         );
         delete dayData.coreCompleted;
         delete dayData.cardioCompleted;
@@ -5931,7 +5939,7 @@
     const wasComplete = Object.values(day.preChecklist).every(Boolean);
     day.preChecklist[input.warmupId] = input.completed;
     const isComplete = Object.values(day.preChecklist).every(Boolean);
-    if (!wasComplete && isComplete && timerElapsed(day) === 0 && !day.timer.startedAt) {
+    if (!day.rest && !wasComplete && isComplete && timerElapsed(day) === 0 && !day.timer.startedAt) {
       day.timer.startedAt = gateways2.clock.nowIso();
     }
     return changed({ refresh: ["all"] });
@@ -6857,6 +6865,35 @@
       </div>
     </article>`;
   }
+  function renderWarmupRow(dayId) {
+    const warmups = gateways.routines.warmups();
+    if (!warmups.length) return "";
+    const day = gateways.week.current().days[dayId];
+    const complete = Object.values(day.preChecklist).every(Boolean);
+    return `<div class="routine-row pre-routine ${complete ? "is-complete" : ""}" aria-label="Warm-up checklist">
+    <strong>Warm-up</strong>
+    ${warmups.map(
+      (exercise) => `<label><input type="checkbox" data-action="daily-check" data-day="${dayId}" data-item="${escapeHtml(exercise.id)}" ${day.preChecklist[exercise.id] ? "checked" : ""} /> ${escapeHtml(exercise.label)}</label>`
+    ).join("")}
+  </div>`;
+  }
+  function renderAuxiliaryRow(dayId) {
+    const exercises = gateways.routines.cooldowns();
+    if (!exercises.length) return "";
+    const day = gateways.week.current().days[dayId];
+    const due = exercises.filter((exercise) => isCooldownDue(exercise, dayId));
+    const resting = exercises.filter((exercise) => !isCooldownDue(exercise, dayId));
+    const complete = due.every((exercise) => day.cooldownChecklist[exercise.id]);
+    return `<div class="routine-row cooldown-routine ${complete ? "is-complete" : ""}" aria-label="Auxiliary set checklist">
+    <strong>Auxiliary set</strong>
+    ${due.map(
+      (exercise) => `<label><input type="checkbox" data-action="cooldown-check" data-day="${dayId}" data-item="${escapeHtml(exercise.id)}" ${day.cooldownChecklist[exercise.id] ? "checked" : ""} /> ${escapeHtml(exercise.label)}</label>`
+    ).join("")}
+    ${resting.length ? `<span class="cooldown-resting">Not due today: ${resting.map(
+      (exercise) => `${escapeHtml(exercise.label)} (next ${escapeHtml(formatDueDate(nextCooldownDueKey(exercise, dayId)))})`
+    ).join(", ")}</span>` : ""}
+  </div>`;
+  }
   function renderCardioRow(dayId) {
     const status = cardioStatusForDay(dayId);
     const goal = gateways.cardio.settings().weeklyGoalMinutes;
@@ -6917,10 +6954,12 @@
             ${rotationRest ? `<button class="button button-quiet" type="button" data-view="settings">Edit rotation</button>` : `<button class="button button-primary" type="button" data-action="toggle-rest-day" data-day="${dayId}">Train today instead</button>`}
           </div>
         </header>
+        ${renderWarmupRow(dayId)}
         <section class="rest-day-panel">
           <span class="rest-day-mark" aria-hidden="true">&mdash;</span>
           <div><strong>${rotationRest ? "Scheduled recovery" : "Recover today"}</strong><p>${rotationRest ? "This rest entry was consumed and the rotation continues with the next entry." : "No cycle was consumed. Every later calendar day has shifted forward automatically."}</p></div>
         </section>
+        ${renderAuxiliaryRow(dayId)}
         ${renderCardioRow(dayId)}
       </div>`;
       updateWorkoutTimer();
@@ -6929,15 +6968,6 @@
     const completed = day.circuits.filter(isCircuitComplete).length;
     const beforeCircuitsComplete = Object.values(day.preChecklist).every(
       Boolean
-    );
-    const dueCooldownExercises = gateways.routines.cooldowns().filter(
-      (exercise) => isCooldownDue(exercise, dayId)
-    );
-    const restingCooldownExercises = gateways.routines.cooldowns().filter(
-      (exercise) => !isCooldownDue(exercise, dayId)
-    );
-    const cooldownComplete = dueCooldownExercises.every(
-      (exercise) => day.cooldownChecklist[exercise.id]
     );
     const dayTargetMuscles = targetBodyPartsForDay(dayId);
     document.getElementById("workout-view").innerHTML = `
@@ -6955,24 +6985,11 @@
         </div>
       </header>
       <div class="day-guidance day-muscle-summary">${ICONS.info}<div><strong>Target muscles</strong><span class="day-muscle-list">${dayTargetMuscles.map((part) => `<i data-day-target-muscle="${escapeHtml(part)}">${escapeHtml(part)}</i>`).join("")}</span></div></div>
-      ${gateways.routines.warmups().length ? `<div class="routine-row pre-routine ${beforeCircuitsComplete ? "is-complete" : ""}" aria-label="Warm-up checklist">
-              <strong>Warm-up</strong>
-              ${gateways.routines.warmups().map(
-      (exercise) => `<label><input type="checkbox" data-action="daily-check" data-day="${dayId}" data-item="${escapeHtml(exercise.id)}" ${day.preChecklist[exercise.id] ? "checked" : ""} /> ${escapeHtml(exercise.label)}</label>`
-    ).join("")}
-            </div>` : ""}
+      ${renderWarmupRow(dayId)}
       <div class="circuit-grid">
         ${day.circuits.map((circuit, index) => renderCircuit(dayId, circuit, index)).join("")}
       </div>
-      ${gateways.routines.cooldowns().length ? `<div class="routine-row cooldown-routine ${cooldownComplete ? "is-complete" : ""}" aria-label="Auxiliary set checklist">
-              <strong>Auxiliary set</strong>
-              ${dueCooldownExercises.map(
-      (exercise) => `<label><input type="checkbox" data-action="cooldown-check" data-day="${dayId}" data-item="${escapeHtml(exercise.id)}" ${day.cooldownChecklist[exercise.id] ? "checked" : ""} /> ${escapeHtml(exercise.label)}</label>`
-    ).join("")}
-              ${restingCooldownExercises.length ? `<span class="cooldown-resting">Not due today: ${restingCooldownExercises.map(
-      (exercise) => `${escapeHtml(exercise.label)} (next ${escapeHtml(formatDueDate(nextCooldownDueKey(exercise, dayId)))})`
-    ).join(", ")}</span>` : ""}
-            </div>` : ""}
+      ${renderAuxiliaryRow(dayId)}
       ${renderCardioRow(dayId)}
     </div>`;
     updateWorkoutTimer();
@@ -7126,7 +7143,7 @@
     const warmup = kind === "warmup";
     const title = warmup ? "Warm-up exercises" : "Auxiliary set exercises";
     const adjective = warmup ? "Warm-up" : "Auxiliary";
-    const description = warmup ? "Shown before the circuits on every training day." : "Shown after the circuits and excluded from workout time. Use Schedule to do an exercise every day or every few days; it stays hidden until it is due again.";
+    const description = warmup ? "Shown every day, before the circuits on training days." : "Shown every day, after the circuits on training days, and excluded from workout time. Use Schedule to do an exercise every day or every few days; it stays hidden until it is due again.";
     const emptyMessage = warmup ? "No warm-up exercises. Add one whenever you want a pre-circuit checklist." : "No auxiliary set exercises. Add one whenever you want a post-workout checklist.";
     return `<section class="routine-settings-panel ${kind}-settings-panel">
     <header>

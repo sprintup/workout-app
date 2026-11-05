@@ -10,7 +10,7 @@ export interface CheckCooldownExerciseInput {
 }
 
 // As a user
-// When I check off an auxiliary exercise on a training day
+// When I check off an auxiliary exercise
 // Then it is marked done for that day and the date is recorded, so an
 //   exercise scheduled "every N days" stays hidden until it is due again
 export function checkCooldownExercise(

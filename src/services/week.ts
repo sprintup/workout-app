@@ -8,7 +8,7 @@ import { cycleForId } from "./cycle-schedule";
 
 
 export function workoutDayHasProgress(day) {
-  if (!day || day.rest) return false;
+  if (!day) return false;
   return (
     Object.values(day.preChecklist || {}).some(Boolean) ||
     Object.values(day.cooldownChecklist || {}).some(Boolean) ||

@@ -336,6 +336,52 @@ export function renderCircuit(dayId, circuit, circuitIndex) {
 }
 
 
+export function renderWarmupRow(dayId) {
+  const warmups = gateways.routines.warmups();
+  if (!warmups.length) return "";
+  const day = gateways.week.current().days[dayId];
+  const complete = Object.values(day.preChecklist).every(Boolean);
+  return `<div class="routine-row pre-routine ${complete ? "is-complete" : ""}" aria-label="Warm-up checklist">
+    <strong>Warm-up</strong>
+    ${warmups
+      .map(
+        (exercise) =>
+          `<label><input type="checkbox" data-action="daily-check" data-day="${dayId}" data-item="${escapeHtml(exercise.id)}" ${day.preChecklist[exercise.id] ? "checked" : ""} /> ${escapeHtml(exercise.label)}</label>`,
+      )
+      .join("")}
+  </div>`;
+}
+
+
+export function renderAuxiliaryRow(dayId) {
+  const exercises = gateways.routines.cooldowns();
+  if (!exercises.length) return "";
+  const day = gateways.week.current().days[dayId];
+  const due = exercises.filter((exercise) => isCooldownDue(exercise, dayId));
+  const resting = exercises.filter((exercise) => !isCooldownDue(exercise, dayId));
+  const complete = due.every((exercise) => day.cooldownChecklist[exercise.id]);
+  return `<div class="routine-row cooldown-routine ${complete ? "is-complete" : ""}" aria-label="Auxiliary set checklist">
+    <strong>Auxiliary set</strong>
+    ${due
+      .map(
+        (exercise) =>
+          `<label><input type="checkbox" data-action="cooldown-check" data-day="${dayId}" data-item="${escapeHtml(exercise.id)}" ${day.cooldownChecklist[exercise.id] ? "checked" : ""} /> ${escapeHtml(exercise.label)}</label>`,
+      )
+      .join("")}
+    ${
+      resting.length
+        ? `<span class="cooldown-resting">Not due today: ${resting
+            .map(
+              (exercise) =>
+                `${escapeHtml(exercise.label)} (next ${escapeHtml(formatDueDate(nextCooldownDueKey(exercise, dayId)))})`,
+            )
+            .join(", ")}</span>`
+        : ""
+    }
+  </div>`;
+}
+
+
 export function renderCardioRow(dayId) {
   const status = cardioStatusForDay(dayId);
   const goal = gateways.cardio.settings().weeklyGoalMinutes;
@@ -414,10 +460,12 @@ export function renderWorkout(dayId) {
             ${rotationRest ? `<button class="button button-quiet" type="button" data-view="settings">Edit rotation</button>` : `<button class="button button-primary" type="button" data-action="toggle-rest-day" data-day="${dayId}">Train today instead</button>`}
           </div>
         </header>
+        ${renderWarmupRow(dayId)}
         <section class="rest-day-panel">
           <span class="rest-day-mark" aria-hidden="true">&mdash;</span>
           <div><strong>${rotationRest ? "Scheduled recovery" : "Recover today"}</strong><p>${rotationRest ? "This rest entry was consumed and the rotation continues with the next entry." : "No cycle was consumed. Every later calendar day has shifted forward automatically."}</p></div>
         </section>
+        ${renderAuxiliaryRow(dayId)}
         ${renderCardioRow(dayId)}
       </div>`;
     updateWorkoutTimer();
@@ -426,15 +474,6 @@ export function renderWorkout(dayId) {
   const completed = day.circuits.filter(isCircuitComplete).length;
   const beforeCircuitsComplete = Object.values(day.preChecklist).every(
     Boolean,
-  );
-  const dueCooldownExercises = gateways.routines.cooldowns().filter((exercise) =>
-    isCooldownDue(exercise, dayId),
-  );
-  const restingCooldownExercises = gateways.routines.cooldowns().filter(
-    (exercise) => !isCooldownDue(exercise, dayId),
-  );
-  const cooldownComplete = dueCooldownExercises.every(
-    (exercise) => day.cooldownChecklist[exercise.id],
   );
   const dayTargetMuscles = targetBodyPartsForDay(dayId);
 
@@ -453,45 +492,11 @@ export function renderWorkout(dayId) {
         </div>
       </header>
       <div class="day-guidance day-muscle-summary">${ICONS.info}<div><strong>Target muscles</strong><span class="day-muscle-list">${dayTargetMuscles.map((part) => `<i data-day-target-muscle="${escapeHtml(part)}">${escapeHtml(part)}</i>`).join("")}</span></div></div>
-      ${
-        gateways.routines.warmups().length
-          ? `<div class="routine-row pre-routine ${beforeCircuitsComplete ? "is-complete" : ""}" aria-label="Warm-up checklist">
-              <strong>Warm-up</strong>
-              ${gateways.routines.warmups()
-                .map(
-                  (exercise) =>
-                    `<label><input type="checkbox" data-action="daily-check" data-day="${dayId}" data-item="${escapeHtml(exercise.id)}" ${day.preChecklist[exercise.id] ? "checked" : ""} /> ${escapeHtml(exercise.label)}</label>`,
-                )
-                .join("")}
-            </div>`
-          : ""
-      }
+      ${renderWarmupRow(dayId)}
       <div class="circuit-grid">
         ${day.circuits.map((circuit, index) => renderCircuit(dayId, circuit, index)).join("")}
       </div>
-      ${
-        gateways.routines.cooldowns().length
-          ? `<div class="routine-row cooldown-routine ${cooldownComplete ? "is-complete" : ""}" aria-label="Auxiliary set checklist">
-              <strong>Auxiliary set</strong>
-              ${dueCooldownExercises
-                .map(
-                  (exercise) =>
-                    `<label><input type="checkbox" data-action="cooldown-check" data-day="${dayId}" data-item="${escapeHtml(exercise.id)}" ${day.cooldownChecklist[exercise.id] ? "checked" : ""} /> ${escapeHtml(exercise.label)}</label>`,
-                )
-                .join("")}
-              ${
-                restingCooldownExercises.length
-                  ? `<span class="cooldown-resting">Not due today: ${restingCooldownExercises
-                      .map(
-                        (exercise) =>
-                          `${escapeHtml(exercise.label)} (next ${escapeHtml(formatDueDate(nextCooldownDueKey(exercise, dayId)))})`,
-                      )
-                      .join(", ")}</span>`
-                  : ""
-              }
-            </div>`
-          : ""
-      }
+      ${renderAuxiliaryRow(dayId)}
       ${renderCardioRow(dayId)}
     </div>`;
   updateWorkoutTimer();
