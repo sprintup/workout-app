@@ -95,7 +95,7 @@ test("a save from before cardio and streaks loads with their defaults", async ()
   assert.equal(result.changed, true, result.toast?.message);
   const state = reloaded.appState.current();
   assert.equal(state.version, 19);
-  assert.deepEqual(state.cardio, { weeklyGoalMinutes: 180, splitId: "6x30", customMinutes: 30 });
+  assert.deepEqual(state.cardio, { weeklyGoalMinutes: 150, splitId: "6x30", customMinutes: 30 });
   assert.deepEqual(state.cardioWeek, {});
   assert.equal(state.weekStreak, 0);
   assert.deepEqual(state.exerciseRatings, {});

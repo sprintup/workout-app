@@ -15,7 +15,7 @@ function finishStrength(gateways: ReturnType<typeof createTestGateways>) {
 }
 
 function finishCardio(gateways: ReturnType<typeof createTestGateways>) {
-  for (const day of DAY_CONFIG.slice(0, 6))
+  for (const day of DAY_CONFIG.slice(0, 5))
     completeCardio(gateways, { dayId: day.id, completed: true });
 }
 

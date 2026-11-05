@@ -2,7 +2,7 @@
 // completed sessions turns into each day's done / remaining / scheduled time.
 import type { CardioDay, CardioSettings, CardioSplitId } from "../types";
 
-export const DEFAULT_CARDIO_GOAL_MINUTES = 180;
+export const DEFAULT_CARDIO_GOAL_MINUTES = 150;
 
 export const MIN_CARDIO_MINUTES = 5;
 

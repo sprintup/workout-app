@@ -1365,14 +1365,14 @@ async function main() {
         cardioWorkoutHtml().indexOf("cardio-routine"),
     "the cardio row should follow the auxiliary set",
   );
-  assert.ok(cardioWorkoutHtml().includes('data-cardio-remaining="monday">180 min'));
+  assert.ok(cardioWorkoutHtml().includes('data-cardio-remaining="monday">150 min'));
   assert.ok(cardioWorkoutHtml().includes('data-cardio-minutes="monday" value="30"'));
   cardioApp.document._listeners.change[0]({
     target: { value: "45", dataset: { cardioMinutes: "monday" }, closest: () => null },
   });
   changeAction(cardioApp, "complete-cardio", { day: "monday" }, true);
   assert.ok(
-    cardioWorkoutHtml().includes('data-cardio-remaining="monday">135 min'),
+    cardioWorkoutHtml().includes('data-cardio-remaining="monday">105 min'),
     "checking off cardio should count the adjusted minutes",
   );
   for (const day of ["tuesday", "wednesday", "thursday"])
@@ -1385,7 +1385,7 @@ async function main() {
     [45, 30, 30, 30],
   );
   cardioApp.document._listeners.change[0]({
-    target: { value: "45", dataset: { cardioMinutes: "friday" }, closest: () => null },
+    target: { value: "15", dataset: { cardioMinutes: "friday" }, closest: () => null },
   });
   changeAction(cardioApp, "complete-cardio", { day: "friday" }, true);
   selectView(cardioApp, "saturday");
