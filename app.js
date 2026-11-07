@@ -3895,6 +3895,138 @@
     }
   };
 
+  // src/gateways/database-details-gateway.ts
+  var LocalStorageDatabaseDetailsGateway = class {
+    constructor(key = `${STORAGE_KEY}-database`) {
+      this.key = key;
+    }
+    recall() {
+      try {
+        const stored = JSON.parse(localStorage.getItem(this.key) || "null");
+        if (!stored || typeof stored !== "object") return null;
+        return {
+          url: String(stored.url || ""),
+          host: String(stored.host || ""),
+          database: String(stored.database || ""),
+          user: String(stored.user || "")
+        };
+      } catch {
+        return null;
+      }
+    }
+    remember(details) {
+      const { url, host, database, user } = details;
+      try {
+        localStorage.setItem(this.key, JSON.stringify({ url, host, database, user }));
+      } catch (error) {
+        console.warn("Local browser storage is unavailable.", error);
+      }
+    }
+    forget() {
+      try {
+        localStorage.removeItem(this.key);
+      } catch (error) {
+        console.warn("Local browser storage is unavailable.", error);
+      }
+    }
+  };
+
+  // src/gateways/database-gateway.ts
+  function toBase64(text) {
+    const bytes = new TextEncoder().encode(text);
+    let binary = "";
+    for (let start = 0; start < bytes.length; start += 32768)
+      binary += String.fromCharCode(...bytes.subarray(start, start + 32768));
+    return btoa(binary);
+  }
+  var HttpDatabaseGateway = class {
+    constructor() {
+      __publicField(this, "login", null);
+      __publicField(this, "synced", null);
+    }
+    isConnected() {
+      return this.login !== null;
+    }
+    async connect(login) {
+      await this.readWith(login);
+      this.login = login;
+      this.synced = null;
+    }
+    disconnect() {
+      this.login = null;
+      this.synced = null;
+    }
+    async read() {
+      return this.readWith(this.current());
+    }
+    syncedRevision() {
+      return this.synced?.revision ?? null;
+    }
+    syncedAt() {
+      return this.synced?.updatedAt ?? null;
+    }
+    markLoaded(data) {
+      this.synced = { revision: data.revision, updatedAt: data.updatedAt };
+    }
+    async write(contents, baseRevision) {
+      const { status, body } = await this.request(this.current(), {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain",
+          "X-Base-Revision": String(baseRevision)
+        },
+        body: toBase64(contents)
+      });
+      if (status === 409) return { status: "conflict", updatedAt: body.updatedAt };
+      this.synced = { revision: body.revision, updatedAt: body.updatedAt };
+      return { status: "saved", updatedAt: body.updatedAt };
+    }
+    current() {
+      if (!this.login) throw new Error("The database is not connected.");
+      return this.login;
+    }
+    async readWith(login) {
+      const { body } = await this.request(login, { method: "GET" });
+      if (typeof body?.revision !== "number")
+        throw new Error("That address is not the Basement 45 data service.");
+      return body.contents == null ? null : { revision: body.revision, updatedAt: body.updatedAt, contents: body.contents };
+    }
+    async request(login, init) {
+      let response;
+      try {
+        response = await fetch(login.url, {
+          ...init,
+          headers: {
+            ...init.headers,
+            "X-Db-Host": login.host,
+            "X-Db-Name": login.database,
+            "X-Db-User": login.user,
+            "X-Db-Password": login.password
+          },
+          cache: "no-store",
+          credentials: "omit",
+          // A redirect must not carry the password somewhere else.
+          redirect: "error",
+          referrerPolicy: "no-referrer"
+        });
+      } catch (error) {
+        const reason = error?.message;
+        throw new Error(
+          `The database address could not be reached${reason ? ` (${reason})` : ""}.`
+        );
+      }
+      let body;
+      try {
+        body = await response.json();
+      } catch {
+        throw new Error("That address is not the Basement 45 data service.");
+      }
+      if (!response.ok && response.status !== 409)
+        throw new Error(body?.error || "The database reported an error.");
+      return { status: response.status, body };
+    }
+  };
+
   // src/gateways/cardio-gateway.ts
   var DocumentCardioGateway = class {
     constructor(appState) {
@@ -4359,6 +4491,8 @@
       browserStorage: new LocalStorageGateway(),
       saveStatus: new LocalStorageSaveStatusGateway(),
       workoutFile: new FileSystemWorkoutFileGateway(),
+      database: new HttpDatabaseGateway(),
+      databaseDetails: new LocalStorageDatabaseDetailsGateway(),
       clock: new SystemClockGateway(),
       random: new MathRandomGateway()
     };
@@ -6107,6 +6241,274 @@
     return changed();
   }
 
+  // src/entities/database.ts
+  function cleanDatabaseField(value) {
+    return String(value || "").replace(/[\u200B-\u200D\u2060\uFEFF\u00A0]/g, "").trim();
+  }
+  function isSendablePassword(password) {
+    return /^[\x20-\x7E\xA0-\xFF]+$/.test(password);
+  }
+  function normalizeDatabaseUrl(value) {
+    try {
+      const url = new URL(cleanDatabaseField(value));
+      const local = ["localhost", "127.0.0.1"].includes(url.hostname);
+      if (url.protocol !== "https:" && !(url.protocol === "http:" && local))
+        return null;
+      if (url.username || url.password) return null;
+      return url.href;
+    } catch {
+      return null;
+    }
+  }
+  var DATABASE_SYNCED_STATUS = {
+    message: "Up to date with your database",
+    connected: true
+  };
+  var DATABASE_CONNECTED_STATUS = {
+    message: "Connected to your database",
+    connected: true
+  };
+
+  // src/interactors/database/connect-database.ts
+  async function connectDatabase(gateways2, input) {
+    const url = normalizeDatabaseUrl(input.url);
+    if (!url) return failed("Enter the full https:// address of your data.php.");
+    const host = cleanDatabaseField(input.host);
+    const database = cleanDatabaseField(input.database);
+    if (!host || !database)
+      return failed("Enter your database host and name.");
+    const user = cleanDatabaseField(input.user);
+    const password = String(input.password || "");
+    if (!user || !password)
+      return failed("Enter your database username and password.");
+    if (!isSendablePassword(password))
+      return failed(
+        "Your password contains a character that can't be sent (such as a line break or an invisible character from pasting). Type it in, or copy it again."
+      );
+    try {
+      await gateways2.database.connect({ url, host, database, user, password });
+      gateways2.databaseDetails.remember({ url, host, database, user });
+      return unchanged({
+        refresh: ["database-dialog"],
+        fileStatus: DATABASE_CONNECTED_STATUS,
+        toast: "Connected. Press Load to get your latest data."
+      });
+    } catch (error) {
+      return failed(error.message);
+    }
+  }
+
+  // src/interactors/database/disconnect-database.ts
+  function disconnectDatabase(gateways2) {
+    gateways2.database.disconnect();
+    const path = gateways2.workoutFile.connectedPath();
+    return unchanged({
+      refresh: ["database-dialog"],
+      fileStatus: path ? { message: `Connected \xB7 ${path}`, connected: true } : { message: "Not connected \xB7 basement-45-workouts.json", connected: false },
+      toast: "Database disconnected."
+    });
+  }
+
+  // src/interactors/database/forget-database-details.ts
+  function forgetDatabaseDetails(gateways2) {
+    gateways2.databaseDetails.forget();
+    return unchanged({
+      toast: "This browser no longer remembers your database details."
+    });
+  }
+
+  // src/interactors/database/recall-database-details.ts
+  function recallDatabaseDetails(gateways2) {
+    return unchanged({ value: gateways2.databaseDetails.recall() });
+  }
+
+  // src/services/workout-file-format.ts
+  var SAVE_FILE_APP_NAME = "Basement 45";
+  function exportPayload() {
+    return {
+      app: SAVE_FILE_APP_NAME,
+      schemaVersion: APP_VERSION,
+      exportedAt: gateways.clock.nowIso(),
+      appState: gateways.appState.current()
+    };
+  }
+  function saveFileText() {
+    return JSON.stringify(exportPayload(), null, 2);
+  }
+  function matchesCurrentData(text) {
+    try {
+      return JSON.stringify(JSON.parse(text).appState) === JSON.stringify(gateways.appState.current());
+    } catch {
+      return false;
+    }
+  }
+  function restoreSaveFile(text) {
+    const previousCustomExercises = gateways.exercises.customRecords().slice();
+    const previousExerciseEdits = { ...gateways.exercises.edits() };
+    try {
+      const { candidate, recoveredCount } = stateWithPortableExercises(
+        parseSaveFile(text)
+      );
+      gateways.appState.restore(candidate);
+      const state = gateways.appState.current();
+      const removedLegacyArmsCycle = Boolean(state.needsCycleRegeneration);
+      const normalizedCoreCooldown = Boolean(state.needsCooldownNormalization);
+      applyPendingStateMigrations();
+      return { recoveredCount, removedLegacyArmsCycle, normalizedCoreCooldown };
+    } catch (error) {
+      gateways.exercises.rebuildCatalog(
+        previousCustomExercises,
+        previousExerciseEdits
+      );
+      throw error;
+    }
+  }
+  function parseSaveFile(text) {
+    const parsed = JSON.parse(text);
+    if (!parsed.appState) throw new Error("This is not a Basement 45 save file.");
+    if (Number(parsed.appState.version) > APP_VERSION)
+      throw new Error(
+        `This file was saved by a newer Basement 45 version (${parsed.appState.version}).`
+      );
+    if (!parsed.appState.week?.days)
+      throw new Error("This workout file does not contain a saved week.");
+    return parsed;
+  }
+  function portableExerciseRecord(exercise) {
+    return {
+      id: exercise.id,
+      name: exercise.name,
+      category: exercise.primary_body_part || "Other",
+      equipment: exercise.equipment_label || "User-defined",
+      equipmentVarieties: exercise.equipment_varieties || [],
+      aliases: exercise.aliases || [],
+      bodyParts: exercise.body_parts || [],
+      instructionUrl: exercise.instruction_url || null,
+      sourceRow: exercise.source_row ?? null,
+      custom: true,
+      movementPattern: exercise.movement_pattern || "other",
+      movementRole: exercise.movement_role || "isolation",
+      forceType: exercise.force_type || "other",
+      defaultReps: exercise.default_reps || "10",
+      shoulderCaution: Boolean(exercise.shoulder_caution),
+      backCaution: Boolean(exercise.back_caution),
+      totalBodyActivator: Boolean(exercise.total_body_activator),
+      bothSides: Boolean(exercise.unilateral),
+      effectivenessScore: exercise.effectiveness_score,
+      notes: exercise.notes || null
+    };
+  }
+  function stateWithPortableExercises(parsed) {
+    const candidate = JSON.parse(JSON.stringify(parsed.appState));
+    candidate.customExercises = Array.isArray(candidate.customExercises) ? candidate.customExercises : [];
+    gateways.exercises.rebuildCatalog(
+      candidate.customExercises,
+      candidate.exerciseEdits || {}
+    );
+    const recovered = Array.isArray(parsed.exerciseLibrary) ? parsed.exerciseLibrary.filter(
+      (exercise) => exercise?.id && exercise?.name && !gateways.exercises.has(exercise.id)
+    ) : [];
+    candidate.customExercises.push(...recovered.map(portableExerciseRecord));
+    return { candidate, recoveredCount: recovered.length };
+  }
+
+  // src/interactors/database/load-from-database.ts
+  async function loadFromDatabase(gateways2, input = {}) {
+    if (!gateways2.database.isConnected())
+      return failed("Connect your database to load from it.");
+    try {
+      const stored = await gateways2.database.read();
+      if (!stored)
+        return failed(
+          "Nothing is saved in your database yet. Press Save to store this browser's data there."
+        );
+      if (matchesCurrentData(stored.contents)) {
+        gateways2.database.markLoaded(stored);
+        return unchanged({
+          refresh: ["database-dialog"],
+          fileStatus: DATABASE_SYNCED_STATUS,
+          inSyncWithFile: true,
+          toast: "Already up to date with your database."
+        });
+      }
+      if (!input.confirmed)
+        return unchanged({
+          value: {
+            confirm: {
+              savedAt: stored.updatedAt,
+              losesUnsavedChanges: gateways2.saveStatus.hasUnsavedChanges()
+            }
+          }
+        });
+      restoreSaveFile(stored.contents);
+      gateways2.database.markLoaded(stored);
+      return changed({
+        refresh: ["all", "database-dialog"],
+        view: enabledDays()[0]?.id || "settings",
+        fileStatus: DATABASE_SYNCED_STATUS,
+        inSyncWithFile: true,
+        toast: "Loaded your latest data from the database."
+      });
+    } catch (error) {
+      return failed(`Your data could not be loaded: ${error.message}`);
+    }
+  }
+
+  // src/interactors/database/save-to-database.ts
+  async function saveToDatabase(gateways2, input = {}) {
+    if (!gateways2.database.isConnected())
+      return failed("Connect your database to save to it.");
+    try {
+      const contents = saveFileText();
+      let base = gateways2.database.syncedRevision();
+      if (base === null) {
+        const stored = await gateways2.database.read();
+        if (stored && !matchesCurrentData(stored.contents) && !input.confirmed)
+          return confirmFirst({ savedAt: stored.updatedAt, reason: "not-loaded" });
+        base = stored?.revision ?? 0;
+      }
+      let outcome = await gateways2.database.write(contents, base);
+      if (outcome.status === "conflict") {
+        if (!input.confirmed)
+          return confirmFirst({ savedAt: outcome.updatedAt, reason: "changed" });
+        const latest = await gateways2.database.read();
+        outcome = await gateways2.database.write(contents, latest?.revision ?? 0);
+        if (outcome.status === "conflict")
+          return failed("Another device saved at the same moment. Press Save again.");
+      }
+      return unchanged({
+        refresh: ["database-dialog"],
+        fileStatus: DATABASE_SYNCED_STATUS,
+        inSyncWithFile: true,
+        toast: "Saved to your database."
+      });
+    } catch (error) {
+      return failed(
+        `Not saved to your database: ${error.message} Your work is still kept in this browser.`
+      );
+    }
+  }
+  function confirmFirst(confirm) {
+    return unchanged({ value: { confirm } });
+  }
+
+  // src/ui/dom.ts
+  function byId(id) {
+    return document.getElementById(id);
+  }
+  function dialogById(id) {
+    return byId(id);
+  }
+  function inputById(id) {
+    return byId(id);
+  }
+  function formById(id) {
+    return byId(id);
+  }
+  function formField(form, name) {
+    return form.elements[name];
+  }
+
   // src/interactors/library/add-equipment.ts
   function addEquipment(gateways2, input) {
     const requestedName = String(input.name || "").replace(/\s+/g, " ").trim().slice(0, 80);
@@ -6132,6 +6534,42 @@
   // src/ui/html.ts
   function escapeHtml(value) {
     return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+  }
+
+  // src/ui/dialogs/equipment.ts
+  function renderEquipmentCatalogDialog() {
+    const list = document.getElementById("equipment-catalog-list");
+    if (!list) return;
+    const catalog = equipmentOptions();
+    list.innerHTML = `
+    <div class="equipment-catalog-summary"><strong>${catalog.length}</strong> equipment types in your master list</div>
+    <div class="equipment-catalog-pills">
+      ${catalog.map((equipment) => {
+      const useCount = gateways.exercises.all().filter(
+        (exercise) => matchesEquipmentSelection(exercise, equipment)
+      ).length;
+      return `<span><strong>${escapeHtml(equipment)}</strong><small>${useCount} exercise${useCount === 1 ? "" : "s"}</small></span>`;
+    }).join("")}
+    </div>`;
+  }
+  function openEquipmentDialog() {
+    const form = formById("equipment-form");
+    form.reset();
+    renderEquipmentCatalogDialog();
+    dialogById("equipment-dialog").showModal();
+    setTimeout(() => formField(form, "equipmentName").focus(), 0);
+  }
+  function saveEquipmentForm(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    if (!form.reportValidity()) return;
+    const data = new FormData(form);
+    const result = addEquipment(gateways, {
+      name: String(data.get("equipmentName") || "")
+    });
+    if (result.changed) form.reset();
+    present(result);
+    if (result.changed || result.toast) formField(form, "equipmentName").focus();
   }
 
   // src/ui/ui-state.ts
@@ -6179,23 +6617,6 @@
     ui.replaceBodyPart = "all";
     ui.replaceEquipment = "all";
     ui.replaceSides = "all";
-  }
-
-  // src/ui/dom.ts
-  function byId(id) {
-    return document.getElementById(id);
-  }
-  function dialogById(id) {
-    return byId(id);
-  }
-  function inputById(id) {
-    return byId(id);
-  }
-  function formById(id) {
-    return byId(id);
-  }
-  function formField(form, name) {
-    return form.elements[name];
   }
 
   // src/ui/dialogs/favorites.ts
@@ -6528,9 +6949,11 @@
     const unsaved = gateways.saveStatus.hasUnsavedChanges();
     const marker = byId("save-state");
     if (marker) marker.hidden = !unsaved;
-    byId("save-button")?.classList.toggle("has-unsaved-changes", unsaved);
+    const toDatabase = gateways.database.isConnected();
+    byId("save-button")?.classList.toggle("has-unsaved-changes", unsaved && !toDatabase);
+    byId("db-save-button")?.classList.toggle("has-unsaved-changes", unsaved && toDatabase);
   }
-  var UNSAVED_CHANGES_WARNING = "You have changes that aren't saved to your workout file yet.";
+  var UNSAVED_CHANGES_WARNING = "You have changes that aren't saved yet.";
   function confirmDiscardUnsavedChanges(action) {
     return !gateways.saveStatus.hasUnsavedChanges() || window.confirm(`${UNSAVED_CHANGES_WARNING} ${action} Continue?`);
   }
@@ -7297,7 +7720,8 @@
       if (dialogOpen("favorite-dialog")) renderFavoriteResults();
     },
     "split-dialog": () => renderSplitDialog(),
-    "equipment-dialog": () => renderEquipmentCatalogDialog()
+    "equipment-dialog": () => renderEquipmentCatalogDialog(),
+    "database-dialog": () => renderDatabaseDialog()
   };
   function present(result, options = {}) {
     if (result.changed) storeSession();
@@ -7313,40 +7737,107 @@
     if (result.toast) showToast(result.toast.message, result.toast.tone);
   }
 
-  // src/ui/dialogs/equipment.ts
-  function renderEquipmentCatalogDialog() {
-    const list = document.getElementById("equipment-catalog-list");
-    if (!list) return;
-    const catalog = equipmentOptions();
-    list.innerHTML = `
-    <div class="equipment-catalog-summary"><strong>${catalog.length}</strong> equipment types in your master list</div>
-    <div class="equipment-catalog-pills">
-      ${catalog.map((equipment) => {
-      const useCount = gateways.exercises.all().filter(
-        (exercise) => matchesEquipmentSelection(exercise, equipment)
-      ).length;
-      return `<span><strong>${escapeHtml(equipment)}</strong><small>${useCount} exercise${useCount === 1 ? "" : "s"}</small></span>`;
-    }).join("")}
-    </div>`;
+  // src/ui/dialogs/database.ts
+  function savedTime(iso) {
+    return iso ? new Date(iso).toLocaleString(void 0, {
+      dateStyle: "medium",
+      timeStyle: "short"
+    }) : "an unknown time";
   }
-  function openEquipmentDialog() {
-    const form = formById("equipment-form");
-    form.reset();
-    renderEquipmentCatalogDialog();
-    dialogById("equipment-dialog").showModal();
-    setTimeout(() => formField(form, "equipmentName").focus(), 0);
-  }
-  function saveEquipmentForm(event) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    if (!form.reportValidity()) return;
-    const data = new FormData(form);
-    const result = addEquipment(gateways, {
-      name: String(data.get("equipmentName") || "")
-    });
-    if (result.changed) form.reset();
+  function presentInDialog(result) {
+    const dialog = dialogById("database-dialog");
+    const message = byId("database-message");
+    message.hidden = !dialog.open || !result.toast;
+    message.textContent = result.toast?.message || "";
+    message.classList.toggle("error", result.toast?.tone === "error");
     present(result);
-    if (result.changed || result.toast) formField(form, "equipmentName").focus();
+    if (!message.hidden) message.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+  function renderDatabaseDialog() {
+    const connected = gateways.database.isConnected();
+    byId("database-button-label").textContent = connected ? "Connected" : "Connect database";
+    byId("db-load-button").hidden = !connected;
+    byId("db-save-button").hidden = !connected;
+    showSaveState();
+    byId("database-connect").hidden = connected;
+    byId("database-connected").hidden = !connected;
+    const syncedAt = gateways.database.syncedAt();
+    byId("database-synced").textContent = syncedAt ? `This browser has your data as saved ${savedTime(syncedAt)}.` : "Press Load to get your latest data, or Save to store this browser's data there.";
+  }
+  function fillRememberedDetails() {
+    const details = recallDatabaseDetails(gateways).value;
+    if (!details) return;
+    const form = formById("database-form");
+    const fields = {
+      url: details.url,
+      "db-host": details.host,
+      "db-name": details.database,
+      username: details.user
+    };
+    for (const [name, value] of Object.entries(fields)) {
+      const input = form.elements.namedItem(name);
+      if (input && !input.value) input.value = value;
+    }
+  }
+  function openDatabaseDialog(note) {
+    fillRememberedDetails();
+    const message = byId("database-message");
+    message.hidden = !note;
+    message.textContent = note || "";
+    message.classList.remove("error");
+    renderDatabaseDialog();
+    const dialog = dialogById("database-dialog");
+    if (!dialog.open) dialog.showModal();
+  }
+  async function submitDatabaseForm(event) {
+    event.preventDefault();
+    const form = formById("database-form");
+    const data = new FormData(form);
+    const result = await connectDatabase(gateways, {
+      url: data.get("url"),
+      host: data.get("db-host"),
+      database: data.get("db-name"),
+      user: data.get("username"),
+      password: data.get("password")
+    });
+    if (gateways.database.isConnected()) form.reset();
+    presentInDialog(result);
+  }
+  async function saveClicked() {
+    if (!gateways.database.isConnected())
+      return openDatabaseDialog("Sign in to save to your database.");
+    const result = await saveToDatabase(gateways);
+    const confirm = result.value?.confirm;
+    if (!confirm) return present(result);
+    const question = confirm.reason === "changed" ? `Your database changed since this browser last loaded it (saved ${savedTime(confirm.savedAt)}, probably from another device). Saving replaces those changes with this browser's data.` : `Your database has different data (saved ${savedTime(confirm.savedAt)}) that this browser hasn't loaded. Saving replaces it with this browser's data. To get it instead, cancel and press Load.`;
+    if (window.confirm(`${question}
+
+Save anyway?`))
+      present(await saveToDatabase(gateways, { confirmed: true }));
+  }
+  async function loadClicked() {
+    if (!gateways.database.isConnected())
+      return openDatabaseDialog("Sign in to load from your database.");
+    const result = await loadFromDatabase(gateways);
+    const confirm = result.value?.confirm;
+    if (!confirm) return present(result);
+    const question = `Load your data as saved ${savedTime(confirm.savedAt)}? It replaces what's in this browser${confirm.losesUnsavedChanges ? ", including changes you haven't saved" : ""}.`;
+    if (window.confirm(question))
+      present(await loadFromDatabase(gateways, { confirmed: true }));
+  }
+  function forgetDatabaseDetailsClicked() {
+    if (!window.confirm(
+      "Forget the database address, host, name and username saved in this browser?"
+    ))
+      return;
+    for (const name of ["url", "db-host", "db-name", "username"]) {
+      const input = formById("database-form").elements.namedItem(name);
+      if (input) input.value = "";
+    }
+    presentInDialog(forgetDatabaseDetails(gateways));
+  }
+  function disconnectDatabaseClicked() {
+    presentInDialog(disconnectDatabase(gateways));
   }
 
   // src/interactors/library/exercise-form.ts
@@ -7613,116 +8104,19 @@
     showToast(`${savedExercise.name} added and ready to use as the replacement.`);
   }
 
-  // src/services/workout-file-format.ts
-  var SAVE_FILE_APP_NAME = "Basement 45";
-  function exportPayload() {
-    return {
-      app: SAVE_FILE_APP_NAME,
-      schemaVersion: APP_VERSION,
-      exportedAt: gateways.clock.nowIso(),
-      appState: gateways.appState.current()
-    };
-  }
-  function parseSaveFile(text) {
-    const parsed = JSON.parse(text);
-    if (!parsed.appState) throw new Error("This is not a Basement 45 save file.");
-    if (Number(parsed.appState.version) > APP_VERSION)
-      throw new Error(
-        `This file was saved by a newer Basement 45 version (${parsed.appState.version}).`
-      );
-    if (!parsed.appState.week?.days)
-      throw new Error("This workout file does not contain a saved week.");
-    return parsed;
-  }
-  function portableExerciseRecord(exercise) {
-    return {
-      id: exercise.id,
-      name: exercise.name,
-      category: exercise.primary_body_part || "Other",
-      equipment: exercise.equipment_label || "User-defined",
-      equipmentVarieties: exercise.equipment_varieties || [],
-      aliases: exercise.aliases || [],
-      bodyParts: exercise.body_parts || [],
-      instructionUrl: exercise.instruction_url || null,
-      sourceRow: exercise.source_row ?? null,
-      custom: true,
-      movementPattern: exercise.movement_pattern || "other",
-      movementRole: exercise.movement_role || "isolation",
-      forceType: exercise.force_type || "other",
-      defaultReps: exercise.default_reps || "10",
-      shoulderCaution: Boolean(exercise.shoulder_caution),
-      backCaution: Boolean(exercise.back_caution),
-      totalBodyActivator: Boolean(exercise.total_body_activator),
-      bothSides: Boolean(exercise.unilateral),
-      effectivenessScore: exercise.effectiveness_score,
-      notes: exercise.notes || null
-    };
-  }
-  function stateWithPortableExercises(parsed) {
-    const candidate = JSON.parse(JSON.stringify(parsed.appState));
-    candidate.customExercises = Array.isArray(candidate.customExercises) ? candidate.customExercises : [];
-    gateways.exercises.rebuildCatalog(
-      candidate.customExercises,
-      candidate.exerciseEdits || {}
-    );
-    const recovered = Array.isArray(parsed.exerciseLibrary) ? parsed.exerciseLibrary.filter(
-      (exercise) => exercise?.id && exercise?.name && !gateways.exercises.has(exercise.id)
-    ) : [];
-    candidate.customExercises.push(...recovered.map(portableExerciseRecord));
-    return { candidate, recoveredCount: recovered.length };
-  }
-
-  // src/interactors/files/load-workout-file.ts
-  async function loadWorkoutFile(gateways2, input) {
-    const { file } = input;
-    const previousCustomExercises = gateways2.exercises.customRecords().slice();
-    const previousExerciseEdits = { ...gateways2.exercises.edits() };
+  // src/interactors/files/export-workout-file.ts
+  async function exportWorkoutFile(gateways2) {
     try {
-      const parsed = parseSaveFile(await file.text());
-      const { candidate, recoveredCount } = stateWithPortableExercises(parsed);
-      gateways2.appState.restore(candidate);
-      const state = gateways2.appState.current();
-      const removedLegacyArmsCycle = Boolean(state.needsCycleRegeneration);
-      const normalizedCoreCooldown = Boolean(state.needsCooldownNormalization);
-      applyPendingStateMigrations();
-      let fileStatus;
-      if (file.handle) {
-        await gateways2.workoutFile.connect(file);
-        fileStatus = { message: `Connected \xB7 ${file.displayPath}`, connected: true };
-      } else {
-        fileStatus = { message: `Opened \xB7 ${file.displayPath}`, connected: false };
-      }
-      return changed({
-        refresh: ["all"],
-        view: enabledDays()[0]?.id || "settings",
-        fileStatus,
-        inSyncWithFile: true,
-        toast: `Loaded Week ${gateways2.week.number()} from ${file.name}.${removedLegacyArmsCycle ? " Removed the retired Arms & upper cycle." : ""}${normalizedCoreCooldown ? " Consolidated the core auxiliary exercise into 5 core." : ""}${recoveredCount ? ` Recovered ${recoveredCount} portable library exercise${recoveredCount === 1 ? "" : "s"}.` : ""}`
+      const outcome = await gateways2.workoutFile.write(saveFileText(), {
+        chooseIfMissing: true,
+        requestPermission: true
       });
-    } catch (error) {
-      gateways2.exercises.rebuildCatalog(
-        previousCustomExercises,
-        previousExerciseEdits
-      );
-      return failed(
-        error.message || "The JSON file could not be loaded."
-      );
-    }
-  }
-
-  // src/interactors/files/save-workout-file.ts
-  async function saveWorkoutFile(gateways2) {
-    try {
-      const outcome = await gateways2.workoutFile.write(
-        JSON.stringify(exportPayload(), null, 2),
-        { chooseIfMissing: true, requestPermission: true }
-      );
       switch (outcome.status) {
         case "saved":
           return unchanged({
-            toast: `Saved directly to ${outcome.fileName}.`,
             fileStatus: { message: `Saved \xB7 ${outcome.displayPath}`, connected: true },
-            inSyncWithFile: true
+            inSyncWithFile: true,
+            toast: `Exported to ${outcome.fileName}.`
           });
         case "unsupported":
           return failed(
@@ -7740,9 +8134,38 @@
     }
   }
 
+  // src/interactors/files/load-workout-file.ts
+  async function loadWorkoutFile(gateways2, input) {
+    const { file } = input;
+    try {
+      const { recoveredCount, removedLegacyArmsCycle, normalizedCoreCooldown } = restoreSaveFile(await file.text());
+      const toDatabase = gateways2.database.isConnected();
+      let fileStatus;
+      if (toDatabase) {
+        fileStatus = void 0;
+      } else if (file.handle) {
+        await gateways2.workoutFile.connect(file);
+        fileStatus = { message: `Connected \xB7 ${file.displayPath}`, connected: true };
+      } else {
+        fileStatus = { message: `Opened \xB7 ${file.displayPath}`, connected: false };
+      }
+      return changed({
+        refresh: ["all"],
+        view: enabledDays()[0]?.id || "settings",
+        fileStatus,
+        inSyncWithFile: !toDatabase,
+        toast: `Loaded Week ${gateways2.week.number()} from ${file.name}.${removedLegacyArmsCycle ? " Removed the retired Arms & upper cycle." : ""}${normalizedCoreCooldown ? " Consolidated the core auxiliary exercise into 5 core." : ""}${recoveredCount ? ` Recovered ${recoveredCount} portable library exercise${recoveredCount === 1 ? "" : "s"}.` : ""}${toDatabase ? " Press Save to store it in your database." : ""}`
+      });
+    } catch (error) {
+      return failed(
+        error.message || "The JSON file could not be loaded."
+      );
+    }
+  }
+
   // src/ui/dialogs/json-file.ts
-  async function saveJson() {
-    present(await saveWorkoutFile(gateways));
+  async function exportJson() {
+    present(await exportWorkoutFile(gateways));
   }
   async function loadPickedFile(file) {
     try {
@@ -7791,6 +8214,10 @@
     if (dayId) present(interactor(gateways, { dayId, ...input }));
   }
   var clickActions = {
+    "open-database": () => openDatabaseDialog(),
+    "close-database": () => closeDialog("database-dialog"),
+    "disconnect-database": () => disconnectDatabaseClicked(),
+    "forget-database-details": () => forgetDatabaseDetailsClicked(),
     "toggle-workout-timer": () => runOnTimerDay(toggleWorkoutTimer),
     "reset-workout-timer": () => runOnTimerDay(resetWorkoutTimer),
     "adjust-workout-timer": (button) => runOnTimerDay(adjustWorkoutTimer, { minutes: button.dataset.minutes }),
@@ -8405,14 +8832,17 @@
     document.addEventListener("keydown", (event) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
-        saveJson();
+        if (gateways.database.isConnected()) saveClicked();
+        else exportJson();
       }
     });
-    document.getElementById("save-button").addEventListener("click", saveJson);
+    document.getElementById("save-button").addEventListener("click", exportJson);
     document.getElementById("load-button").addEventListener("click", () => {
-      if (confirmDiscardUnsavedChanges("Loading a file replaces them."))
+      if (confirmDiscardUnsavedChanges("Importing a file replaces them."))
         openJsonFile();
     });
+    document.getElementById("db-load-button").addEventListener("click", loadClicked);
+    document.getElementById("db-save-button").addEventListener("click", saveClicked);
     document.getElementById("load-input").addEventListener(
       "change",
       (event) => loadInputFile(event.target.files[0])
@@ -8420,6 +8850,10 @@
     document.getElementById("new-week-button").addEventListener("click", startNewWeekClicked);
     document.getElementById("exercise-form").addEventListener("submit", saveExerciseForm);
     document.getElementById("equipment-form").addEventListener("submit", saveEquipmentForm);
+    document.getElementById("database-form").addEventListener("submit", submitDatabaseForm);
+    dialogById("database-dialog").addEventListener("close", () => {
+      formById("database-form").reset();
+    });
     dialogById("replace-dialog").addEventListener("close", () => {
       if (!ui.returnToReplacementAfterExerciseAdd) {
         ui.replacement = null;

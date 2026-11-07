@@ -1,26 +1,26 @@
 import type { Gateways } from "../../gateways/gateways";
-import { exportPayload } from "../../services/workout-file-format";
+import { saveFileText } from "../../services/workout-file-format";
 import { failed, unchanged, type InteractorResult } from "../interactor";
 
 // As a user
-// When I press Save (or Ctrl+S)
-// Then my workouts are written to my JSON file (asking where to save it the
-//   first time) and the unsaved-changes marker clears; nothing is written to
-//   the file until I do this
-export async function saveWorkoutFile(
+// When I press Export (or Ctrl+S while my database isn't connected)
+// Then my data is written to a JSON file on this computer (asking where the
+//   first time; later exports go to the same file) and the unsaved-changes
+//   marker clears. The file is only written when I do this
+export async function exportWorkoutFile(
   gateways: Gateways,
 ): Promise<InteractorResult> {
   try {
-    const outcome = await gateways.workoutFile.write(
-      JSON.stringify(exportPayload(), null, 2),
-      { chooseIfMissing: true, requestPermission: true },
-    );
+    const outcome = await gateways.workoutFile.write(saveFileText(), {
+      chooseIfMissing: true,
+      requestPermission: true,
+    });
     switch (outcome.status) {
       case "saved":
         return unchanged({
-          toast: `Saved directly to ${outcome.fileName}.`,
           fileStatus: { message: `Saved · ${outcome.displayPath}`, connected: true },
           inSyncWithFile: true,
+          toast: `Exported to ${outcome.fileName}.`,
         });
       case "unsupported":
         return failed(

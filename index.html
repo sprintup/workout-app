@@ -27,7 +27,7 @@
           <svg aria-hidden="true" viewBox="0 0 24 24">
             <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14" />
           </svg>
-          Open JSON
+          Import
         </button>
         <input
           id="load-input"
@@ -39,7 +39,31 @@
           <svg aria-hidden="true" viewBox="0 0 24 24">
             <path d="M6 3h10l3 3v15H5V3h1Zm2 0v6h8V3M8 21v-7h8v7" />
           </svg>
-          Save file
+          Export
+        </button>
+        <span class="header-divider" aria-hidden="true"></span>
+        <button class="button button-quiet" id="db-load-button" type="button" hidden>
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14" />
+          </svg>
+          Load
+        </button>
+        <button class="button button-quiet" id="db-save-button" type="button" hidden>
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M6 3h10l3 3v15H5V3h1Zm2 0v6h8V3M8 21v-7h8v7" />
+          </svg>
+          Save
+        </button>
+        <button
+          class="button button-quiet"
+          type="button"
+          data-action="open-database"
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <ellipse cx="12" cy="5.5" rx="7.5" ry="2.5" />
+            <path d="M4.5 5.5v13c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5v-13M4.5 12c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5" />
+          </svg>
+          <span id="database-button-label">Connect database</span>
         </button>
         <span id="save-state" class="save-state" role="status" hidden
           >Unsaved changes</span
@@ -232,8 +256,7 @@
             <span class="eyebrow">Saved circuits</span>
             <h2 id="favorite-title">Use a favorite circuit</h2>
             <p>
-              Favorites are kept for the same day and circuit position so the
-              training split remains valid.
+              Favorites are shared by every circuit of this day's cycle.
             </p>
           </div>
           <button
@@ -247,6 +270,119 @@
           </button>
         </header>
         <div id="favorite-results" class="favorite-results"></div>
+      </form>
+    </dialog>
+
+    <dialog id="database-dialog" class="replace-dialog favorite-dialog">
+      <form id="database-form" class="dialog-shell">
+        <header class="dialog-header">
+          <div>
+            <span class="eyebrow">Your data</span>
+            <h2>Database</h2>
+            <p>
+              Load gets your latest data from the database and Save stores this
+              browser's data there; you're asked first whenever either would
+              replace data. Import and Export work with a JSON file on this
+              computer. This browser remembers the address,
+              host, database name and username for next time; your password is
+              never saved by the app (your password manager can fill it in).
+              None of it goes into your JSON file or onto the server.
+            </p>
+          </div>
+          <button
+            class="icon-button"
+            type="button"
+            data-action="close-database"
+            aria-label="Close database window"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="m6 6 12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </header>
+        <div
+          id="database-message"
+          class="dialog-message"
+          role="status"
+          aria-live="polite"
+          hidden
+        ></div>
+        <div id="database-connect" class="database-section">
+          <label class="form-field" for="database-url">
+            <span>Database address</span>
+            <input
+              id="database-url"
+              name="url"
+              type="text"
+              inputmode="url"
+              autocomplete="url"
+              spellcheck="false"
+              autocapitalize="off"
+              placeholder="https://example.com/data.php"
+              required
+            />
+          </label>
+          <label class="form-field" for="database-host">
+            <span>Database host</span>
+            <input
+              id="database-host"
+              name="db-host"
+              type="text"
+              spellcheck="false"
+              autocapitalize="off"
+              placeholder="mysql.example.com"
+              required
+            />
+          </label>
+          <label class="form-field" for="database-name">
+            <span>Database name</span>
+            <input
+              id="database-name"
+              name="db-name"
+              type="text"
+              spellcheck="false"
+              autocapitalize="off"
+              required
+            />
+          </label>
+          <label class="form-field" for="database-username">
+            <span>Database username</span>
+            <input
+              id="database-username"
+              name="username"
+              type="text"
+              autocomplete="username"
+              spellcheck="false"
+              autocapitalize="off"
+              required
+            />
+          </label>
+          <label class="form-field" for="database-password">
+            <span>Database password</span>
+            <input
+              id="database-password"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              required
+            />
+          </label>
+          <button class="button button-primary" type="submit">Connect</button>
+          <button class="button button-quiet" type="button" data-action="forget-database-details">
+            Forget saved details
+          </button>
+        </div>
+        <div id="database-connected" class="database-section" hidden>
+          <p id="database-synced"></p>
+          <div class="database-actions">
+            <button class="button button-quiet" type="button" data-action="forget-database-details">
+              Forget saved details
+            </button>
+            <button class="button button-quiet" type="button" data-action="disconnect-database">
+              Disconnect
+            </button>
+          </div>
+        </div>
       </form>
     </dialog>
 

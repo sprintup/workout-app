@@ -2,6 +2,7 @@
 // turned back into an AppState candidate.
 import { APP_VERSION } from "../config/constants";
 import { gateways } from "../gateways/registry";
+import { applyPendingStateMigrations } from "./state-migrations";
 
 export const SAVE_FILE_APP_NAME = "Basement 45";
 
@@ -13,6 +14,49 @@ export function exportPayload() {
     exportedAt: gateways.clock.nowIso(),
     appState: gateways.appState.current(),
   };
+}
+
+/** The save file's text, as written to the JSON file and the database. */
+export function saveFileText(): string {
+  return JSON.stringify(exportPayload(), null, 2);
+}
+
+/** True when a save file holds exactly the data on screen. */
+export function matchesCurrentData(text: string): boolean {
+  try {
+    return (
+      JSON.stringify(JSON.parse(text).appState) ===
+      JSON.stringify(gateways.appState.current())
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Replaces the document with a save file's contents. Throws a readable error
+ * and leaves the exercise catalog as it was when the file can't be used.
+ */
+export function restoreSaveFile(text: string) {
+  const previousCustomExercises = gateways.exercises.customRecords().slice();
+  const previousExerciseEdits = { ...gateways.exercises.edits() };
+  try {
+    const { candidate, recoveredCount } = stateWithPortableExercises(
+      parseSaveFile(text),
+    );
+    gateways.appState.restore(candidate);
+    const state = gateways.appState.current();
+    const removedLegacyArmsCycle = Boolean(state.needsCycleRegeneration);
+    const normalizedCoreCooldown = Boolean(state.needsCooldownNormalization);
+    applyPendingStateMigrations();
+    return { recoveredCount, removedLegacyArmsCycle, normalizedCoreCooldown };
+  } catch (error) {
+    gateways.exercises.rebuildCatalog(
+      previousCustomExercises,
+      previousExerciseEdits,
+    );
+    throw error;
+  }
 }
 
 /** Parses and checks a save file; throws a readable error when it can't be used. */

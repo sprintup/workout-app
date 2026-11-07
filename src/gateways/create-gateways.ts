@@ -1,6 +1,8 @@
 // Builds the gateway instances the browser app runs with.
 import { normalizeState } from "../services/normalize-state";
 import { InMemoryAppStateGateway } from "./app-state-gateway";
+import { LocalStorageDatabaseDetailsGateway } from "./database-details-gateway";
+import { HttpDatabaseGateway } from "./database-gateway";
 import { DocumentCardioGateway } from "./cardio-gateway";
 import { LocalStorageGateway } from "./browser-storage-gateway";
 import { SystemClockGateway } from "./clock-gateway";
@@ -29,6 +31,8 @@ export function createBrowserGateways(): Gateways {
     browserStorage: new LocalStorageGateway(),
     saveStatus: new LocalStorageSaveStatusGateway(),
     workoutFile: new FileSystemWorkoutFileGateway(),
+    database: new HttpDatabaseGateway(),
+    databaseDetails: new LocalStorageDatabaseDetailsGateway(),
     clock: new SystemClockGateway(),
     random: new MathRandomGateway(),
   };

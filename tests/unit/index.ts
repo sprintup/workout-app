@@ -7,3 +7,4 @@ import "./files.test";
 import "./cardio.test";
 import "./ratings.test";
 import "./streak.test";
+import "./database.test";

@@ -3,7 +3,7 @@
 // Domain gateways (week, cycles, routines, exercises, favorites, preferences)
 // read and write slices of the in-memory AppState document. Infrastructure
 // gateways reach the outside world: browser storage, the JSON workout file,
-// the clock and randomness.
+// the user's database, the clock and randomness.
 //
 // Domain gateways hand out live records: changing a returned object changes
 // the stored data. Use the replace/set methods to swap a whole value.
@@ -180,6 +180,68 @@ export interface WorkoutFileGateway {
   connect(file: PickedWorkoutFile): Promise<void>;
 }
 
+/** Where to reach the data service and how to sign in; held in memory only. */
+export interface DatabaseLogin {
+  /** The address of data.php. */
+  url: string;
+  /** The MySQL server's hostname. */
+  host: string;
+  /** The database's name on that server. */
+  database: string;
+  user: string;
+  password: string;
+}
+
+/** Where the database is, without the password: safe to remember. */
+export interface DatabaseDetails {
+  url: string;
+  host: string;
+  database: string;
+  user: string;
+}
+
+/** The database details this browser remembers for the sign-in form. */
+export interface DatabaseDetailsGateway {
+  recall(): DatabaseDetails | null;
+  /** Keeps url, host, database and user only; never a password. */
+  remember(details: DatabaseDetails): void;
+  forget(): void;
+}
+
+/** The save file kept in the database. */
+export interface StoredData {
+  revision: number;
+  updatedAt: string;
+  contents: string;
+}
+
+export type DatabaseWriteOutcome =
+  | { status: "saved"; updatedAt: string }
+  /** The stored data was no longer at the revision being replaced. */
+  | { status: "conflict"; updatedAt: string | null };
+
+/**
+ * The one copy of the user's data in their own database. A write only
+ * replaces the revision it names, so data another device saved is never
+ * overwritten by accident.
+ */
+export interface DatabaseGateway {
+  isConnected(): boolean;
+  /** Checks the login and keeps it for this session. */
+  connect(login: DatabaseLogin): Promise<void>;
+  disconnect(): void;
+  /** What is stored now; null when nothing has been saved yet. */
+  read(): Promise<StoredData | null>;
+  /** The revision this browser last loaded or saved this session, or null. */
+  syncedRevision(): number | null;
+  /** When the data this browser last loaded or saved was saved. */
+  syncedAt(): string | null;
+  /** Records that the data on screen now matches this stored data. */
+  markLoaded(data: StoredData): void;
+  /** Replaces the stored data if it is still at baseRevision (0 when empty). */
+  write(contents: string, baseRevision: number): Promise<DatabaseWriteOutcome>;
+}
+
 export interface ClockGateway {
   now(): Date;
   nowIso(): string;
@@ -205,6 +267,8 @@ export interface Gateways {
   browserStorage: BrowserStorageGateway;
   saveStatus: SaveStatusGateway;
   workoutFile: WorkoutFileGateway;
+  database: DatabaseGateway;
+  databaseDetails: DatabaseDetailsGateway;
   clock: ClockGateway;
   random: RandomGateway;
 }

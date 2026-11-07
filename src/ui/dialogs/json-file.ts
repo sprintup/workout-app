@@ -1,13 +1,13 @@
-// The Save and Load buttons.
+// The Import and Export buttons: a JSON file on this computer.
 import type { PickedWorkoutFile } from "../../gateways/gateways";
 import { gateways } from "../../gateways/registry";
+import { exportWorkoutFile } from "../../interactors/files/export-workout-file";
 import { loadWorkoutFile } from "../../interactors/files/load-workout-file";
-import { saveWorkoutFile } from "../../interactors/files/save-workout-file";
 import { showToast } from "../feedback";
 import { present } from "../presenter";
 
-export async function saveJson(): Promise<void> {
-  present(await saveWorkoutFile(gateways));
+export async function exportJson(): Promise<void> {
+  present(await exportWorkoutFile(gateways));
 }
 
 export async function loadPickedFile(file: PickedWorkoutFile): Promise<void> {
@@ -19,7 +19,7 @@ export async function loadPickedFile(file: PickedWorkoutFile): Promise<void> {
   }
 }
 
-/** Load through the browser's file picker, or the hidden file input. */
+/** Import through the browser's file picker, or the hidden file input. */
 export async function openJsonFile(): Promise<void> {
   if (!gateways.workoutFile.canPick()) {
     document.getElementById("load-input")?.click();

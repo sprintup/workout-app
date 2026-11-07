@@ -4,6 +4,7 @@
 import { gateways } from "../gateways/registry";
 import type { InteractorResult, RefreshTarget } from "../interactors/interactor";
 import type { DayId } from "../types";
+import { renderDatabaseDialog } from "./dialogs/database";
 import { renderEquipmentCatalogDialog } from "./dialogs/equipment";
 import { renderFavoriteResults } from "./dialogs/favorites";
 import { renderReplacementResults } from "./dialogs/replacement";
@@ -52,6 +53,7 @@ const REFRESHERS: Record<RefreshTarget, (options: PresentOptions) => void> = {
   },
   "split-dialog": () => renderSplitDialog(),
   "equipment-dialog": () => renderEquipmentCatalogDialog(),
+  "database-dialog": () => renderDatabaseDialog(),
 };
 
 export function present(

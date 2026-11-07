@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { loadWorkoutFile } from "../../src/interactors/files/load-workout-file";
-import { saveWorkoutFile } from "../../src/interactors/files/save-workout-file";
+import { exportWorkoutFile } from "../../src/interactors/files/export-workout-file";
 import { createTestGateways, pickedFile } from "./fakes";
 
 test("saving writes the whole document to the workout file", async () => {
   const gateways = createTestGateways();
-  const result = await saveWorkoutFile(gateways);
+  const result = await exportWorkoutFile(gateways);
 
   const saved = JSON.parse(gateways.workoutFile.written!);
   assert.equal(saved.app, "Basement 45");
   assert.equal(saved.appState.weekNumber, 1);
-  assert.equal(result.toast?.message, "Saved directly to workouts.json.");
+  assert.equal(result.toast?.message, "Exported to workouts.json.");
   assert.deepEqual(result.fileStatus, {
     message: "Saved · workouts.json",
     connected: true,
@@ -22,7 +22,7 @@ test("saving writes the whole document to the workout file", async () => {
 test("saving reports when the browser cannot write files", async () => {
   const gateways = createTestGateways();
   gateways.workoutFile.nextOutcome = "unsupported";
-  const result = await saveWorkoutFile(gateways);
+  const result = await exportWorkoutFile(gateways);
   assert.equal(result.toast?.tone, "error");
   assert.equal(gateways.workoutFile.written, null);
   assert.equal(result.inSyncWithFile, undefined);
@@ -31,14 +31,14 @@ test("saving reports when the browser cannot write files", async () => {
 test("cancelling the save dialog is silent", async () => {
   const gateways = createTestGateways();
   gateways.workoutFile.nextOutcome = "cancelled";
-  const result = await saveWorkoutFile(gateways);
+  const result = await exportWorkoutFile(gateways);
   assert.equal(result.toast, undefined);
 });
 
 test("a saved file loads back into a fresh session", async () => {
   const original = createTestGateways({ seed: 1 });
   original.week.setNumber(9);
-  await saveWorkoutFile(original);
+  await exportWorkoutFile(original);
   const contents = original.workoutFile.written!;
   const savedWeek = original.week.current();
 
@@ -71,7 +71,7 @@ test("a file that isn't a save file is rejected and nothing changes", async () =
 
 test("a save from before cardio and streaks loads with their defaults", async () => {
   const original = createTestGateways();
-  await saveWorkoutFile(original);
+  await exportWorkoutFile(original);
   const payload = JSON.parse(original.workoutFile.written!);
   // Shape the file like a version 18 save.
   payload.schemaVersion = 18;

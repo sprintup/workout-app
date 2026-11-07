@@ -20,7 +20,8 @@ export type RefreshTarget =
   | "replacement-results"
   | "favorite-results"
   | "split-dialog"
-  | "equipment-dialog";
+  | "equipment-dialog"
+  | "database-dialog";
 
 export interface Toast {
   message: string;

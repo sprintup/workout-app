@@ -3449,6 +3449,37 @@ svg {
   background: var(--forest);
 }
 
+.database-section {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+.database-section[hidden] {
+  display: none;
+}
+
+.button[hidden] {
+  display: none;
+}
+
+.header-divider {
+  align-self: stretch;
+  width: 1px;
+  margin: 0.35rem 0.15rem;
+  background: var(--line, rgba(0, 0, 0, 0.12));
+}
+
+.database-section p {
+  margin: 0;
+}
+
+.database-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
 .favorite-results {
   display: grid;
   min-height: 180px;

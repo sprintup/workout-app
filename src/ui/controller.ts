@@ -63,10 +63,18 @@ import { setExerciseMeasurement } from "../interactors/workout/set-exercise-meas
 import { toggleWorkoutTimer } from "../interactors/workout/toggle-workout-timer";
 import { updateExerciseLog } from "../interactors/workout/update-exercise-log";
 import { reusableCycleForId, splitForId } from "../services/cycle-schedule";
+import {
+  disconnectDatabaseClicked,
+  forgetDatabaseDetailsClicked,
+  loadClicked,
+  openDatabaseDialog,
+  saveClicked,
+  submitDatabaseForm,
+} from "./dialogs/database";
 import { openEquipmentDialog, saveEquipmentForm } from "./dialogs/equipment";
 import { openEditExerciseDialog, openExerciseDialog, saveExerciseForm } from "./dialogs/exercise";
 import { openFavoriteCircuits } from "./dialogs/favorites";
-import { loadInputFile, openJsonFile, saveJson } from "./dialogs/json-file";
+import { exportJson, loadInputFile, openJsonFile } from "./dialogs/json-file";
 import { openReplacement, renderReplacementResults } from "./dialogs/replacement";
 import {
   addSplitDay,
@@ -87,7 +95,7 @@ import { ui } from "./ui-state";
 import { renderLibrary } from "./views/library";
 import { renderSettings } from "./views/settings";
 import { renderWorkout } from "./views/workout";
-import { dialogById, inputById } from "./dom";
+import { dialogById, formById, inputById } from "./dom";
 
 /** Where the clicked or edited exercise sits in the week. */
 function parseContext(element) {
@@ -114,6 +122,10 @@ function runOnTimerDay(interactor, input = {}) {
 }
 
 const clickActions = {
+  "open-database": () => openDatabaseDialog(),
+  "close-database": () => closeDialog("database-dialog"),
+  "disconnect-database": () => disconnectDatabaseClicked(),
+  "forget-database-details": () => forgetDatabaseDetailsClicked(),
   "toggle-workout-timer": () => runOnTimerDay(toggleWorkoutTimer),
   "reset-workout-timer": () => runOnTimerDay(resetWorkoutTimer),
   "adjust-workout-timer": (button) =>
@@ -784,14 +796,17 @@ export function bindEvents() {
   document.addEventListener("keydown", (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
       event.preventDefault();
-      saveJson();
+      if (gateways.database.isConnected()) saveClicked();
+      else exportJson();
     }
   });
-  document.getElementById("save-button").addEventListener("click", saveJson);
+  document.getElementById("save-button").addEventListener("click", exportJson);
   document.getElementById("load-button").addEventListener("click", () => {
-    if (confirmDiscardUnsavedChanges("Loading a file replaces them."))
+    if (confirmDiscardUnsavedChanges("Importing a file replaces them."))
       openJsonFile();
   });
+  document.getElementById("db-load-button").addEventListener("click", loadClicked);
+  document.getElementById("db-save-button").addEventListener("click", saveClicked);
   document
     .getElementById("load-input")
     .addEventListener("change", (event) =>
@@ -806,6 +821,12 @@ export function bindEvents() {
   document
     .getElementById("equipment-form")
     .addEventListener("submit", saveEquipmentForm);
+  document
+    .getElementById("database-form")
+    .addEventListener("submit", submitDatabaseForm);
+  dialogById("database-dialog").addEventListener("close", () => {
+    formById("database-form").reset();
+  });
   dialogById("replace-dialog").addEventListener("close", () => {
     if (!ui.returnToReplacementAfterExerciseAdd) {
       ui.replacement = null;

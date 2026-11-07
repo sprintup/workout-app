@@ -6,6 +6,12 @@ import { DocumentCycleGateway } from "../../src/gateways/cycle-gateway";
 import { DocumentExerciseGateway } from "../../src/gateways/exercise-gateway";
 import { DocumentFavoritesGateway } from "../../src/gateways/favorites-gateway";
 import type {
+  DatabaseDetails,
+  DatabaseDetailsGateway,
+  DatabaseGateway,
+  DatabaseLogin,
+  DatabaseWriteOutcome,
+  StoredData,
   BrowserStorageGateway,
   ClockGateway,
   Gateways,
@@ -132,6 +138,88 @@ export class FakeWorkoutFile implements WorkoutFileGateway {
   }
 }
 
+/**
+ * An in-memory data service with the same revision rule as data.php;
+ * `failWith` simulates it being unreachable. `stored` is what the server
+ * holds; `savedElsewhere` is another device saving.
+ */
+export class FakeDatabase implements DatabaseGateway {
+  login: DatabaseLogin | null = null;
+  stored: StoredData | null = null;
+  failWith: string | null = null;
+  private synced: { revision: number; updatedAt: string } | null = null;
+
+  private check(): void {
+    if (this.failWith) throw new Error(this.failWith);
+  }
+
+  isConnected(): boolean {
+    return this.login !== null;
+  }
+
+  async connect(login: DatabaseLogin): Promise<void> {
+    this.check();
+    this.login = login;
+    this.synced = null;
+  }
+
+  disconnect(): void {
+    this.login = null;
+    this.synced = null;
+  }
+
+  async read(): Promise<StoredData | null> {
+    this.check();
+    if (!this.login) throw new Error("The database is not connected.");
+    return this.stored && { ...this.stored };
+  }
+
+  syncedRevision(): number | null {
+    return this.synced?.revision ?? null;
+  }
+
+  syncedAt(): string | null {
+    return this.synced?.updatedAt ?? null;
+  }
+
+  markLoaded(data: StoredData): void {
+    this.synced = { revision: data.revision, updatedAt: data.updatedAt };
+  }
+
+  async write(contents: string, baseRevision: number): Promise<DatabaseWriteOutcome> {
+    this.check();
+    if (!this.login) throw new Error("The database is not connected.");
+    if ((this.stored?.revision ?? 0) !== baseRevision)
+      return { status: "conflict", updatedAt: this.stored?.updatedAt ?? null };
+    const revision = baseRevision + 1;
+    this.stored = { revision, updatedAt: `2026-10-12T09:00:0${revision % 10}Z`, contents };
+    this.synced = { revision, updatedAt: this.stored.updatedAt };
+    return { status: "saved", updatedAt: this.stored.updatedAt };
+  }
+
+  savedElsewhere(contents: string): void {
+    const revision = (this.stored?.revision ?? 0) + 1;
+    this.stored = { revision, updatedAt: "2026-10-13T07:00:00Z", contents };
+  }
+}
+
+export class MemoryDatabaseDetails implements DatabaseDetailsGateway {
+  stored: string | null = null;
+
+  recall(): DatabaseDetails | null {
+    return this.stored ? JSON.parse(this.stored) : null;
+  }
+
+  remember(details: DatabaseDetails): void {
+    const { url, host, database, user } = details;
+    this.stored = JSON.stringify({ url, host, database, user });
+  }
+
+  forget(): void {
+    this.stored = null;
+  }
+}
+
 /** A file the user "picked", holding the given text. */
 export function pickedFile(name: string, contents: string): PickedWorkoutFile {
   return { name, displayPath: name, text: async () => contents };
@@ -143,6 +231,8 @@ export interface TestGateways extends Gateways {
   browserStorage: MemoryBrowserStorage;
   saveStatus: MemorySaveStatus;
   workoutFile: FakeWorkoutFile;
+  database: FakeDatabase;
+  databaseDetails: MemoryDatabaseDetails;
 }
 
 /**
@@ -165,6 +255,8 @@ export function createTestGateways(
     browserStorage: new MemoryBrowserStorage(),
     saveStatus: new MemorySaveStatus(),
     workoutFile: new FakeWorkoutFile(),
+    database: new FakeDatabase(),
+    databaseDetails: new MemoryDatabaseDetails(),
     clock: new FixedClock(new Date(options.now || "2026-10-12T09:00:00")),
     random: new SeededRandom(options.seed ?? 45),
   };
